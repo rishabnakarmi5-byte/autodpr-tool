@@ -1,18 +1,15 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // Load env file based on `mode` in the current working directory.
-  // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
-  const env = loadEnv(mode, (process as any).cwd(), '');
+  // The third parameter '' means load ALL env vars, not just those starting with VITE_
+  const env = loadEnv(mode, '.', '');
   return {
     plugins: [react()],
     define: {
-      // Polyfill process.env for the application code
-      'process.env': env,
-      // Ensure global is defined for some older libs
-      'global': 'window'
+      // Expose env vars to the app via process.env
+      'process.env': JSON.stringify(env)
     }
   };
 });

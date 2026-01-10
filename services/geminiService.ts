@@ -1,19 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { DPRItem } from "../types";
 
-let ai: GoogleGenAI | null = null;
-
-const getAI = () => {
-  if (!ai) {
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) {
-      console.warn("Gemini API Key is missing.");
-      throw new Error("API Key missing");
-    }
-    ai = new GoogleGenAI({ apiKey });
-  }
-  return ai;
-};
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const parseConstructionData = async (
   rawText: string
@@ -40,8 +28,7 @@ export const parseConstructionData = async (
   `;
 
   try {
-    const aiInstance = getAI();
-    const response = await aiInstance.models.generateContent({
+    const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
       config: {

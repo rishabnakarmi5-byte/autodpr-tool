@@ -31,17 +31,60 @@
         }
         .no-print { display: none !important; }
       }
+      /* Loading Screen */
+      #loading-indicator {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        display: flex; flex-direction: column; justify-content: center; align-items: center;
+        background: #f1f5f9; z-index: 0;
+      }
+      .spinner {
+        width: 40px; height: 40px; border: 4px solid #cbd5e1; border-top: 4px solid #4f46e5; border-radius: 50%;
+        animation: spin 1s linear infinite; margin-bottom: 16px;
+      }
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
     <script>
-      // Polyfill for libraries expecting global process
-      window.process = { env: {} };
+      // EMERGENCY ERROR HANDLER: Displays errors on screen if App crashes
+      window.onerror = function(message, source, lineno, colno, error) {
+        var loader = document.getElementById('loading-indicator');
+        if(loader) loader.style.display = 'none';
+
+        var errorContainer = document.getElementById('debug-error-display');
+        if(!errorContainer) {
+             errorContainer = document.createElement('div');
+             errorContainer.id = 'debug-error-display';
+             errorContainer.style.position = 'fixed';
+             errorContainer.style.top = '0';
+             errorContainer.style.left = '0';
+             errorContainer.style.width = '100%';
+             errorContainer.style.background = '#fee2e2';
+             errorContainer.style.color = '#991b1b';
+             errorContainer.style.padding = '20px';
+             errorContainer.style.zIndex = '99999';
+             errorContainer.style.fontFamily = 'monospace';
+             errorContainer.style.fontSize = '12px';
+             errorContainer.style.borderBottom = '2px solid #b91c1c';
+             errorContainer.style.whiteSpace = 'pre-wrap';
+             document.body.appendChild(errorContainer);
+        }
+        errorContainer.textContent += 'RUNTIME ERROR: ' + message + '\nAt: ' + source + ':' + lineno + '\n\n';
+      };
+
+      // Robust Polyfill for process
+      window.process = window.process || {
+        env: {},
+        version: 'v16.0.0',
+        versions: { node: '16.0.0' },
+        platform: 'browser',
+        browser: true
+      };
     </script>
 <script type="importmap">
 {
   "imports": {
+    "react/": "https://esm.sh/react@^19.2.3/",
     "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
     "firebase/": "https://esm.sh/firebase@^12.7.0/",
     "@google/genai": "https://esm.sh/@google/genai@^1.35.0",
     "vite": "https://esm.sh/vite@^7.3.1",
@@ -51,7 +94,11 @@
 </script>
 </head>
 <body class="bg-slate-100">
-    <div id="root"></div>
+    <div id="loading-indicator">
+       <div class="spinner"></div>
+       <div class="text-slate-500 font-sans font-medium">Loading AutoDPR...</div>
+    </div>
+    <div id="root" style="position: relative; z-index: 1;"></div>
     <script type="module" src="/index.tsx"></script>
 </body>
 </html>
