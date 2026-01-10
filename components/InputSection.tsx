@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { parseConstructionData } from '../services/geminiService';
 import { DPRItem } from '../types';
+import { getNepaliDate } from '../utils/nepaliDate';
 
 interface InputSectionProps {
   currentDate: string;
@@ -17,6 +18,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
 
   const dateObj = new Date(currentDate);
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const nepaliDate = getNepaliDate(currentDate);
 
   const handleProcess = async () => {
     if (!rawText.trim()) return;
@@ -46,8 +48,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           </div>
           <div className="relative z-10">
             <h2 className="text-indigo-100 text-sm font-semibold uppercase tracking-wider mb-1">Active Report</h2>
-            <div className="flex items-end gap-3 mb-2">
+            <div className="flex flex-col mb-2">
                <h1 className="text-3xl font-bold">{formattedDate}</h1>
+               <h2 className="text-lg text-indigo-200 font-medium mt-1">{nepaliDate}</h2>
             </div>
             <div className="flex items-center gap-4 mt-4">
                <div className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-lg border border-white/10">

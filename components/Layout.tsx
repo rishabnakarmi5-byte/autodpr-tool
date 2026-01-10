@@ -22,12 +22,18 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
           </div>
           AutoDPR
         </h1>
-        <button 
-          onClick={() => onTabChange(activeTab === TabView.INPUT ? TabView.VIEW_REPORT : TabView.INPUT)}
-          className="text-indigo-200 hover:text-white"
-        >
-          <i className={`fas ${activeTab === TabView.INPUT ? 'fa-file-contract' : 'fa-pen'} text-xl`}></i>
-        </button>
+        <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center border border-indigo-500">
+               {user?.photoURL ? (
+                 <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
+               ) : (
+                 <span className="text-white text-xs font-bold">{user?.displayName?.charAt(0) || <i className="fas fa-user"></i>}</span>
+               )}
+            </div>
+             <button onClick={onLogout} className="text-slate-400 hover:text-white">
+                <i className="fas fa-sign-out-alt"></i>
+            </button>
+        </div>
       </div>
 
       {/* Desktop Sidebar */}
@@ -100,11 +106,39 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto h-screen relative scroll-smooth">
+      <main className="flex-1 overflow-auto h-screen relative scroll-smooth pb-24 md:pb-0">
         <div className="p-4 md:p-10 max-w-7xl mx-auto pb-20">
           {children}
         </div>
       </main>
+
+      {/* Mobile Bottom Navigation */}
+      <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-slate-200 flex justify-around items-center py-3 z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] safe-area-pb">
+        <MobileNavButton 
+          active={activeTab === TabView.INPUT} 
+          onClick={() => onTabChange(TabView.INPUT)}
+          icon="fa-pen-to-square"
+          label="Input"
+        />
+        <MobileNavButton 
+          active={activeTab === TabView.VIEW_REPORT} 
+          onClick={() => onTabChange(TabView.VIEW_REPORT)}
+          icon="fa-file-invoice"
+          label="Report"
+        />
+        <MobileNavButton 
+          active={activeTab === TabView.HISTORY} 
+          onClick={() => onTabChange(TabView.HISTORY)}
+          icon="fa-clock-rotate-left"
+          label="History"
+        />
+        <MobileNavButton 
+          active={activeTab === TabView.LOGS} 
+          onClick={() => onTabChange(TabView.LOGS)}
+          icon="fa-list-check"
+          label="Logs"
+        />
+      </div>
     </div>
   );
 };
@@ -127,5 +161,20 @@ const NavButton = ({ active, onClick, icon, label, desc }: any) => (
       <p className={`font-semibold ${active ? 'text-indigo-400' : 'text-slate-200'}`}>{label}</p>
       <p className="text-xs text-slate-500 group-hover:text-slate-400">{desc}</p>
     </div>
+  </button>
+);
+
+const MobileNavButton = ({ active, onClick, icon, label }: any) => (
+  <button
+    onClick={onClick}
+    className={`flex flex-col items-center justify-center w-full space-y-1 ${
+      active ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'
+    }`}
+  >
+    <div className={`text-lg transition-transform ${active ? '-translate-y-1' : ''}`}>
+       <i className={`fas ${icon}`}></i>
+    </div>
+    <span className={`text-[10px] font-medium ${active ? 'font-bold' : ''}`}>{label}</span>
+    {active && <div className="w-1 h-1 bg-indigo-600 rounded-full mt-1"></div>}
   </button>
 );

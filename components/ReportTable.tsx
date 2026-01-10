@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DailyReport, DPRItem } from '../types';
+import { getNepaliDate } from '../utils/nepaliDate';
 
 interface ReportTableProps {
   report: DailyReport;
@@ -133,6 +134,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               </div>
               <div className="text-right">
                 <p className="text-lg"><span className="font-bold">Date:</span> {report.date}</p>
+                <p className="text-sm text-gray-600">{getNepaliDate(report.date)}</p>
               </div>
             </div>
           </div>

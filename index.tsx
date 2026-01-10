@@ -18,10 +18,7 @@ const App = () => {
     return (localStorage.getItem('activeTab') as TabView) || TabView.INPUT;
   });
   
-  const [currentReportId, setCurrentReportId] = useState<string | null>(() => {
-    return localStorage.getItem('activeReportId');
-  });
-
+  const [currentReportId, setCurrentReportId] = useState<string | null>(null);
   const [reports, setReports] = useState<DailyReport[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
@@ -45,14 +42,11 @@ const App = () => {
     localStorage.setItem('activeTab', activeTab);
   }, [activeTab]);
 
-  useEffect(() => {
-    if (currentReportId) localStorage.setItem('activeReportId', currentReportId);
-    else localStorage.removeItem('activeReportId');
-  }, [currentReportId]);
-
   // Sync Reports from Firebase
   useEffect(() => {
-    const unsubscribe = subscribeToReports((data) => setReports(data));
+    const unsubscribe = subscribeToReports((data) => {
+      setReports(data);
+    });
     return () => unsubscribe();
   }, []);
 
@@ -62,21 +56,35 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // Sync active view when cloud data changes
+  // When reports update or date changes, ensure the active view reflects the date's report
   useEffect(() => {
-    if (currentReportId && reports.length > 0) {
-      const activeCloudReport = reports.find(r => r.id === currentReportId);
+    // Check if there is already a report for the currently selected date
+    const existingReport = reports.find(r => r.date === currentDate);
+
+    if (existingReport) {
+      if (currentReportId !== existingReport.id) {
+         setCurrentReportId(existingReport.id);
+      }
+      // Only update entries if they differ (to avoid typing lag/loops)
+      if (JSON.stringify(existingReport.entries) !== JSON.stringify(currentEntries)) {
+         setCurrentEntries(existingReport.entries);
+      }
+    } else {
+      // No report exists for this date on the cloud
+      // If we were previously looking at a valid ID that was NOT this date, reset.
+      // But if we are "creating" a new one locally (entries > 0), keep it.
       
-      if (activeCloudReport) {
-        if (JSON.stringify(activeCloudReport.entries) !== JSON.stringify(currentEntries)) {
-           setCurrentEntries(activeCloudReport.entries);
-        }
-        if (activeCloudReport.date !== currentDate) {
-           setCurrentDate(activeCloudReport.date);
-        }
+      const isIdBelongingToOtherDate = reports.some(r => r.id === currentReportId && r.date !== currentDate);
+      
+      if (isIdBelongingToOtherDate || !currentReportId) {
+         // Reset for a fresh day
+         const newId = crypto.randomUUID();
+         setCurrentReportId(newId);
+         setCurrentEntries([]);
       }
     }
-  }, [reports, currentReportId]);
+  }, [currentDate, reports]);
+
 
   // --- HANDLERS ---
 
@@ -93,20 +101,16 @@ const App = () => {
   const handleSelectReport = (id: string) => {
     const report = reports.find(r => r.id === id);
     if (report) {
-      setCurrentReportId(report.id);
+      // This will trigger the useEffect above to sync state
       setCurrentDate(report.date);
-      setCurrentEntries(report.entries);
       setActiveTab(TabView.VIEW_REPORT);
     }
   };
 
   const handleCreateNew = () => {
-    const newId = crypto.randomUUID();
-    setCurrentReportId(newId);
-    setCurrentEntries([]);
+    // Reset to today. The useEffect will pick up if today has a report or not.
     setCurrentDate(new Date().toISOString().split('T')[0]);
     setActiveTab(TabView.INPUT);
-    logActivity(getUserName(), "Create Report", "Started a new daily report", currentDate);
   };
 
   const saveCurrentState = async (entries: DPRItem[], date: string, reportId: string | null) => {
@@ -132,9 +136,12 @@ const App = () => {
   };
 
   const handleItemsAdded = (newItems: DPRItem[]) => {
+    // Append to existing entries for this day
     const updatedEntries = [...currentEntries, ...newItems];
     setCurrentEntries(updatedEntries);
     saveCurrentState(updatedEntries, currentDate, currentReportId);
+    
+    // Auto-switch to view report to see the result
     setActiveTab(TabView.VIEW_REPORT);
     logActivity(getUserName(), "Added Items", `Parsed and added ${newItems.length} items from AI`, currentDate);
   };
@@ -160,18 +167,18 @@ const App = () => {
   };
 
   const handleDateChange = (date: string) => {
+    // Changing the date updates state. 
+    // The useEffect [currentDate, reports] will handle loading existing data for that date.
     setCurrentDate(date);
-    if (currentEntries.length > 0) {
-       saveCurrentState(currentEntries, date, currentReportId);
-       logActivity(getUserName(), "Changed Date", `Moved report to ${date}`, date);
-    }
+    logActivity(getUserName(), "Changed Date", `Switched view to ${date}`, date);
   };
 
   const handleDeleteReport = async (id: string) => {
     await deleteReportFromCloud(id);
     logActivity(getUserName(), "Deleted Report", `Deleted entire report ID: ${id}`, "N/A");
     if (currentReportId === id) {
-      handleCreateNew();
+       // Reset to today or clear
+       setCurrentEntries([]);
     }
   };
 
