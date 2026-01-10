@@ -11,9 +11,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     // SETTING BASE URL:
-    // If hosting at https://rishabnakarmi.com.np/dprtool, keep '/dprtool/'.
-    // If hosting at https://dpr.rishabnakarmi.com.np (subdomain), change this back to '/'.
-    base: '/dprtool/', 
+    // We use './' (relative path) so the app works regardless of whether it is hosted 
+    // at the root (autodpr-tool.pages.dev) or a subdirectory (domain.com/dprtool/).
+    base: './', 
     plugins: [react()],
     define: {
       // Explicitly expose variables. usage of `|| ''` prevents "undefined" strings in the build.

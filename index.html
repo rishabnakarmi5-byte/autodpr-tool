@@ -45,7 +45,21 @@
       @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
     <script>
-      // EMERGENCY ERROR HANDLER
+      // RESOURCE ERROR LISTENER (Catches 404s on scripts)
+      window.addEventListener('error', function(e) {
+        if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK')) {
+             var loader = document.getElementById('loading-indicator');
+             if(loader) {
+                loader.innerHTML = '<div style="color:red; text-align:center; padding:20px;">' +
+                  '<strong>Resource Load Error</strong><br/>' +
+                  'Failed to load: ' + (e.target.src || e.target.href) + '<br/>' +
+                  'Please check your internet connection or deployment configuration.' +
+                  '</div>';
+             }
+        }
+      }, true);
+
+      // RUNTIME ERROR HANDLER
       window.onerror = function(message, source, lineno, colno, error) {
         var loader = document.getElementById('loading-indicator');
         if(loader) loader.style.display = 'none';
