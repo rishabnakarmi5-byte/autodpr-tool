@@ -84,15 +84,6 @@
         }
         errorContainer.textContent += 'RUNTIME ERROR: ' + message + '\nAt: ' + source + ':' + lineno + '\n\n';
       };
-
-      // Robust Polyfill for process
-      window.process = window.process || {
-        env: {},
-        version: 'v16.0.0',
-        versions: { node: '16.0.0' },
-        platform: 'browser',
-        browser: true
-      };
     </script>
 <script type="importmap">
 {

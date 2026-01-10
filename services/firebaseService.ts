@@ -27,12 +27,16 @@ let app;
 let db: any;
 let auth: any;
 
-try {
-  app = initializeApp(firebaseConfig);
-  db = getFirestore(app);
-  auth = getAuth(app);
-} catch (error) {
-  console.error("Failed to initialize Firebase:", error);
+if (missingKeys.length === 0) {
+  try {
+    app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    auth = getAuth(app);
+  } catch (error) {
+    console.error("Failed to initialize Firebase:", error);
+  }
+} else {
+  console.warn("Firebase not initialized due to missing config.");
 }
 
 const REPORT_COLLECTION = "daily_reports";
@@ -41,7 +45,7 @@ const LOG_COLLECTION = "activity_logs";
 // --- Authentication ---
 
 export const signInWithGoogle = async () => {
-  if (!auth) throw new Error("Auth not initialized");
+  if (!auth) throw new Error("Authentication service not initialized. Check configuration.");
   const provider = new GoogleAuthProvider();
   try {
     const result = await signInWithPopup(auth, provider);

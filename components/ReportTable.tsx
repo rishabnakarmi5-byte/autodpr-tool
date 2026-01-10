@@ -61,6 +61,12 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     }
   };
 
+  const handleDeleteClick = (id: string) => {
+    if (window.confirm('Are you sure you want to delete this specific entry?')) {
+      onDeleteItem(id);
+    }
+  };
+
   const sortedEntries = [...entries].sort((a, b) => a.location.localeCompare(b.location));
 
   return (
@@ -206,12 +212,12 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                     />
                     
                     <button 
-                      onClick={() => onDeleteItem(item.id)}
+                      onClick={() => handleDeleteClick(item.id)}
                       data-html2canvas-ignore="true" 
-                      className="no-print absolute top-1 right-1 text-slate-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all bg-white rounded-full w-5 h-5 flex items-center justify-center shadow-sm border border-slate-100"
+                      className="no-print absolute top-1 right-1 text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all bg-white rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-slate-200"
                       title="Delete Row"
                     >
-                      <i className="fas fa-times text-[10px]"></i>
+                      <i className="fas fa-trash-alt text-[10px]"></i>
                     </button>
                   </div>
                 </div>
