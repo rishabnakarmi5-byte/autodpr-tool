@@ -19,14 +19,17 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     <div className="flex flex-col h-full space-y-6 animate-fade-in">
       
       {/* Action Bar */}
-      <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-lg shadow-slate-200/50 border border-slate-100">
+      <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-2xl shadow-lg shadow-slate-200/50 border border-slate-100 gap-4">
         <div>
            <h2 className="text-xl font-bold text-slate-800">Final Report</h2>
-           <p className="text-sm text-slate-500 mt-1">Ready for export to PDF</p>
+           <p className="text-sm text-slate-500 mt-1">
+             <i className="fas fa-info-circle mr-1 text-indigo-500"></i>
+             Click on any text below to edit before printing.
+           </p>
         </div>
         <button 
           onClick={handlePrint}
-          className="flex items-center px-6 py-3 bg-slate-900 text-white rounded-xl hover:bg-black transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
+          className="w-full md:w-auto flex items-center justify-center px-6 py-3 bg-slate-900 text-white rounded-xl hover:bg-black transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
         >
           <i className="fas fa-print mr-2"></i> Print / Save as PDF
         </button>
@@ -36,7 +39,11 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
       <div className="overflow-auto bg-slate-200/50 p-4 md:p-8 rounded-2xl border border-slate-200">
         
         {/* Actual Paper Sheet */}
-        <div id="printable-report" className="bg-white p-[20mm] shadow-2xl mx-auto w-[210mm] min-h-[297mm] text-black origin-top transform scale-100 transition-transform">
+        <div 
+          id="printable-report" 
+          className="bg-white p-[20mm] shadow-2xl mx-auto w-[210mm] min-h-[297mm] text-black origin-top transform scale-100 transition-transform"
+          style={{ printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}
+        >
           
           {/* Document Header */}
           <div className="mb-8 border-b-2 border-black pb-4">
@@ -73,13 +80,13 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               sortedEntries.map((item, index) => (
                 <div 
                   key={item.id} 
-                  className={`grid grid-cols-12 divide-x divide-black text-xs leading-relaxed group hover:bg-blue-50/30 transition-colors ${index !== sortedEntries.length - 1 ? 'border-b border-black' : ''}`}
+                  className={`grid grid-cols-12 divide-x divide-black text-xs leading-relaxed group hover:bg-blue-50/10 transition-colors ${index !== sortedEntries.length - 1 ? 'border-b border-black' : ''}`}
                 >
                   <div className="col-span-2 p-2 relative">
                     <textarea
                       value={item.location}
                       onChange={(e) => onUpdateItem(item.id, 'location', e.target.value)}
-                      className="w-full h-full bg-transparent resize-none outline-none border-transparent focus:border-blue-300 focus:bg-blue-50/50 border rounded px-1"
+                      className="w-full h-full bg-transparent resize-none outline-none border border-transparent focus:border-indigo-300 focus:bg-indigo-50/20 rounded px-1 transition-all"
                       rows={Math.max(2, Math.ceil(item.location.length / 15))}
                     />
                   </div>
@@ -88,7 +95,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                      <textarea
                       value={item.chainageOrArea}
                       onChange={(e) => onUpdateItem(item.id, 'chainageOrArea', e.target.value)}
-                      className="w-full h-full bg-transparent resize-none outline-none border-transparent focus:border-blue-300 focus:bg-blue-50/50 border rounded px-1"
+                      className="w-full h-full bg-transparent resize-none outline-none border border-transparent focus:border-indigo-300 focus:bg-indigo-50/20 rounded px-1 transition-all"
                       rows={Math.max(2, Math.ceil(item.chainageOrArea.length / 15))}
                     />
                   </div>
@@ -97,22 +104,22 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                      <textarea
                       value={item.activityDescription}
                       onChange={(e) => onUpdateItem(item.id, 'activityDescription', e.target.value)}
-                      className="w-full h-full bg-transparent resize-none outline-none border-transparent focus:border-blue-300 focus:bg-blue-50/50 border rounded px-1 whitespace-pre-wrap"
+                      className="w-full h-full bg-transparent resize-none outline-none border border-transparent focus:border-indigo-300 focus:bg-indigo-50/20 rounded px-1 whitespace-pre-wrap transition-all"
                       rows={Math.max(3, Math.ceil(item.activityDescription.length / 40))}
                     />
                   </div>
 
-                  <div className="col-span-3 p-2 relative group-hover:bg-blue-50/30">
+                  <div className="col-span-3 p-2 relative group-hover:bg-blue-50/10">
                      <textarea
                       value={item.plannedNextActivity}
                       onChange={(e) => onUpdateItem(item.id, 'plannedNextActivity', e.target.value)}
-                      className="w-full h-full bg-transparent resize-none outline-none border-transparent focus:border-blue-300 focus:bg-blue-50/50 border rounded px-1"
+                      className="w-full h-full bg-transparent resize-none outline-none border border-transparent focus:border-indigo-300 focus:bg-indigo-50/20 rounded px-1 transition-all"
                       rows={Math.max(2, Math.ceil(item.plannedNextActivity.length / 20))}
                     />
                     
                     <button 
                       onClick={() => onDeleteItem(item.id)}
-                      className="no-print absolute top-1 right-1 text-slate-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all bg-white rounded-full w-5 h-5 flex items-center justify-center shadow-sm"
+                      className="no-print absolute top-1 right-1 text-slate-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all bg-white rounded-full w-5 h-5 flex items-center justify-center shadow-sm border border-slate-100"
                       title="Delete Row"
                     >
                       <i className="fas fa-times text-[10px]"></i>

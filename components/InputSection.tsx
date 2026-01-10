@@ -11,6 +11,7 @@ interface InputSectionProps {
 
 export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateChange, onItemsAdded, entryCount }) => {
   const [rawText, setRawText] = useState('');
+  const [instructions, setInstructions] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,7 +23,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     setIsProcessing(true);
     setError(null);
     try {
-      const parsedData = await parseConstructionData(rawText);
+      const parsedData = await parseConstructionData(rawText, instructions);
       const newItems: DPRItem[] = parsedData.map(item => ({ ...item, id: crypto.randomUUID() }));
       onItemsAdded(newItems);
       setRawText(''); 
@@ -89,15 +90,17 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           <span className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded font-medium">Step 1</span>
         </div>
         
-        <div className="p-6 md:p-8">
-          <div className="mb-4">
+        <div className="p-6 md:p-8 space-y-6">
+          
+          {/* Main Text Input */}
+          <div>
              <label className="block text-sm font-medium text-slate-700 mb-2">Paste Site Engineer's Update</label>
              <div className="relative group">
                 <textarea
                   value={rawText}
                   onChange={(e) => setRawText(e.target.value)}
                   placeholder="Paste text here... e.g., 'Headworks: Apron concreting 45m3 done...'"
-                  className="w-full h-56 p-5 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-all resize-none font-mono text-sm leading-relaxed"
+                  className="w-full h-40 p-5 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-all resize-none font-mono text-sm leading-relaxed"
                 />
                 <div className="absolute top-4 right-4 flex gap-2">
                    {rawText && (
@@ -113,8 +116,22 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
              </div>
           </div>
 
+          {/* Instructions Input */}
+          <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+             <label className="block text-xs font-bold text-indigo-800 mb-2 uppercase tracking-wide">
+               <i className="fas fa-robot mr-1"></i> Special Instructions for AI (Optional)
+             </label>
+             <input
+                type="text"
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+                placeholder="e.g. 'Split separate locations into different rows' or 'Ignore safety mentions'"
+                className="w-full p-3 border border-indigo-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-400 focus:outline-none text-sm text-slate-700 placeholder-indigo-300"
+             />
+          </div>
+
           {error && (
-            <div className="mb-4 p-4 bg-red-50 text-red-700 rounded-xl text-sm flex items-center border border-red-100 animate-pulse">
+            <div className="p-4 bg-red-50 text-red-700 rounded-xl text-sm flex items-center border border-red-100 animate-pulse">
               <i className="fas fa-exclamation-triangle mr-3 text-lg"></i> {error}
             </div>
           )}

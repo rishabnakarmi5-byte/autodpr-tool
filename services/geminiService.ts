@@ -4,16 +4,23 @@ import { DPRItem } from "../types";
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const parseConstructionData = async (
-  rawText: string
+  rawText: string,
+  instructions?: string
 ): Promise<Omit<DPRItem, 'id'>[]> => {
   
+  const instructionBlock = instructions 
+    ? `USER SPECIFIC INSTRUCTIONS (Prioritize these): ${instructions}` 
+    : 'No specific user instructions.';
+
   const prompt = `
     You are a construction site data entry assistant.
     I will provide raw text from a WhatsApp message sent by a site engineer.
     Your job is to extract the construction activities into a structured JSON array.
 
+    ${instructionBlock}
+
     The output format must be a list of items with the following fields:
-    - location: The major site location (e.g., "Powerhouse", "Headworks", "HRT - Inlet"). Infer this from context if possible (e.g., "Tailrace" usually implies "Powerhouse", "Barrage" implies "Headworks"). If unknown, use the specific area name.
+    - location: The major site location (e.g., "Powerhouse", "Headworks", "HRT - Inlet"). Infer this from context if possible.
     - chainageOrArea: The specific sub-area or chainage mentioned (e.g., "Tailrace Invert", "Apron", "Ch 100-200").
     - activityDescription: What work was done today (include quantities like m3, T, msq).
     - plannedNextActivity: What is planned for tomorrow/next day.

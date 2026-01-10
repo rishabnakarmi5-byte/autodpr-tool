@@ -82,24 +82,24 @@ export const HistoryList: React.FC<HistoryListProps> = ({
                 </div>
               </div>
 
-              <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    if(window.confirm('Delete this report permanently?')) {
+                    if(window.confirm('Are you sure you want to delete this report permanently?')) {
                       onDeleteReport(report.id);
                     }
                   }}
-                  className="text-red-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors"
-                  title="Delete"
+                  className="flex items-center px-3 py-2 text-xs font-bold text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  title="Delete Report"
                 >
-                  <i className="fas fa-trash-alt"></i>
+                  <i className="fas fa-trash-alt mr-2"></i> Delete
                 </button>
                  <button
-                  className="text-indigo-400 hover:text-indigo-600 p-2 hover:bg-indigo-50 rounded-lg transition-colors"
-                  title="Open"
+                  className="flex items-center px-3 py-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                  title="Edit Report"
                 >
-                  <i className="fas fa-arrow-right"></i>
+                  Edit <i className="fas fa-arrow-right ml-2"></i>
                 </button>
               </div>
             </div>
