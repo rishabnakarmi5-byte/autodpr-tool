@@ -14,8 +14,18 @@ export interface DailyReport {
   entries: DPRItem[];
 }
 
+export interface LogEntry {
+  id: string;
+  timestamp: string;
+  user: string;
+  action: string;
+  details: string;
+  reportDate: string;
+}
+
 export enum TabView {
   INPUT = 'input',
   VIEW_REPORT = 'view_report',
-  HISTORY = 'history'
+  HISTORY = 'history',
+  LOGS = 'logs'
 }

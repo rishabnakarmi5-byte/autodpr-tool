@@ -1,9 +1,9 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy, Unsubscribe } from "firebase/firestore";
-import { DailyReport } from "../types";
+import { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, onSnapshot, query, orderBy, limit, Unsubscribe } from "firebase/firestore";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
+import { DailyReport, LogEntry } from "../types";
 
 // Your web app's Firebase configuration
-// Keys are pulled from environment variables defined in Cloudflare/Vite
 const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY,
   authDomain: process.env.FIREBASE_AUTH_DOMAIN,
@@ -14,21 +14,67 @@ const firebaseConfig = {
   measurementId: process.env.measurementId
 };
 
-// Simple check to warn if keys are missing
-if (!firebaseConfig.apiKey) {
-  console.error("Firebase Configuration Error: API Key is missing. Check your environment variables.");
+// Robust check to warn which specific keys are missing
+const missingKeys = Object.entries(firebaseConfig)
+  .filter(([key, value]) => !value && key !== 'measurementId') // measurementId is optional
+  .map(([key]) => key);
+
+if (missingKeys.length > 0) {
+  console.error(`Firebase Configuration Error: The following keys are missing in environment variables: ${missingKeys.join(', ')}.`);
 }
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+let app;
+let db: any;
+let auth: any;
 
-const COLLECTION_NAME = "daily_reports";
+try {
+  app = initializeApp(firebaseConfig);
+  db = getFirestore(app);
+  auth = getAuth(app);
+} catch (error) {
+  console.error("Failed to initialize Firebase:", error);
+}
+
+const REPORT_COLLECTION = "daily_reports";
+const LOG_COLLECTION = "activity_logs";
+
+// --- Authentication ---
+
+export const signInWithGoogle = async () => {
+  if (!auth) throw new Error("Auth not initialized");
+  const provider = new GoogleAuthProvider();
+  try {
+    const result = await signInWithPopup(auth, provider);
+    return result.user;
+  } catch (error) {
+    console.error("Error signing in with Google", error);
+    throw error;
+  }
+};
+
+export const logoutUser = async () => {
+  if (!auth) return;
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.error("Error signing out", error);
+  }
+};
+
+export const subscribeToAuth = (callback: (user: User | null) => void): Unsubscribe => {
+  if (!auth) {
+    callback(null);
+    return () => {};
+  }
+  return onAuthStateChanged(auth, callback);
+};
+
+// --- Reports ---
 
 export const subscribeToReports = (onUpdate: (reports: DailyReport[]) => void): Unsubscribe => {
   if (!db) return () => {};
   
-  const q = query(collection(db, COLLECTION_NAME), orderBy("date", "desc"));
+  const q = query(collection(db, REPORT_COLLECTION), orderBy("date", "desc"));
   
   const unsubscribe = onSnapshot(q, (snapshot) => {
     const reports: DailyReport[] = [];
@@ -44,9 +90,12 @@ export const subscribeToReports = (onUpdate: (reports: DailyReport[]) => void): 
 };
 
 export const saveReportToCloud = async (report: DailyReport): Promise<void> => {
-  if (!db) return;
+  if (!db) {
+     console.error("Cannot save report: Database not initialized.");
+     return;
+  }
   try {
-    await setDoc(doc(db, COLLECTION_NAME, report.id), report);
+    await setDoc(doc(db, REPORT_COLLECTION, report.id), report);
   } catch (e) {
     console.error("Error adding document: ", e);
     throw e;
@@ -56,9 +105,46 @@ export const saveReportToCloud = async (report: DailyReport): Promise<void> => {
 export const deleteReportFromCloud = async (id: string): Promise<void> => {
   if (!db) return;
   try {
-    await deleteDoc(doc(db, COLLECTION_NAME, id));
+    await deleteDoc(doc(db, REPORT_COLLECTION, id));
   } catch (e) {
     console.error("Error deleting document: ", e);
     throw e;
   }
+};
+
+// --- Activity Logs ---
+
+export const logActivity = async (user: string, action: string, details: string, reportDate: string) => {
+  if (!db) return;
+  try {
+    const log: Omit<LogEntry, 'id'> = {
+      timestamp: new Date().toISOString(),
+      user: user || "Anonymous",
+      action,
+      details,
+      reportDate
+    };
+    await addDoc(collection(db, LOG_COLLECTION), log);
+  } catch (e) {
+    console.error("Error logging activity:", e);
+  }
+};
+
+export const subscribeToLogs = (onUpdate: (logs: LogEntry[]) => void): Unsubscribe => {
+  if (!db) return () => {};
+  
+  // Get last 100 logs
+  const q = query(collection(db, LOG_COLLECTION), orderBy("timestamp", "desc"), limit(100));
+  
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    const logs: LogEntry[] = [];
+    snapshot.forEach((doc) => {
+      logs.push({ ...doc.data(), id: doc.id } as LogEntry);
+    });
+    onUpdate(logs);
+  }, (error) => {
+    console.error("Error subscribing to logs:", error);
+  });
+
+  return unsubscribe;
 };

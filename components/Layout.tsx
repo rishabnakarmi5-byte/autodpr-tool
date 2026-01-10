@@ -5,9 +5,11 @@ interface LayoutProps {
   children: React.ReactNode;
   activeTab: TabView;
   onTabChange: (tab: TabView) => void;
+  user: any; // Firebase User object
+  onLogout: () => void;
 }
 
-export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => {
+export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user, onLogout }) => {
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-100 text-slate-800 font-sans">
       
@@ -63,18 +65,36 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
             label="History"
             desc="Past records"
           />
+
+          <NavButton 
+            active={activeTab === TabView.LOGS} 
+            onClick={() => onTabChange(TabView.LOGS)}
+            icon="fa-list-check"
+            label="Activity Logs"
+            desc="Audit trail"
+          />
         </nav>
 
-        <div className="p-6 border-t border-slate-800 bg-slate-900/50">
-          <div className="flex items-center gap-3">
-             <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center">
-               <i className="fas fa-user text-xs"></i>
+        <div className="p-4 border-t border-slate-800 bg-slate-900/50">
+          <div className="flex items-center gap-3 mb-3">
+             <div className="w-10 h-10 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center border-2 border-indigo-500">
+               {user?.photoURL ? (
+                 <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
+               ) : (
+                 <span className="text-white font-bold">{user?.displayName?.charAt(0) || <i className="fas fa-user"></i>}</span>
+               )}
              </div>
-             <div>
-                <p className="text-sm text-white font-medium">Site Engineer</p>
-                <p className="text-xs text-slate-500">Bhotekoshi Project</p>
+             <div className="overflow-hidden">
+                <p className="text-sm text-white font-medium truncate w-40">{user?.displayName || 'Guest User'}</p>
+                <p className="text-xs text-slate-500 truncate w-40">{user?.email}</p>
              </div>
           </div>
+          <button 
+            onClick={onLogout}
+            className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white py-2 rounded-lg text-xs font-bold transition-colors"
+          >
+            <i className="fas fa-sign-out-alt"></i> Sign Out
+          </button>
         </div>
       </aside>
 
