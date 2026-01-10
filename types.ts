@@ -29,3 +29,9 @@ export enum TabView {
   HISTORY = 'history',
   LOGS = 'logs'
 }
+
+declare global {
+  interface Window {
+    html2canvas: (element: HTMLElement, options?: any) => Promise<HTMLCanvasElement>;
+  }
+}

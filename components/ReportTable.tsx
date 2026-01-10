@@ -27,7 +27,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     setIsExporting(true);
 
     try {
-      // @ts-ignore - html2canvas is loaded via CDN in index.html
       const canvas = await window.html2canvas(reportRef.current, {
         scale: 3, // High resolution (3x scale)
         useCORS: true, // Allow loading images if any

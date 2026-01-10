@@ -1,11 +1,12 @@
 import React from 'react';
 import { TabView } from '../types';
+import { User } from 'firebase/auth';
 
 interface LayoutProps {
   children: React.ReactNode;
   activeTab: TabView;
   onTabChange: (tab: TabView) => void;
-  user: any; // Firebase User object
+  user: User | null;
   onLogout: () => void;
 }
 
