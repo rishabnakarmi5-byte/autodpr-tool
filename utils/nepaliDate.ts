@@ -4,8 +4,10 @@
 const bsDaysInMonths = {
   2080: [31, 32, 31, 32, 31, 30, 30, 30, 29, 29, 30, 30], // 2023-2024
   2081: [31, 32, 31, 32, 31, 30, 30, 30, 30, 29, 30, 30], // 2024-2025
-  2082: [31, 32, 31, 31, 31, 30, 30, 30, 29, 30, 30, 30], // 2025-2026 (Adjusted)
-  2083: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 30, 30],
+  // 2082 Corrected: Shrawan (index 3) is 31. Mangsir (index 7) is 29.
+  // This ensures Jan 10, 2026 maps to Poush 26, 2082.
+  2082: [31, 32, 31, 31, 31, 30, 30, 29, 30, 29, 30, 30], 
+  2083: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 30, 30], // Standard projection
   2084: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 30, 30],
   2085: [31, 32, 32, 31, 31, 30, 30, 30, 29, 30, 30, 30],
   2086: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 30, 30],
@@ -49,7 +51,9 @@ export const getNepaliDate = (adDateString: string): string => {
 
     // Calculate day difference
     const timeDiff = adDate.getTime() - startDate.getTime();
-    let dayCount = Math.floor(timeDiff / (1000 * 3600 * 24));
+    
+    // Add small epsilon to prevent floating point flooring issues
+    let dayCount = Math.floor((timeDiff + 1000) / (1000 * 3600 * 24));
 
     let bsMonth = 0;
     const daysInYear = bsDaysInMonths[bsYear as keyof typeof bsDaysInMonths];
