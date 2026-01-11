@@ -1,7 +1,7 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, onSnapshot, query, orderBy, limit, Unsubscribe } from "firebase/firestore";
+import { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, onSnapshot, query, orderBy, limit, Unsubscribe, updateDoc, arrayUnion } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
-import { DailyReport, LogEntry } from "../types";
+import { DailyReport, LogEntry, DPRItem, TrashItem } from "../types";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -41,6 +41,7 @@ if (missingKeys.length === 0) {
 
 const REPORT_COLLECTION = "daily_reports";
 const LOG_COLLECTION = "activity_logs";
+const TRASH_COLLECTION = "trash_bin";
 
 // --- Authentication ---
 
@@ -106,13 +107,128 @@ export const saveReportToCloud = async (report: DailyReport): Promise<void> => {
   }
 };
 
+// --- Trash / Soft Delete System ---
+
+export const moveReportToTrash = async (report: DailyReport, user: string): Promise<void> => {
+  if (!db) return;
+  try {
+    // 1. Create Trash Item
+    const trashItem: TrashItem = {
+      trashId: crypto.randomUUID(),
+      originalId: report.id,
+      type: 'report',
+      content: report,
+      deletedAt: new Date().toISOString(),
+      deletedBy: user,
+      reportDate: report.date
+    };
+    await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
+
+    // 2. Delete Original
+    await deleteDoc(doc(db, REPORT_COLLECTION, report.id));
+  } catch (e) {
+    console.error("Error moving report to trash:", e);
+    throw e;
+  }
+};
+
+export const moveItemToTrash = async (item: DPRItem, reportId: string, reportDate: string, user: string): Promise<void> => {
+  if (!db) return;
+  try {
+    // 1. Create Trash Item (Note: We do not modify the original report here, that's done by the caller via saveReportToCloud)
+    const trashItem: TrashItem = {
+      trashId: crypto.randomUUID(),
+      originalId: item.id,
+      type: 'item',
+      content: item,
+      deletedAt: new Date().toISOString(),
+      deletedBy: user,
+      reportDate: reportDate,
+      reportId: reportId
+    };
+    await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
+  } catch (e) {
+    console.error("Error moving item to trash:", e);
+    throw e;
+  }
+};
+
 export const deleteReportFromCloud = async (id: string): Promise<void> => {
+  // Direct delete (legacy or permanent)
   if (!db) return;
   try {
     await deleteDoc(doc(db, REPORT_COLLECTION, id));
   } catch (e) {
     console.error("Error deleting document: ", e);
     throw e;
+  }
+};
+
+export const subscribeToTrash = (onUpdate: (items: TrashItem[]) => void): Unsubscribe => {
+  if (!db) return () => {};
+  
+  const q = query(collection(db, TRASH_COLLECTION), orderBy("deletedAt", "desc"));
+  
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    const items: TrashItem[] = [];
+    snapshot.forEach((doc) => {
+      items.push(doc.data() as TrashItem);
+    });
+    onUpdate(items);
+  }, (error) => {
+    console.error("Error subscribing to trash:", error);
+  });
+
+  return unsubscribe;
+};
+
+export const restoreTrashItem = async (trashItem: TrashItem): Promise<void> => {
+  if (!db) return;
+  
+  try {
+    if (trashItem.type === 'report') {
+      const report = trashItem.content as DailyReport;
+      // Restore report
+      await setDoc(doc(db, REPORT_COLLECTION, report.id), report);
+    } 
+    else if (trashItem.type === 'item') {
+      const item = trashItem.content as DPRItem;
+      const reportId = trashItem.reportId;
+      
+      if (!reportId) throw new Error("Missing report ID for item restoration");
+
+      const reportRef = doc(db, REPORT_COLLECTION, reportId);
+      const reportSnap = await getDoc(reportRef);
+
+      if (reportSnap.exists()) {
+        // If report exists, append the item
+        const reportData = reportSnap.data() as DailyReport;
+        // Check if item already exists to avoid dupes?
+        if (!reportData.entries.some(e => e.id === item.id)) {
+           await updateDoc(reportRef, {
+             entries: arrayUnion(item)
+           });
+        }
+      } else {
+        // If report doesn't exist (maybe permanently deleted?), create a partial one or specific container
+        // Strategy: Create a new report for that date
+        const newReport: DailyReport = {
+          id: reportId,
+          date: trashItem.reportDate,
+          lastUpdated: new Date().toISOString(),
+          projectTitle: "Restored Report",
+          entries: [item]
+        };
+        await setDoc(reportRef, newReport);
+      }
+    }
+
+    // Remove from trash after successful restore
+    await deleteDoc(doc(db, TRASH_COLLECTION, trashItem.trashId));
+
+  } catch (error) {
+    console.error("Error restoring item:", error);
+    throw error;
   }
 };
 

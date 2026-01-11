@@ -6,8 +6,8 @@ import { HistoryList } from './components/HistoryList';
 import { ReportTable } from './components/ReportTable';
 import { ActivityLogs } from './components/ActivityLogs';
 import { RecycleBin } from './components/RecycleBin';
-import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth } from './services/firebaseService';
-import { DailyReport, DPRItem, TabView, LogEntry } from './types';
+import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem } from './services/firebaseService';
+import { DailyReport, DPRItem, TabView, LogEntry, TrashItem } from './types';
 import { User } from "firebase/auth";
 
 const App = () => {
@@ -22,6 +22,7 @@ const App = () => {
   const [currentReportId, setCurrentReportId] = useState<string | null>(null);
   const [reports, setReports] = useState<DailyReport[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
   const [currentEntries, setCurrentEntries] = useState<DPRItem[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -54,6 +55,12 @@ const App = () => {
   // Sync Logs from Firebase
   useEffect(() => {
     const unsubscribe = subscribeToLogs((data) => setLogs(data));
+    return () => unsubscribe();
+  }, []);
+
+  // Sync Trash Items
+  useEffect(() => {
+    const unsubscribe = subscribeToTrash((data) => setTrashItems(data));
     return () => unsubscribe();
   }, []);
 
@@ -170,11 +177,18 @@ const App = () => {
     logActivity(getUserName(), "Updated Item", `Changed ${field} for location ${location}`, currentDate);
   };
 
-  const handleDeleteItem = (id: string) => {
+  const handleDeleteItem = async (id: string) => {
     const item = currentEntries.find(i => i.id === id);
+    if (!item || !currentReportId) return;
+
+    // 1. Move to Trash (Soft Delete)
+    await moveItemToTrash(item, currentReportId, currentDate, getUserName());
+
+    // 2. Remove from active report and save
     const updatedEntries = currentEntries.filter(item => item.id !== id);
     setCurrentEntries(updatedEntries);
     saveCurrentState(updatedEntries, currentDate, currentReportId);
+    
     logActivity(getUserName(), "Deleted Item", `Deleted entry for location ${item?.location || 'Unknown'} - Details: ${item?.activityDescription}`, currentDate);
   };
 
@@ -186,12 +200,21 @@ const App = () => {
   };
 
   const handleDeleteReport = async (id: string) => {
-    await deleteReportFromCloud(id);
-    logActivity(getUserName(), "Deleted Report", `Deleted entire report ID: ${id}`, "N/A");
-    if (currentReportId === id) {
-       // Reset to today or clear
-       setCurrentEntries([]);
+    const reportToDelete = reports.find(r => r.id === id);
+    if (reportToDelete) {
+      await moveReportToTrash(reportToDelete, getUserName());
+      logActivity(getUserName(), "Deleted Report", `Deleted entire report ID: ${id}`, "N/A");
+      
+      if (currentReportId === id) {
+         // Reset to today or clear
+         setCurrentEntries([]);
+      }
     }
+  };
+
+  const handleRestore = async (item: TrashItem) => {
+    await restoreTrashItem(item);
+    logActivity(getUserName(), "Restored Item", `Restored ${item.type} from trash bin`, item.reportDate);
   };
 
   const currentReport: DailyReport = {
@@ -282,7 +305,11 @@ const App = () => {
         )}
         
         {activeTab === TabView.RECYCLE_BIN && (
-          <RecycleBin logs={logs} />
+          <RecycleBin 
+            logs={logs} 
+            trashItems={trashItems}
+            onRestore={handleRestore}
+          />
         )}
       </Layout>
     </>
