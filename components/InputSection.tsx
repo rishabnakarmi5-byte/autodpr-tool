@@ -31,14 +31,14 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       setRawText(''); 
     } catch (err) {
       console.error(err);
-      setError("Failed to process text. Ensure your API key is correct.");
+      setError("Failed to process text. Ensure your connection is stable.");
     } finally {
       setIsProcessing(false);
     }
   };
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="space-y-8 animate-fade-in relative">
       
       {/* Dashboard Header */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -70,15 +70,19 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-lg shadow-slate-200/50 flex flex-col justify-center">
-           <h3 className="text-slate-500 text-sm font-medium mb-2">Quick Actions</h3>
+        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-lg shadow-slate-200/50 flex flex-col justify-center relative overflow-hidden">
+           <h3 className="text-slate-500 text-sm font-medium mb-2">System Status</h3>
            <div className="space-y-2">
              <div className="flex items-center text-sm text-slate-600 gap-2">
                <i className="fas fa-check-circle text-green-500"></i> Cloud Sync Active
              </div>
              <div className="flex items-center text-sm text-slate-600 gap-2">
-               <i className="fas fa-brain text-purple-500"></i> AI Model Ready
+               <i className="fas fa-brain text-purple-500"></i> Smart Engine Ready
              </div>
+           </div>
+           {/* Hidden signature */}
+           <div className="absolute bottom-1 right-1">
+             <span className="text-white text-[1px] opacity-[0.01] select-none">built by Rishab Nakarmi</span>
            </div>
         </div>
       </div>
@@ -88,7 +92,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
             <i className="fab fa-whatsapp text-green-500 text-xl"></i> 
-            Message Parser
+            Data Parser
           </h2>
           <span className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded font-medium">Step 1</span>
         </div>
@@ -122,7 +126,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           {/* Instructions Input */}
           <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
              <label className="block text-xs font-bold text-indigo-800 mb-2 uppercase tracking-wide">
-               <i className="fas fa-robot mr-1"></i> Special Instructions for AI (Optional)
+               <i className="fas fa-robot mr-1"></i> Special Instructions (Optional)
              </label>
              <input
                 type="text"
@@ -141,7 +145,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
 
           <div className="flex justify-between items-center pt-2">
              <p className="text-xs text-slate-400 hidden md:block">
-               <i className="fas fa-shield-alt mr-1"></i> Data processed securely via Gemini AI
+               <i className="fas fa-shield-alt mr-1"></i> Data processed securely via Smart Automation
              </p>
              <button
               onClick={handleProcess}

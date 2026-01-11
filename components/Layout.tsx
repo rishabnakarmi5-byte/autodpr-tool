@@ -12,7 +12,7 @@ interface LayoutProps {
 
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user, onLogout }) => {
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-slate-100 text-slate-800 font-sans">
+    <div className="min-h-screen flex flex-col md:flex-row bg-slate-100 text-slate-800 font-sans relative">
       
       {/* Mobile Header */}
       <div className="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center shadow-md sticky top-0 z-50">
@@ -20,7 +20,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
           <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center mr-2">
             <i className="fas fa-hard-hat text-white text-sm"></i>
           </div>
-          AutoDPR
+          DPR Maker
         </h1>
         <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center border border-indigo-500">
@@ -39,13 +39,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col w-72 bg-slate-900 text-slate-300 min-h-screen shadow-2xl sticky top-0 h-screen z-10">
         <div className="p-8 border-b border-slate-800">
-          <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-3">
+          <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-3">
              <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
                 <i className="fas fa-hard-hat text-white text-lg"></i>
              </div>
-             AutoDPR
+             Construction<br/>DPR Maker
           </h1>
-          <p className="text-xs text-slate-500 mt-3 font-medium uppercase tracking-wider">Construction Mgmt</p>
+          <p className="text-xs text-slate-500 mt-3 font-medium uppercase tracking-wider">Project Management</p>
         </div>
         
         <nav className="flex-1 px-4 py-8 space-y-3">
@@ -80,6 +80,14 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
             label="Activity Logs"
             desc="Audit trail"
           />
+
+          <NavButton 
+            active={activeTab === TabView.RECYCLE_BIN} 
+            onClick={() => onTabChange(TabView.RECYCLE_BIN)}
+            icon="fa-trash"
+            label="Recycle Bin"
+            desc="Deleted items"
+          />
         </nav>
 
         <div className="p-4 border-t border-slate-800 bg-slate-900/50">
@@ -102,6 +110,11 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
           >
             <i className="fas fa-sign-out-alt"></i> Sign Out
           </button>
+          
+          {/* Invisible Signature */}
+          <div className="mt-4 text-center">
+             <span className="text-white text-[1px] opacity-[0.01] select-none pointer-events-none">built by Rishab Nakarmi</span>
+          </div>
         </div>
       </aside>
 
@@ -109,6 +122,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
       <main className="flex-1 overflow-auto h-screen relative scroll-smooth pb-24 md:pb-0">
         <div className="p-4 md:p-10 max-w-7xl mx-auto pb-20">
           {children}
+        </div>
+        {/* Mobile invisible signature */}
+        <div className="md:hidden absolute bottom-24 left-1/2 transform -translate-x-1/2">
+             <span className="text-white text-[1px] opacity-[0.01] select-none pointer-events-none">built by Rishab Nakarmi</span>
         </div>
       </main>
 
@@ -133,10 +150,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
           label="History"
         />
         <MobileNavButton 
-          active={activeTab === TabView.LOGS} 
-          onClick={() => onTabChange(TabView.LOGS)}
-          icon="fa-list-check"
-          label="Logs"
+          active={activeTab === TabView.RECYCLE_BIN} 
+          onClick={() => onTabChange(TabView.RECYCLE_BIN)}
+          icon="fa-trash"
+          label="Bin"
         />
       </div>
     </div>

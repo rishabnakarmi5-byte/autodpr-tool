@@ -5,6 +5,7 @@ import { InputSection } from './components/InputSection';
 import { HistoryList } from './components/HistoryList';
 import { ReportTable } from './components/ReportTable';
 import { ActivityLogs } from './components/ActivityLogs';
+import { RecycleBin } from './components/RecycleBin';
 import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth } from './services/firebaseService';
 import { DailyReport, DPRItem, TabView, LogEntry } from './types';
 import { User } from "firebase/auth";
@@ -112,6 +113,17 @@ const App = () => {
     setCurrentDate(new Date().toISOString().split('T')[0]);
     setActiveTab(TabView.INPUT);
   };
+  
+  // Wrapper for tab changing to handle specific resets
+  const handleTabChange = (tab: TabView) => {
+      if (tab === TabView.INPUT) {
+          // Rule: "Daily updates tab's date to follow today's date by default unless manually changed"
+          // We interpret this as: clicking the tab resets to today to avoid accidental edits to old history.
+          const today = new Date().toISOString().split('T')[0];
+          setCurrentDate(today);
+      }
+      setActiveTab(tab);
+  };
 
   const saveCurrentState = async (entries: DPRItem[], date: string, reportId: string | null) => {
     const id = reportId || crypto.randomUUID();
@@ -143,7 +155,7 @@ const App = () => {
     
     // Auto-switch to view report to see the result
     setActiveTab(TabView.VIEW_REPORT);
-    logActivity(getUserName(), "Added Items", `Parsed and added ${newItems.length} items from AI`, currentDate);
+    logActivity(getUserName(), "Added Items", `Parsed and added ${newItems.length} items from input`, currentDate);
   };
 
   const handleUpdateItem = (id: string, field: keyof DPRItem, value: string) => {
@@ -163,7 +175,7 @@ const App = () => {
     const updatedEntries = currentEntries.filter(item => item.id !== id);
     setCurrentEntries(updatedEntries);
     saveCurrentState(updatedEntries, currentDate, currentReportId);
-    logActivity(getUserName(), "Deleted Item", `Deleted entry for location ${item?.location || 'Unknown'}`, currentDate);
+    logActivity(getUserName(), "Deleted Item", `Deleted entry for location ${item?.location || 'Unknown'} - Details: ${item?.activityDescription}`, currentDate);
   };
 
   const handleDateChange = (date: string) => {
@@ -206,8 +218,8 @@ const App = () => {
              <div className="w-20 h-20 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-indigo-500/30">
                 <i className="fas fa-hard-hat text-white text-3xl"></i>
              </div>
-             <h1 className="text-3xl font-bold text-slate-800 mb-2">AutoDPR</h1>
-             <p className="text-slate-500 mb-8">Construction Management Tool</p>
+             <h1 className="text-3xl font-bold text-slate-800 mb-2">Construction DPR Maker</h1>
+             <p className="text-slate-500 mb-8">Professional Construction Management</p>
              
              <button 
                onClick={handleLogin}
@@ -229,7 +241,7 @@ const App = () => {
 
   return (
     <>
-      <Layout activeTab={activeTab} onTabChange={setActiveTab} user={user} onLogout={logoutUser}>
+      <Layout activeTab={activeTab} onTabChange={handleTabChange} user={user} onLogout={logoutUser}>
         
         {/* Saving Indicator */}
         <div className={`fixed top-4 right-4 z-50 transition-all duration-300 transform ${isSaving ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0 pointer-events-none'}`}>
@@ -267,6 +279,10 @@ const App = () => {
 
         {activeTab === TabView.LOGS && (
           <ActivityLogs logs={logs} />
+        )}
+        
+        {activeTab === TabView.RECYCLE_BIN && (
+          <RecycleBin logs={logs} />
         )}
       </Layout>
     </>

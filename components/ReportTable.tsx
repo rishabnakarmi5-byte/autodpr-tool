@@ -32,7 +32,27 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         scale: 3, // High resolution (3x scale)
         useCORS: true, // Allow loading images if any
         backgroundColor: '#ffffff',
-        logging: false
+        logging: false,
+        onclone: (clonedDoc) => {
+          // Critical fix: Replace textareas with divs in the cloned document
+          // because html2canvas often fails to render textarea content properly.
+          const textareas = clonedDoc.querySelectorAll('textarea');
+          textareas.forEach((textarea) => {
+            const div = clonedDoc.createElement('div');
+            // Copy relevant styles to match look
+            div.style.cssText = window.getComputedStyle(textarea).cssText;
+            div.style.height = 'auto'; // Allow it to expand to fit text
+            div.style.minHeight = textarea.style.height;
+            div.style.whiteSpace = 'pre-wrap'; // Preserve line breaks
+            div.style.overflow = 'visible';
+            div.style.border = 'none'; // Usually safer for export
+            div.innerText = textarea.value;
+            
+            if(textarea.parentNode) {
+              textarea.parentNode.replaceChild(div, textarea);
+            }
+          });
+        }
       });
 
       const image = canvas.toDataURL("image/jpeg", 0.95);
@@ -70,7 +90,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   const sortedEntries = [...entries].sort((a, b) => a.location.localeCompare(b.location));
 
   return (
-    <div className="flex flex-col h-full space-y-6 animate-fade-in">
+    <div className="flex flex-col h-full space-y-6 animate-fade-in relative">
       
       {/* Action Bar */}
       <div className="flex flex-col xl:flex-row justify-between items-center bg-white p-6 rounded-2xl shadow-lg shadow-slate-200/50 border border-slate-100 gap-6">
@@ -126,7 +146,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         <div 
           ref={reportRef}
           id="printable-report" 
-          className="bg-white p-[20mm] shadow-2xl mx-auto w-[210mm] min-h-[297mm] text-black origin-top transform scale-100 transition-transform"
+          className="bg-white p-[20mm] shadow-2xl mx-auto w-[210mm] min-h-[297mm] text-black origin-top transform scale-100 transition-transform relative"
           style={{ printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}
         >
           
@@ -225,6 +245,11 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
             )}
           </div>
           
+          {/* Invisible Signature inside the report itself so it appears on PDF/JPG */}
+          <div className="absolute bottom-1 right-1 print:block">
+             <span className="text-white text-[1px] opacity-[0.01] select-none">built by Rishab Nakarmi</span>
+          </div>
+
         </div>
       </div>
     </div>

@@ -1,3 +1,4 @@
+
 export interface DPRItem {
   id: string;
   location: string;
@@ -27,7 +28,8 @@ export enum TabView {
   INPUT = 'input',
   VIEW_REPORT = 'view_report',
   HISTORY = 'history',
-  LOGS = 'logs'
+  LOGS = 'logs',
+  RECYCLE_BIN = 'recycle_bin'
 }
 
 declare global {
