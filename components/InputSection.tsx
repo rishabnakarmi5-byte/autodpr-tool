@@ -13,6 +13,13 @@ interface InputSectionProps {
   user: User | null;
 }
 
+interface PendingPhoto {
+  id: string;
+  file: File;
+  preview: string;
+  caption: string;
+}
+
 export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateChange, onItemsAdded, entryCount, user }) => {
   const [step, setStep] = useState<1 | 2>(1);
   const [rawText, setRawText] = useState('');
@@ -22,11 +29,8 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const [generatedItems, setGeneratedItems] = useState<DPRItem[]>([]);
   
   // Photo State
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [caption, setCaption] = useState('');
-  const [photos, setPhotos] = useState<ReportPhoto[]>([]);
-  const [isCompressing, setIsCompressing] = useState(false);
+  const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<{current: number, total: number} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const dateObj = new Date(currentDate);
@@ -97,64 +101,81 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     }
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-     if (e.target.files && e.target.files[0]) {
-        const file = e.target.files[0];
-        setIsCompressing(true);
-        try {
-          const compressedBase64 = await compressImage(file);
-          setPreviewUrl(compressedBase64);
-          setSelectedFile(file); // Keep original ref if needed, but we use base64
-        } catch (e) {
-          setError("Failed to process image");
-        } finally {
-          setIsCompressing(false);
-        }
-     }
-  };
-
-  const handleAddPhoto = async () => {
-    if (!previewUrl) return;
-    
-    const newPhoto: ReportPhoto = {
-      id: crypto.randomUUID(),
-      url: previewUrl, // Currently base64, ideally upload to storage immediately or later. 
-                       // For this flow, we will upload to storage during this step to keep the object clean.
-      caption: caption || 'Site Photo',
-      uploadedBy: user?.displayName || 'Unknown',
-      timestamp: new Date().toISOString()
-    };
-
-    // Upload to Firebase Storage immediately to save space in Firestore document
-    try {
-       setIsCompressing(true); // Reuse loading state
-       const storagePath = `reports/${currentDate}/${newPhoto.id}.jpg`;
-       const downloadUrl = await uploadReportImage(previewUrl, storagePath);
-       
-       newPhoto.url = downloadUrl; // Swap base64 for storage URL
-       
-       setPhotos([...photos, newPhoto]);
-       setPreviewUrl(null);
-       setCaption('');
-       setSelectedFile(null);
-       if (fileInputRef.current) fileInputRef.current.value = '';
-    } catch (e) {
-       setError("Failed to upload photo to cloud storage.");
-    } finally {
-       setIsCompressing(false);
+  const handleFilesSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const newPhotos: PendingPhoto[] = Array.from(e.target.files).map((file: File) => {
+        const preview = URL.createObjectURL(file);
+        return {
+          id: crypto.randomUUID(),
+          file,
+          preview,
+          caption: ''
+        };
+      });
+      setPendingPhotos(prev => [...prev, ...newPhotos]);
     }
+    // Reset input
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleRemovePhoto = (id: string) => {
-    setPhotos(photos.filter(p => p.id !== id));
+  const handleCaptionChange = (id: string, caption: string) => {
+    setPendingPhotos(prev => prev.map(p => p.id === id ? { ...p, caption } : p));
   };
 
-  const handleFinalize = () => {
-    onItemsAdded(generatedItems, photos);
+  const handleRemovePendingPhoto = (id: string) => {
+    setPendingPhotos(prev => prev.filter(p => p.id !== id));
+  };
+
+  const handleFinalize = async () => {
+    if (uploadProgress) return; // Prevent double click
+
+    const finalPhotos: ReportPhoto[] = [];
+    
+    // Start Progress
+    if (pendingPhotos.length > 0) {
+      setUploadProgress({ current: 0, total: pendingPhotos.length });
+
+      try {
+        for (let i = 0; i < pendingPhotos.length; i++) {
+          const p = pendingPhotos[i];
+          
+          // 1. Compress
+          const compressedBase64 = await compressImage(p.file);
+          
+          // 2. Upload
+          const storagePath = `reports/${currentDate}/${p.id}.jpg`;
+          const downloadUrl = await uploadReportImage(compressedBase64, storagePath);
+
+          // 3. Add to final list
+          finalPhotos.push({
+            id: p.id,
+            url: downloadUrl,
+            caption: p.caption || 'Site Photo',
+            uploadedBy: user?.displayName || 'Unknown',
+            timestamp: new Date().toISOString()
+          });
+
+          // Update progress
+          setUploadProgress({ current: i + 1, total: pendingPhotos.length });
+        }
+      } catch (e) {
+        console.error(e);
+        setError("Failed to upload some photos. Please check connection.");
+        setUploadProgress(null);
+        return;
+      }
+    }
+
+    onItemsAdded(generatedItems, finalPhotos);
+    
+    // Clean up object URLs to avoid memory leaks
+    pendingPhotos.forEach(p => URL.revokeObjectURL(p.preview));
+
     // Reset
     setRawText('');
-    setPhotos([]);
+    setPendingPhotos([]);
     setGeneratedItems([]);
+    setUploadProgress(null);
     setStep(1);
   };
 
@@ -289,98 +310,94 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
            <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                <i className="fas fa-camera text-indigo-500 text-xl"></i> 
-               Site Photos
+               Bulk Photo Upload
              </h2>
              <span className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded font-medium">Step 2 of 2</span>
            </div>
 
            <div className="p-6 md:p-8 space-y-6">
              
-             {/* New Photo Input */}
-             <div className="bg-slate-50 p-6 rounded-xl border border-dashed border-slate-300">
-               <div className="flex flex-col md:flex-row gap-6 items-start">
-                  
-                  {/* Image Preview / Input */}
-                  <div className="w-full md:w-1/3">
-                    {previewUrl ? (
-                      <div className="relative rounded-lg overflow-hidden aspect-video border border-slate-200">
-                        <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
-                        <button 
-                          onClick={() => { setPreviewUrl(null); setSelectedFile(null); }}
-                          className="absolute top-2 right-2 bg-white/80 p-1.5 rounded-full text-red-500 hover:bg-white transition-colors"
-                        >
-                          <i className="fas fa-times"></i>
-                        </button>
-                      </div>
-                    ) : (
-                      <div 
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-full aspect-video flex flex-col items-center justify-center bg-white rounded-lg border border-slate-200 cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-all"
-                      >
-                         <i className="fas fa-cloud-upload-alt text-3xl text-slate-300 mb-2"></i>
-                         <span className="text-sm text-slate-500">Click to upload photo</span>
-                         <span className="text-[10px] text-slate-400 mt-1">Auto-compressed to &lt;300KB</span>
-                      </div>
-                    )}
-                    <input 
-                      type="file" 
-                      ref={fileInputRef} 
-                      className="hidden" 
-                      accept="image/*"
-                      onChange={handleFileSelect}
-                    />
-                  </div>
-
-                  {/* Caption & Add Button */}
-                  <div className="flex-1 w-full space-y-4">
-                     <div>
-                       <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Caption</label>
-                       <input 
-                         type="text" 
-                         value={caption}
-                         onChange={(e) => setCaption(e.target.value)}
-                         placeholder="e.g. Rebar work at Headworks"
-                         className="w-full p-3 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm"
-                       />
-                     </div>
-                     <button
-                       onClick={handleAddPhoto}
-                       disabled={!previewUrl || isCompressing}
-                       className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 transition-colors"
-                     >
-                        {isCompressing ? 'Compressing & Uploading...' : 'Add Photo'}
-                     </button>
-                  </div>
-               </div>
+             {/* Bulk Input */}
+             <div 
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full border-2 border-dashed border-indigo-200 bg-indigo-50/30 hover:bg-indigo-50 rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors"
+             >
+                <i className="fas fa-images text-4xl text-indigo-300 mb-3"></i>
+                <p className="text-indigo-600 font-medium">Click to select photos</p>
+                <p className="text-xs text-slate-400 mt-1">Select multiple files at once. Auto-compression on finalize.</p>
+                <input 
+                   type="file" 
+                   multiple 
+                   accept="image/*"
+                   ref={fileInputRef}
+                   className="hidden"
+                   onChange={handleFilesSelect}
+                />
              </div>
 
-             {/* Photo List */}
-             {photos.length > 0 && (
-               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                 {photos.map(p => (
-                   <div key={p.id} className="relative group bg-white border border-slate-200 rounded-lg overflow-hidden">
-                      <img src={p.url} alt="Added" className="w-full h-32 object-cover" />
-                      <div className="p-2 text-xs text-slate-600 truncate">{p.caption}</div>
-                      <button 
-                        onClick={() => handleRemovePhoto(p.id)}
-                        className="absolute top-1 right-1 bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <i className="fas fa-times"></i>
-                      </button>
+             {/* Photo Grid */}
+             {pendingPhotos.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   {pendingPhotos.map(p => (
+                      <div key={p.id} className="flex gap-4 p-3 bg-white border border-slate-200 rounded-lg shadow-sm">
+                         <div className="w-24 h-24 flex-shrink-0 bg-slate-100 rounded overflow-hidden relative">
+                            <img src={p.preview} className="w-full h-full object-cover" alt="preview" />
+                            <button 
+                               onClick={() => handleRemovePendingPhoto(p.id)}
+                               className="absolute top-1 right-1 bg-red-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs hover:bg-red-600"
+                            >
+                               <i className="fas fa-times"></i>
+                            </button>
+                         </div>
+                         <div className="flex-1">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Caption</label>
+                            <textarea 
+                               value={p.caption}
+                               onChange={(e) => handleCaptionChange(p.id, e.target.value)}
+                               placeholder="Enter caption..."
+                               className="w-full mt-1 p-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-indigo-400 resize-none h-16"
+                            />
+                         </div>
+                      </div>
+                   ))}
+                </div>
+             )}
+
+             {/* Progress Bar */}
+             {uploadProgress && (
+                <div className="space-y-2">
+                   <div className="flex justify-between text-xs font-bold text-indigo-600">
+                      <span>Compressing & Uploading...</span>
+                      <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
                    </div>
-                 ))}
-               </div>
+                   <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+                      <div 
+                         className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300" 
+                         style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                      ></div>
+                   </div>
+                   <p className="text-center text-xs text-slate-400">Processing photo {uploadProgress.current} of {uploadProgress.total}</p>
+                </div>
              )}
 
              <div className="flex justify-between items-center pt-4 border-t border-slate-100">
-               <button onClick={() => setStep(1)} className="text-slate-500 font-bold text-sm hover:text-slate-700">
+               <button 
+                  onClick={() => setStep(1)} 
+                  disabled={!!uploadProgress}
+                  className="text-slate-500 font-bold text-sm hover:text-slate-700 disabled:opacity-50"
+               >
                  Back
                </button>
                <button
                   onClick={handleFinalize}
-                  className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-lg shadow-green-200 transition-all transform hover:-translate-y-1"
+                  disabled={!!uploadProgress}
+                  className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-lg shadow-green-200 transition-all transform hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed"
                >
-                  Generate Final Report <i className="fas fa-arrow-right ml-2"></i>
+                  {uploadProgress ? (
+                     <span><i className="fas fa-circle-notch fa-spin mr-2"></i> Processing...</span>
+                  ) : (
+                     <span>Finalize Report <i className="fas fa-arrow-right ml-2"></i></span>
+                  )}
                </button>
              </div>
            </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DailyReport, DPRItem, ReportPhoto } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
+import { LOCATION_HIERARCHY } from '../utils/constants';
 
 interface ReportTableProps {
   report: DailyReport;
@@ -12,11 +13,18 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   
   const [entries, setEntries] = useState<DPRItem[]>(report.entries);
   const [photos, setPhotos] = useState<ReportPhoto[]>(report.photos || []);
-  const [fontSize, setFontSize] = useState<number>(12); // Default font size 12px
-  const reportRef = useRef<HTMLDivElement>(null);
+  const [fontSize, setFontSize] = useState<number>(12);
   const [isExporting, setIsExporting] = useState(false);
   const [zoomedPhoto, setZoomedPhoto] = useState<string | null>(null);
+  
+  // Drag and Drop State
+  const dragItem = useRef<number | null>(null);
+  const dragOverItem = useRef<number | null>(null);
 
+  // Location Editor State
+  const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
+  const [selectedMainLocation, setSelectedMainLocation] = useState<string>('');
+  
   useEffect(() => {
     setEntries(report.entries);
     setPhotos(report.photos || []);
@@ -29,21 +37,16 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   const handleExportJpeg = async () => {
     setIsExporting(true);
     try {
-      // Find all "pages"
       const pages = document.querySelectorAll('.report-page');
       
       for (let i = 0; i < pages.length; i++) {
         const page = pages[i] as HTMLElement;
-        
-        // Show progress in button (optional)
-        
         const canvas = await window.html2canvas(page, {
-          scale: 2, // 2x is sufficient for JPG
+          scale: 2,
           useCORS: true,
           backgroundColor: '#ffffff',
           logging: false,
           onclone: (clonedDoc) => {
-             // Textarea fix
              const textareas = clonedDoc.querySelectorAll('textarea');
              textareas.forEach((textarea) => {
                const div = clonedDoc.createElement('div');
@@ -56,8 +59,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                div.innerText = textarea.value;
                if(textarea.parentNode) textarea.parentNode.replaceChild(div, textarea);
              });
-             
-             // Hide action buttons in clone
              const noPrints = clonedDoc.querySelectorAll('.no-print');
              noPrints.forEach(el => (el as HTMLElement).style.display = 'none');
           }
@@ -70,8 +71,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        
-        // Small delay to prevent freezing
         await new Promise(r => setTimeout(r, 500));
       }
 
@@ -100,36 +99,57 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     }
   };
 
-  // Row Reordering
-  const moveRow = (index: number, direction: 'up' | 'down') => {
-    const newEntries = [...entries];
-    if (direction === 'up' && index > 0) {
-      [newEntries[index], newEntries[index - 1]] = [newEntries[index - 1], newEntries[index]];
-    } else if (direction === 'down' && index < newEntries.length - 1) {
-      [newEntries[index], newEntries[index + 1]] = [newEntries[index + 1], newEntries[index]];
-    }
-    // We update local state immediately for UI, but also need to save order to cloud
-    // This requires the parent to support full list replacement or we just trigger individual updates? 
-    // Ideally parent should handle 'onReorder' but for now we simulate it by calling local setEntries.
-    // However, to persist, we need to save. 
-    // TRICK: We trigger a bulk update. Since onUpdateItem is for single fields, we might need a new prop.
-    // For now, we'll just update local view. The user might need to "save" or we assume entries array order is saved by parent when changed?
-    // The current architecture saves "on change". Let's hack it: trigger a fake update or assume parent won't revert it until reload.
-    // Better: Since the parent 'currentEntries' is the source of truth, we should update that.
-    // Limitation: onUpdateItem only updates one item.
-    // Fix: We will assume local state is fine for viewing, but for persistence, we'd need a reorder function.
-    // Given the constraints, let's just update local state and let the user export. 
-    // *Wait*, if they refresh, order is lost. 
-    // Let's rely on the fact that `ReportTable` receives `report.entries`. 
-    // If I change `entries` locally, I should sync to parent.
-    // Let's add a `onReorder` prop? No, I can't easily change parent signature without changing `App.tsx`.
-    // Let's just update local state for the PDF/JPG export session.
-    setEntries(newEntries); 
+  // --- Drag and Drop Handlers ---
+  const onDragStart = (e: React.DragEvent, index: number) => {
+    dragItem.current = index;
+    // Set transparency or effect
+    e.dataTransfer.effectAllowed = "move";
+    // Optional: Set drag image if needed, default is usually fine
   };
-  
-  // Since we can't easily change parent architecture for reordering without touching App.tsx extensively,
-  // we will just handle local reordering which is sufficient for "Arrange then Print".
-  
+
+  const onDragEnter = (e: React.DragEvent, index: number) => {
+    dragOverItem.current = index;
+    // We could add visual cues here by updating a "hovered" state
+  };
+
+  const onDragEnd = () => {
+    const dragIndex = dragItem.current;
+    const dragOverIndex = dragOverItem.current;
+
+    if (dragIndex !== null && dragOverIndex !== null && dragIndex !== dragOverIndex) {
+      const _entries = [...entries];
+      const draggedItemContent = _entries[dragIndex];
+      _entries.splice(dragIndex, 1);
+      _entries.splice(dragOverIndex, 0, draggedItemContent);
+      setEntries(_entries);
+      // NOTE: For true persistence of order, the backend schema needs an 'order' field or array replacement.
+      // Currently we only update local state for the session view.
+    }
+    dragItem.current = null;
+    dragOverItem.current = null;
+  };
+
+  // --- Location Selector Logic ---
+  const openLocationEditor = (id: string, currentLocation: string) => {
+    setEditingLocationId(id);
+    // Try to split "Main - Sub" to pre-select
+    const parts = currentLocation.split(' - ');
+    if (parts.length > 0 && LOCATION_HIERARCHY[parts[0]]) {
+      setSelectedMainLocation(parts[0]);
+    } else {
+      setSelectedMainLocation(Object.keys(LOCATION_HIERARCHY)[0]);
+    }
+  };
+
+  const applyLocation = (main: string, sub: string) => {
+    if (editingLocationId) {
+       const newVal = sub ? `${main} - ${sub}` : main;
+       handleLocalChange(editingLocationId, 'location', newVal);
+       onUpdateItem(editingLocationId, 'location', newVal);
+       setEditingLocationId(null);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full space-y-6 animate-fade-in relative">
       
@@ -138,13 +158,12 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         <div>
            <h2 className="text-xl font-bold text-slate-800">Final Report</h2>
            <p className="text-sm text-slate-500 mt-1">
-             Arrange rows using arrows. Edits autosave.
+             Drag rows to reorder. Click Location to select structure.
            </p>
         </div>
 
         {/* Controls */}
         <div className="flex flex-col md:flex-row items-center gap-4 w-full xl:w-auto">
-          
           <div className="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-xl border border-slate-200 w-full md:w-auto">
              <i className="fas fa-font text-slate-400 text-xs"></i>
              <input 
@@ -168,7 +187,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               {isExporting ? <i className="fas fa-circle-notch fa-spin mr-2"></i> : <i className="fas fa-image mr-2"></i>}
               Save JPGs
             </button>
-
             <button 
               onClick={handlePrint}
               className="flex-1 md:flex-none flex items-center justify-center px-4 py-2 bg-slate-900 text-white font-bold rounded-xl hover:bg-black transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
@@ -221,18 +239,52 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               entries.map((item, index) => (
                 <div 
                   key={item.id} 
-                  className={`grid grid-cols-12 divide-x divide-black text-xs leading-relaxed group hover:bg-blue-50/10 transition-colors ${index !== entries.length - 1 ? 'border-b border-black' : ''}`}
+                  draggable
+                  onDragStart={(e) => onDragStart(e, index)}
+                  onDragEnter={(e) => onDragEnter(e, index)}
+                  onDragEnd={onDragEnd}
+                  className={`grid grid-cols-12 divide-x divide-black text-xs leading-relaxed group hover:bg-blue-50/10 cursor-move transition-colors ${index !== entries.length - 1 ? 'border-b border-black' : ''}`}
                 >
-                  {/* Location */}
+                  {/* Location (Custom Editor) */}
                   <div className="col-span-2 p-2 relative">
-                    <textarea
-                      value={item.location}
-                      onChange={(e) => handleLocalChange(item.id, 'location', e.target.value)}
-                      onBlur={(e) => handleBlur(item.id, 'location', e.target.value)}
-                      className="w-full h-full bg-transparent resize-none outline-none"
-                      style={{ fontSize: `${fontSize}px` }}
-                      rows={Math.max(2, Math.ceil(item.location.length / 15))}
-                    />
+                    {editingLocationId === item.id ? (
+                      <div className="absolute top-0 left-0 z-10 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-64">
+                         <div className="space-y-2">
+                           <select 
+                             className="w-full p-1 border rounded text-xs"
+                             value={selectedMainLocation}
+                             onChange={(e) => setSelectedMainLocation(e.target.value)}
+                           >
+                              {Object.keys(LOCATION_HIERARCHY).map(loc => (
+                                <option key={loc} value={loc}>{loc}</option>
+                              ))}
+                           </select>
+                           <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                              {LOCATION_HIERARCHY[selectedMainLocation]?.map(sub => (
+                                <button 
+                                  key={sub}
+                                  onClick={() => applyLocation(selectedMainLocation, sub)}
+                                  className="text-left text-xs p-1 hover:bg-indigo-50 rounded"
+                                >
+                                  {sub}
+                                </button>
+                              ))}
+                           </div>
+                           <button onClick={() => setEditingLocationId(null)} className="text-[10px] text-red-500 underline w-full text-right">Cancel</button>
+                         </div>
+                      </div>
+                    ) : (
+                      <div className="relative w-full h-full" onClick={() => openLocationEditor(item.id, item.location)}>
+                        <textarea
+                          value={item.location}
+                          readOnly
+                          className="w-full h-full bg-transparent resize-none outline-none cursor-pointer"
+                          style={{ fontSize: `${fontSize}px` }}
+                          rows={Math.max(2, Math.ceil(item.location.length / 15))}
+                        />
+                        <div className="no-print absolute top-0 right-0 text-gray-300 text-[10px]"><i className="fas fa-pen"></i></div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Chainage */}
@@ -270,7 +322,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                       rows={Math.max(2, Math.ceil(item.plannedNextActivity.length / 20))}
                     />
                     
-                    {/* Floating Actions */}
+                    {/* Floating Actions - Updated for Drag Hint */}
                     <div className="no-print absolute top-1 right-1 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button 
                         onClick={() => handleDeleteClick(item.id)}
@@ -279,22 +331,12 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                       >
                         <i className="fas fa-trash-alt text-[10px]"></i>
                       </button>
-                      <button 
-                        onClick={() => moveRow(index, 'up')}
-                        disabled={index === 0}
-                        className="bg-white hover:bg-slate-50 text-slate-500 border border-slate-200 rounded w-6 h-6 flex items-center justify-center shadow-sm disabled:opacity-50"
-                        title="Move Up"
+                      <div 
+                         className="bg-white text-slate-400 border border-slate-200 rounded w-6 h-6 flex items-center justify-center shadow-sm cursor-move"
+                         title="Drag to reorder"
                       >
-                        <i className="fas fa-chevron-up text-[10px]"></i>
-                      </button>
-                      <button 
-                        onClick={() => moveRow(index, 'down')}
-                        disabled={index === entries.length - 1}
-                        className="bg-white hover:bg-slate-50 text-slate-500 border border-slate-200 rounded w-6 h-6 flex items-center justify-center shadow-sm disabled:opacity-50"
-                        title="Move Down"
-                      >
-                         <i className="fas fa-chevron-down text-[10px]"></i>
-                      </button>
+                         <i className="fas fa-grip-vertical text-[10px]"></i>
+                      </div>
                     </div>
                   </div>
                 </div>
