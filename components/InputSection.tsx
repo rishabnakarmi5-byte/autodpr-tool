@@ -37,7 +37,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const nepaliDate = getNepaliDate(currentDate);
 
-  // --- Compression Logic ---
+  // --- Fast Compression Logic (Single Pass) ---
   const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -47,30 +47,39 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         img.src = event.target?.result as string;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1280; // Reasonable max width for report
+          
+          // FAST CONFIG: Max 1024px dimension.
+          // This resolution is large enough for PDF reports but small enough for fast processing.
+          const MAX_WIDTH = 1024; 
+          const MAX_HEIGHT = 1024;
+          
           let width = img.width;
           let height = img.height;
 
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
+          // Calculate new dimensions maintaining aspect ratio
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
           }
 
           canvas.width = width;
           canvas.height = height;
           const ctx = canvas.getContext('2d');
+          
+          // Draw once
           ctx?.drawImage(img, 0, 0, width, height);
 
-          // Start with 0.7 quality
-          let quality = 0.7;
-          let dataUrl = canvas.toDataURL('image/jpeg', quality);
-          
-          // Simple loop to reduce quality if still too big (approx check)
-          // Base64 length * 0.75 is approx byte size
-          while (dataUrl.length * 0.75 > 300000 && quality > 0.1) {
-             quality -= 0.1;
-             dataUrl = canvas.toDataURL('image/jpeg', quality);
-          }
+          // Export once at 60% quality (0.6).
+          // 1024px at 0.6 quality usually results in ~150kb - 250kb files.
+          // This avoids the slow "while loop" checking size repeatedly.
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
           
           resolve(dataUrl);
         };
@@ -139,7 +148,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         for (let i = 0; i < pendingPhotos.length; i++) {
           const p = pendingPhotos[i];
           
-          // 1. Compress
+          // 1. Compress (Fast)
           const compressedBase64 = await compressImage(p.file);
           
           // 2. Upload
