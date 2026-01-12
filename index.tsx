@@ -7,7 +7,7 @@ import { ReportTable } from './components/ReportTable';
 import { ActivityLogs } from './components/ActivityLogs';
 import { RecycleBin } from './components/RecycleBin';
 import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem } from './services/firebaseService';
-import { DailyReport, DPRItem, TabView, LogEntry, TrashItem } from './types';
+import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ReportPhoto } from './types';
 import { User } from "firebase/auth";
 
 const App = () => {
@@ -25,6 +25,7 @@ const App = () => {
   const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
   const [currentEntries, setCurrentEntries] = useState<DPRItem[]>([]);
+  const [currentPhotos, setCurrentPhotos] = useState<ReportPhoto[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
   // --- PERSISTENCE & SYNC ---
@@ -66,29 +67,26 @@ const App = () => {
 
   // When reports update or date changes, ensure the active view reflects the date's report
   useEffect(() => {
-    // Check if there is already a report for the currently selected date
     const existingReport = reports.find(r => r.date === currentDate);
 
     if (existingReport) {
       if (currentReportId !== existingReport.id) {
          setCurrentReportId(existingReport.id);
       }
-      // Only update entries if they differ (to avoid typing lag/loops)
       if (JSON.stringify(existingReport.entries) !== JSON.stringify(currentEntries)) {
          setCurrentEntries(existingReport.entries);
       }
+      if (JSON.stringify(existingReport.photos) !== JSON.stringify(currentPhotos)) {
+         setCurrentPhotos(existingReport.photos || []);
+      }
     } else {
-      // No report exists for this date on the cloud
-      // If we were previously looking at a valid ID that was NOT this date, reset.
-      // But if we are "creating" a new one locally (entries > 0), keep it.
-      
       const isIdBelongingToOtherDate = reports.some(r => r.id === currentReportId && r.date !== currentDate);
       
       if (isIdBelongingToOtherDate || !currentReportId) {
-         // Reset for a fresh day
          const newId = crypto.randomUUID();
          setCurrentReportId(newId);
          setCurrentEntries([]);
+         setCurrentPhotos([]);
       }
     }
   }, [currentDate, reports]);
@@ -109,30 +107,25 @@ const App = () => {
   const handleSelectReport = (id: string) => {
     const report = reports.find(r => r.id === id);
     if (report) {
-      // This will trigger the useEffect above to sync state
       setCurrentDate(report.date);
       setActiveTab(TabView.VIEW_REPORT);
     }
   };
 
   const handleCreateNew = () => {
-    // Reset to today. The useEffect will pick up if today has a report or not.
     setCurrentDate(new Date().toISOString().split('T')[0]);
     setActiveTab(TabView.INPUT);
   };
   
-  // Wrapper for tab changing to handle specific resets
   const handleTabChange = (tab: TabView) => {
       if (tab === TabView.INPUT) {
-          // Rule: "Daily updates tab's date to follow today's date by default unless manually changed"
-          // We interpret this as: clicking the tab resets to today to avoid accidental edits to old history.
           const today = new Date().toISOString().split('T')[0];
           setCurrentDate(today);
       }
       setActiveTab(tab);
   };
 
-  const saveCurrentState = async (entries: DPRItem[], date: string, reportId: string | null) => {
+  const saveCurrentState = async (entries: DPRItem[], date: string, reportId: string | null, photos: ReportPhoto[]) => {
     const id = reportId || crypto.randomUUID();
     if (!reportId) setCurrentReportId(id);
     
@@ -142,7 +135,8 @@ const App = () => {
       date,
       lastUpdated: new Date().toISOString(),
       projectTitle: "Bhotekoshi Hydroelectric Project",
-      entries
+      entries,
+      photos
     };
     
     try {
@@ -154,15 +148,17 @@ const App = () => {
     }
   };
 
-  const handleItemsAdded = (newItems: DPRItem[]) => {
-    // Append to existing entries for this day
+  const handleItemsAdded = (newItems: DPRItem[], newPhotos?: ReportPhoto[]) => {
     const updatedEntries = [...currentEntries, ...newItems];
-    setCurrentEntries(updatedEntries);
-    saveCurrentState(updatedEntries, currentDate, currentReportId);
+    const updatedPhotos = [...currentPhotos, ...(newPhotos || [])];
     
-    // Auto-switch to view report to see the result
+    setCurrentEntries(updatedEntries);
+    setCurrentPhotos(updatedPhotos);
+    
+    saveCurrentState(updatedEntries, currentDate, currentReportId, updatedPhotos);
+    
     setActiveTab(TabView.VIEW_REPORT);
-    logActivity(getUserName(), "Added Items", `Parsed and added ${newItems.length} items from input`, currentDate);
+    logActivity(getUserName(), "Report Updated", `Added ${newItems.length} items and ${newPhotos?.length || 0} photos`, currentDate);
   };
 
   const handleUpdateItem = (id: string, field: keyof DPRItem, value: string) => {
@@ -170,31 +166,26 @@ const App = () => {
       item.id === id ? { ...item, [field]: value } : item
     );
     setCurrentEntries(updatedEntries);
-    saveCurrentState(updatedEntries, currentDate, currentReportId);
+    saveCurrentState(updatedEntries, currentDate, currentReportId, currentPhotos);
     
     const item = currentEntries.find(i => i.id === id);
-    const location = item?.location || 'Unknown';
-    logActivity(getUserName(), "Updated Item", `Changed ${field} for location ${location}`, currentDate);
+    logActivity(getUserName(), "Updated Item", `Changed ${field}`, currentDate);
   };
 
   const handleDeleteItem = async (id: string) => {
     const item = currentEntries.find(i => i.id === id);
     if (!item || !currentReportId) return;
 
-    // 1. Move to Trash (Soft Delete)
     await moveItemToTrash(item, currentReportId, currentDate, getUserName());
 
-    // 2. Remove from active report and save
     const updatedEntries = currentEntries.filter(item => item.id !== id);
     setCurrentEntries(updatedEntries);
-    saveCurrentState(updatedEntries, currentDate, currentReportId);
+    saveCurrentState(updatedEntries, currentDate, currentReportId, currentPhotos);
     
-    logActivity(getUserName(), "Deleted Item", `Deleted entry for location ${item?.location || 'Unknown'} - Details: ${item?.activityDescription}`, currentDate);
+    logActivity(getUserName(), "Deleted Item", `Deleted entry for ${item?.location}`, currentDate);
   };
 
   const handleDateChange = (date: string) => {
-    // Changing the date updates state. 
-    // The useEffect [currentDate, reports] will handle loading existing data for that date.
     setCurrentDate(date);
     logActivity(getUserName(), "Changed Date", `Switched view to ${date}`, date);
   };
@@ -206,8 +197,8 @@ const App = () => {
       logActivity(getUserName(), "Deleted Report", `Deleted entire report ID: ${id}`, "N/A");
       
       if (currentReportId === id) {
-         // Reset to today or clear
          setCurrentEntries([]);
+         setCurrentPhotos([]);
       }
     }
   };
@@ -222,7 +213,8 @@ const App = () => {
     date: currentDate,
     lastUpdated: new Date().toISOString(),
     projectTitle: "Bhotekoshi Hydroelectric Project", 
-    entries: currentEntries
+    entries: currentEntries,
+    photos: currentPhotos
   };
 
   if (authLoading) {
@@ -266,7 +258,6 @@ const App = () => {
     <>
       <Layout activeTab={activeTab} onTabChange={handleTabChange} user={user} onLogout={logoutUser}>
         
-        {/* Saving Indicator */}
         <div className={`fixed top-4 right-4 z-50 transition-all duration-300 transform ${isSaving ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0 pointer-events-none'}`}>
           <div className="bg-white/90 backdrop-blur text-indigo-600 px-4 py-2 rounded-full shadow-lg border border-indigo-100 flex items-center gap-2 text-sm font-bold">
              <i className="fas fa-circle-notch fa-spin"></i> Saving changes...
@@ -279,6 +270,7 @@ const App = () => {
             onDateChange={handleDateChange}
             onItemsAdded={handleItemsAdded}
             entryCount={currentEntries.length}
+            user={user}
           />
         )}
 

@@ -42,6 +42,13 @@ export const HistoryList: React.FC<HistoryListProps> = ({
            const month = date.toLocaleDateString('en-US', { month: 'short' });
            const year = date.getFullYear();
 
+           // Calculate unique users
+           const uniqueUsers = new Set(report.entries.map(e => e.createdBy || 'Unknown'));
+           // Also add photo uploaders
+           if (report.photos) {
+             report.photos.forEach(p => uniqueUsers.add(p.uploadedBy || 'Unknown'));
+           }
+
            return (
             <div 
               key={report.id}
@@ -79,6 +86,15 @@ export const HistoryList: React.FC<HistoryListProps> = ({
                      <span>Entries</span>
                      <span className="font-bold">{report.entries.length}</span>
                    </div>
+                   <div className="flex items-center justify-between text-sm text-slate-600 bg-slate-50 p-2 rounded">
+                     <span>Contributors</span>
+                     <span className="font-bold text-indigo-600">{uniqueUsers.size}</span>
+                   </div>
+                   {report.photos && report.photos.length > 0 && (
+                      <div className="flex items-center gap-2 text-xs text-slate-400 px-2">
+                        <i className="fas fa-camera"></i> {report.photos.length} photos
+                      </div>
+                   )}
                 </div>
               </div>
 

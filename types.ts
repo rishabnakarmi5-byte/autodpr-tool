@@ -5,6 +5,15 @@ export interface DPRItem {
   chainageOrArea: string;
   activityDescription: string;
   plannedNextActivity: string;
+  createdBy?: string; // Track who added this item
+}
+
+export interface ReportPhoto {
+  id: string;
+  url: string;
+  caption: string;
+  uploadedBy: string;
+  timestamp: string;
 }
 
 export interface DailyReport {
@@ -13,6 +22,7 @@ export interface DailyReport {
   lastUpdated: string;
   projectTitle: string;
   entries: DPRItem[];
+  photos?: ReportPhoto[];
 }
 
 export interface LogEntry {

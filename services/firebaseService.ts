@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, onSnapshot, query, orderBy, limit, Unsubscribe, updateDoc, arrayUnion } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
+import { getStorage, ref, uploadString, getDownloadURL } from "firebase/storage";
 import { DailyReport, LogEntry, DPRItem, TrashItem } from "../types";
 
 // Your web app's Firebase configuration
@@ -26,12 +27,14 @@ if (missingKeys.length > 0) {
 let app;
 let db: any;
 let auth: any;
+let storage: any;
 
 if (missingKeys.length === 0) {
   try {
     app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
+    storage = getStorage(app);
   } catch (error) {
     console.error("Failed to initialize Firebase:", error);
   }
@@ -104,6 +107,22 @@ export const saveReportToCloud = async (report: DailyReport): Promise<void> => {
   } catch (e) {
     console.error("Error adding document: ", e);
     throw e;
+  }
+};
+
+// --- Storage ---
+
+export const uploadReportImage = async (base64String: string, path: string): Promise<string> => {
+  if (!storage) throw new Error("Storage not initialized");
+  
+  const storageRef = ref(storage, path);
+  try {
+    await uploadString(storageRef, base64String, 'data_url');
+    const url = await getDownloadURL(storageRef);
+    return url;
+  } catch (error) {
+    console.error("Error uploading image:", error);
+    throw error;
   }
 };
 
