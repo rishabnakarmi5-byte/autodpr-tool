@@ -63,74 +63,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     });
   };
 
-  // --- Fast & Safe Resize Logic ---
-  const resizeImageToBlob = (file: File): Promise<Blob> => {
-    return new Promise((resolve, reject) => {
-      // 1. SKIP IF FILE IS ALREADY SMALL (< 500KB)
-      if (file.size < 500 * 1024) {
-         addLog(`File small (${(file.size / 1024).toFixed(1)} KB). Skipping resize.`);
-         resolve(file);
-         return;
-      }
-
-      addLog(`Starting resize for: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
-      const reader = new FileReader();
-      
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          const MAX_SIZE = 800; 
-          let width = img.width;
-          let height = img.height;
-
-          // 2. SKIP IF DIMENSIONS ARE WITHIN LIMITS
-          if (width <= MAX_SIZE && height <= MAX_SIZE) {
-             addLog(`Dimensions (${width}x${height}) OK. Skipping resize.`);
-             resolve(file);
-             return;
-          }
-
-          if (width > height) {
-            if (width > MAX_SIZE) {
-              height *= MAX_SIZE / width;
-              width = MAX_SIZE;
-            }
-          } else {
-            if (height > MAX_SIZE) {
-              width *= MAX_SIZE / height;
-              height = MAX_SIZE;
-            }
-          }
-
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          
-          if (!ctx) {
-            reject(new Error("Canvas Context failed"));
-            return;
-          }
-
-          ctx.drawImage(img, 0, 0, width, height);
-
-          canvas.toBlob((blob) => {
-            if (blob) {
-               addLog(`Resize success. New size: ${(blob.size / 1024).toFixed(1)} KB`);
-               resolve(blob);
-            } else {
-               reject(new Error("Canvas toBlob returned null"));
-            }
-          }, 'image/jpeg', 0.7);
-        };
-        img.onerror = (err) => reject(new Error("Image object failed to load"));
-        img.src = e.target?.result as string;
-      };
-      reader.onerror = (err) => reject(new Error("FileReader failed"));
-      reader.readAsDataURL(file);
-    });
-  };
-
   const handleProcess = async () => {
     if (!rawText.trim()) return;
     setIsProcessing(true);
@@ -183,37 +115,25 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
 
     setDebugLogs([]); 
     setShowDebug(true);
-    addLog("--- Starting Batch Process ---");
+    addLog("--- Starting Uploads (No Resize) ---");
     
     const finalPhotos: ReportPhoto[] = [];
     const total = pendingPhotos.length;
     
     if (total > 0) {
-      setUploadProgress({ current: 0, total, status: 'Starting...' });
+      setUploadProgress({ current: 0, total, status: 'Initializing...' });
 
       for (let i = 0; i < total; i++) {
         const p = pendingPhotos[i];
         
         try {
-          // 1. Resize (with 10s timeout)
-          setUploadProgress({ current: i + 1, total, status: `Resizing photo ${i+1}...` });
-          await new Promise(r => setTimeout(r, 10)); // Yield to UI
+          // DIRECT UPLOAD - No Resize
+          setUploadProgress({ current: i + 1, total, status: `Uploading ${i+1}/${total}...` });
           
-          let blobToUpload: Blob;
-          try {
-            blobToUpload = await withTimeout(
-              resizeImageToBlob(p.file),
-              10000, 
-              "Resize timed out"
-            );
-          } catch (resizeErr: any) {
-            addLog(`Resize issue for ${p.file.name}: ${resizeErr.message}. Trying original.`);
-            blobToUpload = p.file;
-          }
-
-          // 2. Upload (with 45s timeout)
-          setUploadProgress({ current: i + 1, total, status: `Uploading photo ${i+1}...` });
-          addLog(`Uploading ${p.id} (${(blobToUpload.size/1024).toFixed(0)}KB)...`);
+          // Use original file
+          const blobToUpload = p.file;
+          
+          addLog(`Uploading ${p.file.name} (${(blobToUpload.size/1024).toFixed(0)}KB)...`);
           
           const storagePath = `reports/${currentDate}/${p.id}.jpg`;
           
@@ -222,13 +142,14 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
              throw new Error("User session invalid. Cannot upload.");
           }
 
+          // Increased timeout to 60s since we are uploading full files
           const downloadUrl = await withTimeout(
             uploadReportImage(blobToUpload, storagePath),
-            45000,
-            "Network upload timed out (45s). Check internet connection."
+            60000, 
+            "Upload timed out (60s). Check internet/firewall."
           );
           
-          addLog(`Upload complete.`);
+          addLog(`Success: Uploaded.`);
 
           finalPhotos.push({
             id: p.id,
@@ -246,16 +167,17 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       }
     }
 
-    addLog(`Batch complete. Success: ${finalPhotos.length}/${total}`);
+    addLog(`Finished. Success: ${finalPhotos.length}/${total}`);
 
     if (finalPhotos.length === 0 && total > 0) {
-      setError("All uploads failed. Check diagnostic log.");
+      setError("All uploads failed. See diagnostic log below.");
       setUploadProgress(null);
       return; 
     }
 
     onItemsAdded(generatedItems, finalPhotos);
     
+    // Cleanup
     pendingPhotos.forEach(p => URL.revokeObjectURL(p.preview));
     setRawText('');
     setPendingPhotos([]);
@@ -424,7 +346,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                 <i className="fas fa-images text-4xl text-indigo-300 mb-3"></i>
                 <p className="text-indigo-600 font-medium">Click to select photos</p>
                 <p className="text-xs text-slate-400 mt-1">Select multiple files at once. 
-                   <span className="font-bold text-indigo-500 ml-1">Safe-Mode Enabled.</span>
+                   <span className="font-bold text-indigo-500 ml-1">Safe-Mode Enabled (No Resize).</span>
                 </p>
                 <input 
                    type="file" 
