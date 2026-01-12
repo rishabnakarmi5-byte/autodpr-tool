@@ -35,6 +35,7 @@ if (missingKeys.length === 0) {
     db = getFirestore(app);
     auth = getAuth(app);
     storage = getStorage(app);
+    console.log("Firebase initialized successfully. Storage Bucket:", firebaseConfig.storageBucket);
   } catch (error) {
     console.error("Failed to initialize Firebase:", error);
   }
@@ -113,7 +114,11 @@ export const saveReportToCloud = async (report: DailyReport): Promise<void> => {
 // --- Storage ---
 
 export const uploadReportImage = async (file: Blob | File | string, path: string): Promise<string> => {
-  if (!storage) throw new Error("Storage not initialized");
+  if (!storage) {
+      const msg = "Storage not initialized. Check FIREBASE_STORAGE_BUCKET.";
+      console.error(msg);
+      throw new Error(msg);
+  }
   
   const storageRef = ref(storage, path);
   try {
@@ -126,8 +131,14 @@ export const uploadReportImage = async (file: Blob | File | string, path: string
     }
     const url = await getDownloadURL(storageRef);
     return url;
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error uploading image:", error);
+    if (error.code === 'storage/unauthorized') {
+        throw new Error("Permission denied. Check Firebase Storage Rules.");
+    }
+    if (error.code === 'storage/canceled') {
+        throw new Error("Upload canceled.");
+    }
     throw error;
   }
 };

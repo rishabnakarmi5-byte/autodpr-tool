@@ -47,11 +47,26 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     console.log(`[DPR DEBUG] ${msg}`);
   };
 
+  // --- Timeout Helper ---
+  const withTimeout = <T,>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> => {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(errorMsg)), ms);
+      promise
+        .then(value => {
+          clearTimeout(timer);
+          resolve(value);
+        })
+        .catch(err => {
+          clearTimeout(timer);
+          reject(err);
+        });
+    });
+  };
+
   // --- Fast & Safe Resize Logic ---
   const resizeImageToBlob = (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       // 1. SKIP IF FILE IS ALREADY SMALL (< 500KB)
-      // This prevents unnecessary processing for small images which often causes the "stuck" issue.
       if (file.size < 500 * 1024) {
          addLog(`File small (${(file.size / 1024).toFixed(1)} KB). Skipping resize.`);
          resolve(file);
@@ -64,7 +79,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       reader.onload = (e) => {
         const img = new Image();
         img.onload = () => {
-          // FAST CONFIG: Max 800px. This is instant on most phones.
           const MAX_SIZE = 800; 
           let width = img.width;
           let height = img.height;
@@ -100,7 +114,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
 
           ctx.drawImage(img, 0, 0, width, height);
 
-          // Export as Blob directly (better than base64 string for memory)
           canvas.toBlob((blob) => {
             if (blob) {
                addLog(`Resize success. New size: ${(blob.size / 1024).toFixed(1)} KB`);
@@ -108,7 +121,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
             } else {
                reject(new Error("Canvas toBlob returned null"));
             }
-          }, 'image/jpeg', 0.7); // 70% quality
+          }, 'image/jpeg', 0.7);
         };
         img.onerror = (err) => reject(new Error("Image object failed to load"));
         img.src = e.target?.result as string;
@@ -168,8 +181,8 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const handleFinalize = async () => {
     if (uploadProgress) return; 
 
-    setDebugLogs([]); // Clear previous logs
-    setShowDebug(true); // Auto-show logs on start
+    setDebugLogs([]); 
+    setShowDebug(true);
     addLog("--- Starting Batch Process ---");
     
     const finalPhotos: ReportPhoto[] = [];
@@ -178,32 +191,44 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     if (total > 0) {
       setUploadProgress({ current: 0, total, status: 'Starting...' });
 
-      // SEQUENTIAL LOOP (Not parallel) to allow UI updates and prevent freezing
       for (let i = 0; i < total; i++) {
         const p = pendingPhotos[i];
         
         try {
-          // 1. Resize
+          // 1. Resize (with 10s timeout)
           setUploadProgress({ current: i + 1, total, status: `Resizing photo ${i+1}...` });
-          // Add a small delay to let UI render the progress update
-          await new Promise(r => setTimeout(r, 50)); 
+          await new Promise(r => setTimeout(r, 10)); // Yield to UI
           
           let blobToUpload: Blob;
           try {
-            blobToUpload = await resizeImageToBlob(p.file);
+            blobToUpload = await withTimeout(
+              resizeImageToBlob(p.file),
+              10000, 
+              "Resize timed out"
+            );
           } catch (resizeErr: any) {
-            addLog(`Resize failed for ${p.file.name}: ${resizeErr.message}. Uploading original.`);
-            blobToUpload = p.file; // Fallback to original
+            addLog(`Resize issue for ${p.file.name}: ${resizeErr.message}. Trying original.`);
+            blobToUpload = p.file;
           }
 
-          // 2. Upload
+          // 2. Upload (with 45s timeout)
           setUploadProgress({ current: i + 1, total, status: `Uploading photo ${i+1}...` });
-          addLog(`Uploading ${p.id}...`);
+          addLog(`Uploading ${p.id} (${(blobToUpload.size/1024).toFixed(0)}KB)...`);
           
           const storagePath = `reports/${currentDate}/${p.id}.jpg`;
-          const downloadUrl = await uploadReportImage(blobToUpload, storagePath);
           
-          addLog(`Upload complete: ${downloadUrl.substring(0, 20)}...`);
+          // Verify user is authenticated before upload
+          if (!user) {
+             throw new Error("User session invalid. Cannot upload.");
+          }
+
+          const downloadUrl = await withTimeout(
+            uploadReportImage(blobToUpload, storagePath),
+            45000,
+            "Network upload timed out (45s). Check internet connection."
+          );
+          
+          addLog(`Upload complete.`);
 
           finalPhotos.push({
             id: p.id,
@@ -214,9 +239,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           });
 
         } catch (e: any) {
-          addLog(`ERROR on photo ${i+1}: ${e.message}`);
+          addLog(`FAILED photo ${i+1}: ${e.message}`);
           console.error(e);
-          // Don't abort the whole batch, just skip this one
+          // Continue to next photo despite error
         }
       }
     }
@@ -224,14 +249,13 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     addLog(`Batch complete. Success: ${finalPhotos.length}/${total}`);
 
     if (finalPhotos.length === 0 && total > 0) {
-      setError("All uploads failed. Please check the debug log below.");
+      setError("All uploads failed. Check diagnostic log.");
       setUploadProgress(null);
       return; 
     }
 
     onItemsAdded(generatedItems, finalPhotos);
     
-    // Cleanup
     pendingPhotos.forEach(p => URL.revokeObjectURL(p.preview));
     setRawText('');
     setPendingPhotos([]);
