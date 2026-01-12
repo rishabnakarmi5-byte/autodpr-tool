@@ -50,18 +50,31 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   // --- Fast & Safe Resize Logic ---
   const resizeImageToBlob = (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
+      // 1. SKIP IF FILE IS ALREADY SMALL (< 500KB)
+      // This prevents unnecessary processing for small images which often causes the "stuck" issue.
+      if (file.size < 500 * 1024) {
+         addLog(`File small (${(file.size / 1024).toFixed(1)} KB). Skipping resize.`);
+         resolve(file);
+         return;
+      }
+
       addLog(`Starting resize for: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
       const reader = new FileReader();
       
       reader.onload = (e) => {
         const img = new Image();
         img.onload = () => {
-          const canvas = document.createElement('canvas');
-          
           // FAST CONFIG: Max 800px. This is instant on most phones.
           const MAX_SIZE = 800; 
           let width = img.width;
           let height = img.height;
+
+          // 2. SKIP IF DIMENSIONS ARE WITHIN LIMITS
+          if (width <= MAX_SIZE && height <= MAX_SIZE) {
+             addLog(`Dimensions (${width}x${height}) OK. Skipping resize.`);
+             resolve(file);
+             return;
+          }
 
           if (width > height) {
             if (width > MAX_SIZE) {
@@ -75,6 +88,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
             }
           }
 
+          const canvas = document.createElement('canvas');
           canvas.width = width;
           canvas.height = height;
           const ctx = canvas.getContext('2d');
@@ -94,7 +108,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
             } else {
                reject(new Error("Canvas toBlob returned null"));
             }
-          }, 'image/jpeg', 0.6); // 60% quality
+          }, 'image/jpeg', 0.7); // 70% quality
         };
         img.onerror = (err) => reject(new Error("Image object failed to load"));
         img.src = e.target?.result as string;
