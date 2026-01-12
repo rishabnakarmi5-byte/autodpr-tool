@@ -37,58 +37,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const nepaliDate = getNepaliDate(currentDate);
 
-  // --- Fast Compression Logic (Single Pass) ---
-  const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = (event) => {
-        const img = new Image();
-        img.src = event.target?.result as string;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          
-          // FAST CONFIG: Max 1024px dimension.
-          // This resolution is large enough for PDF reports but small enough for fast processing.
-          const MAX_WIDTH = 1024; 
-          const MAX_HEIGHT = 1024;
-          
-          let width = img.width;
-          let height = img.height;
-
-          // Calculate new dimensions maintaining aspect ratio
-          if (width > height) {
-            if (width > MAX_WIDTH) {
-              height *= MAX_WIDTH / width;
-              width = MAX_WIDTH;
-            }
-          } else {
-            if (height > MAX_HEIGHT) {
-              width *= MAX_HEIGHT / height;
-              height = MAX_HEIGHT;
-            }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          
-          // Draw once
-          ctx?.drawImage(img, 0, 0, width, height);
-
-          // Export once at 60% quality (0.6).
-          // 1024px at 0.6 quality usually results in ~150kb - 250kb files.
-          // This avoids the slow "while loop" checking size repeatedly.
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-          
-          resolve(dataUrl);
-        };
-        img.onerror = (err) => reject(err);
-      };
-      reader.onerror = (err) => reject(err);
-    });
-  };
-
   const handleProcess = async () => {
     if (!rawText.trim()) return;
     setIsProcessing(true);
@@ -136,26 +84,27 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   };
 
   const handleFinalize = async () => {
-    if (uploadProgress) return; // Prevent double click
+    if (uploadProgress) return; 
 
     const finalPhotos: ReportPhoto[] = [];
+    const total = pendingPhotos.length;
     
     // Start Progress
-    if (pendingPhotos.length > 0) {
-      setUploadProgress({ current: 0, total: pendingPhotos.length });
+    if (total > 0) {
+      setUploadProgress({ current: 0, total });
+      
+      // Process in batches of 4 for network efficiency
+      const BATCH_SIZE = 4;
+      let completedCount = 0;
 
-      try {
-        for (let i = 0; i < pendingPhotos.length; i++) {
-          const p = pendingPhotos[i];
-          
-          // 1. Compress (Fast)
-          const compressedBase64 = await compressImage(p.file);
-          
-          // 2. Upload
-          const storagePath = `reports/${currentDate}/${p.id}.jpg`;
-          const downloadUrl = await uploadReportImage(compressedBase64, storagePath);
+      const processPhoto = async (p: PendingPhoto) => {
+        try {
+          // DIRECT UPLOAD: Skipping client-side compression to avoid UI freeze.
+          // This delegates resizing to server-side extensions if configured, 
+          // or simply stores the original quality image.
+          const storagePath = `reports/${currentDate}/${p.id}.jpg`; // Assumes .jpg or original extension is fine for retrieval
+          const downloadUrl = await uploadReportImage(p.file, storagePath);
 
-          // 3. Add to final list
           finalPhotos.push({
             id: p.id,
             url: downloadUrl,
@@ -163,24 +112,31 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
             uploadedBy: user?.displayName || 'Unknown',
             timestamp: new Date().toISOString()
           });
+        } catch (e) {
+          console.error("Error uploading photo:", p.id, e);
+          setError("Failed to upload some photos. Check internet connection.");
+        } finally {
+          completedCount++;
+          setUploadProgress({ current: completedCount, total });
+        }
+      };
 
-          // Update progress
-          setUploadProgress({ current: i + 1, total: pendingPhotos.length });
+      try {
+        // Execute in batches
+        for (let i = 0; i < total; i += BATCH_SIZE) {
+          const batch = pendingPhotos.slice(i, i + BATCH_SIZE);
+          await Promise.all(batch.map(processPhoto));
         }
       } catch (e) {
-        console.error(e);
-        setError("Failed to upload some photos. Please check connection.");
-        setUploadProgress(null);
-        return;
+        console.error("Batch processing error", e);
+        setError("Network error occurred during upload.");
       }
     }
 
     onItemsAdded(generatedItems, finalPhotos);
     
-    // Clean up object URLs to avoid memory leaks
+    // Clean up
     pendingPhotos.forEach(p => URL.revokeObjectURL(p.preview));
-
-    // Reset
     setRawText('');
     setPendingPhotos([]);
     setGeneratedItems([]);
@@ -228,7 +184,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                <i className="fas fa-check-circle text-green-500"></i> Cloud Sync Active
              </div>
              <div className="flex items-center text-sm text-slate-600 gap-2">
-               <i className="fas fa-brain text-purple-500"></i> Smart Engine Ready
+               <i className="fas fa-cloud-upload-alt text-blue-500"></i> Direct Upload Mode
              </div>
            </div>
            {/* Hidden signature */}
@@ -333,7 +289,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
              >
                 <i className="fas fa-images text-4xl text-indigo-300 mb-3"></i>
                 <p className="text-indigo-600 font-medium">Click to select photos</p>
-                <p className="text-xs text-slate-400 mt-1">Select multiple files at once. Auto-compression on finalize.</p>
+                <p className="text-xs text-slate-400 mt-1">Select multiple files at once. 
+                   <span className="font-bold text-indigo-500 ml-1">Direct Upload Mode Enabled.</span>
+                </p>
                 <input 
                    type="file" 
                    multiple 
@@ -376,7 +334,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
              {uploadProgress && (
                 <div className="space-y-2">
                    <div className="flex justify-between text-xs font-bold text-indigo-600">
-                      <span>Compressing & Uploading...</span>
+                      <span>Uploading Originals...</span>
                       <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
                    </div>
                    <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
@@ -385,7 +343,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                          style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
                       ></div>
                    </div>
-                   <p className="text-center text-xs text-slate-400">Processing photo {uploadProgress.current} of {uploadProgress.total}</p>
+                   <p className="text-center text-xs text-slate-400">Uploading photo {uploadProgress.current} of {uploadProgress.total}</p>
                 </div>
              )}
 
@@ -403,7 +361,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                   className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-lg shadow-green-200 transition-all transform hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed"
                >
                   {uploadProgress ? (
-                     <span><i className="fas fa-circle-notch fa-spin mr-2"></i> Processing...</span>
+                     <span><i className="fas fa-circle-notch fa-spin mr-2"></i> Uploading...</span>
                   ) : (
                      <span>Finalize Report <i className="fas fa-arrow-right ml-2"></i></span>
                   )}

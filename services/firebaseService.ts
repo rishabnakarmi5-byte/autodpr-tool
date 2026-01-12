@@ -1,7 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, onSnapshot, query, orderBy, limit, Unsubscribe, updateDoc, arrayUnion } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
-import { getStorage, ref, uploadString, getDownloadURL } from "firebase/storage";
+import { getStorage, ref, uploadString, uploadBytes, getDownloadURL } from "firebase/storage";
 import { DailyReport, LogEntry, DPRItem, TrashItem } from "../types";
 
 // Your web app's Firebase configuration
@@ -112,12 +112,18 @@ export const saveReportToCloud = async (report: DailyReport): Promise<void> => {
 
 // --- Storage ---
 
-export const uploadReportImage = async (base64String: string, path: string): Promise<string> => {
+export const uploadReportImage = async (file: Blob | File | string, path: string): Promise<string> => {
   if (!storage) throw new Error("Storage not initialized");
   
   const storageRef = ref(storage, path);
   try {
-    await uploadString(storageRef, base64String, 'data_url');
+    if (typeof file === 'string') {
+        // Handle Base64 strings (legacy support)
+        await uploadString(storageRef, file, 'data_url');
+    } else {
+        // Handle Blobs/Files (More efficient, no base64 overhead)
+        await uploadBytes(storageRef, file);
+    }
     const url = await getDownloadURL(storageRef);
     return url;
   } catch (error) {
