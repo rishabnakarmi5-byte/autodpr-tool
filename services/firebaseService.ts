@@ -1,15 +1,21 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, onSnapshot, query, orderBy, limit, Unsubscribe, updateDoc, arrayUnion } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
-import { getStorage, ref, uploadString, uploadBytes, getDownloadURL } from "firebase/storage";
+import { getStorage, ref, uploadString, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { DailyReport, LogEntry, DPRItem, TrashItem } from "../types";
+
+// Helper to sanitize bucket name (remove gs:// prefix if present)
+const sanitizeBucket = (bucket: string | undefined) => {
+  if (!bucket) return undefined;
+  return bucket.replace(/^gs:\/\//, '').replace(/\/$/, '');
+}
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY,
   authDomain: process.env.FIREBASE_AUTH_DOMAIN,
   projectId: process.env.FIREBASE_PROJECT_ID,
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+  storageBucket: sanitizeBucket(process.env.FIREBASE_STORAGE_BUCKET),
   messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.FIREBASE_APP_ID,
   measurementId: process.env.measurementId
@@ -46,6 +52,13 @@ if (missingKeys.length === 0) {
 const REPORT_COLLECTION = "daily_reports";
 const LOG_COLLECTION = "activity_logs";
 const TRASH_COLLECTION = "trash_bin";
+
+// --- Debug Helper ---
+export const getStorageConfig = () => ({
+  bucket: firebaseConfig.storageBucket,
+  projectId: firebaseConfig.projectId,
+  isInitialized: !!storage
+});
 
 // --- Authentication ---
 
@@ -125,20 +138,44 @@ export const uploadReportImage = async (file: Blob | File | string, path: string
     if (typeof file === 'string') {
         // Handle Base64 strings (legacy support)
         await uploadString(storageRef, file, 'data_url');
+        return await getDownloadURL(storageRef);
     } else {
-        // Handle Blobs/Files (More efficient, no base64 overhead)
-        await uploadBytes(storageRef, file);
+        // Use uploadBytesResumable for better reliability than uploadBytes
+        const metadata = {
+          contentType: 'image/jpeg', // Force JPEG content type for consistency
+        };
+        
+        const uploadTask = uploadBytesResumable(storageRef, file, metadata);
+        
+        return new Promise((resolve, reject) => {
+          uploadTask.on('state_changed', 
+            (snapshot) => {
+              // Optional: We could track detailed progress here
+              // const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            }, 
+            (error) => {
+              console.error("Upload failed:", error);
+              if (error.code === 'storage/unauthorized') {
+                  reject(new Error("Permission denied. Check Firebase Storage Rules."));
+              } else if (error.code === 'storage/canceled') {
+                  reject(new Error("Upload canceled."));
+              } else {
+                  reject(error);
+              }
+            }, 
+            async () => {
+              try {
+                const url = await getDownloadURL(uploadTask.snapshot.ref);
+                resolve(url);
+              } catch (err) {
+                reject(err);
+              }
+            }
+          );
+        });
     }
-    const url = await getDownloadURL(storageRef);
-    return url;
   } catch (error: any) {
     console.error("Error uploading image:", error);
-    if (error.code === 'storage/unauthorized') {
-        throw new Error("Permission denied. Check Firebase Storage Rules.");
-    }
-    if (error.code === 'storage/canceled') {
-        throw new Error("Upload canceled.");
-    }
     throw error;
   }
 };

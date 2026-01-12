@@ -3,7 +3,7 @@ import { parseConstructionData } from '../services/geminiService';
 import { DPRItem, ReportPhoto } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 import { User } from 'firebase/auth';
-import { uploadReportImage } from '../services/firebaseService';
+import { uploadReportImage, getStorageConfig } from '../services/firebaseService';
 
 interface InputSectionProps {
   currentDate: string;
@@ -117,6 +117,17 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     setShowDebug(true);
     addLog("--- Starting Uploads (No Resize) ---");
     
+    // Config Check
+    const { bucket, projectId, isInitialized } = getStorageConfig();
+    addLog(`Config: Project=${projectId}, Bucket=${bucket ? bucket : 'UNDEFINED'}`);
+    
+    if (!isInitialized || !bucket) {
+       const msg = "CRITICAL: Firebase Storage is not configured. Check FIREBASE_STORAGE_BUCKET env var.";
+       addLog(msg);
+       setError(msg);
+       return;
+    }
+
     const finalPhotos: ReportPhoto[] = [];
     const total = pendingPhotos.length;
     
@@ -142,11 +153,11 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
              throw new Error("User session invalid. Cannot upload.");
           }
 
-          // Increased timeout to 60s since we are uploading full files
+          // Increased timeout to 120s just in case
           const downloadUrl = await withTimeout(
             uploadReportImage(blobToUpload, storagePath),
-            60000, 
-            "Upload timed out (60s). Check internet/firewall."
+            120000, 
+            "Upload timed out (120s). Check internet/firewall."
           );
           
           addLog(`Success: Uploaded.`);
