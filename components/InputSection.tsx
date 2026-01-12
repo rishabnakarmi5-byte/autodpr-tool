@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { parseConstructionData } from '../services/geminiService';
 import { DPRItem, ReportPhoto } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
@@ -30,12 +30,79 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   
   // Photo State
   const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
-  const [uploadProgress, setUploadProgress] = useState<{current: number, total: number} | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{current: number, total: number, status: string} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Debugging State
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
 
   const dateObj = new Date(currentDate);
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const nepaliDate = getNepaliDate(currentDate);
+
+  const addLog = (msg: string) => {
+    const time = new Date().toLocaleTimeString();
+    setDebugLogs(prev => [`[${time}] ${msg}`, ...prev]);
+    console.log(`[DPR DEBUG] ${msg}`);
+  };
+
+  // --- Fast & Safe Resize Logic ---
+  const resizeImageToBlob = (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      addLog(`Starting resize for: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          
+          // FAST CONFIG: Max 800px. This is instant on most phones.
+          const MAX_SIZE = 800; 
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          
+          if (!ctx) {
+            reject(new Error("Canvas Context failed"));
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Export as Blob directly (better than base64 string for memory)
+          canvas.toBlob((blob) => {
+            if (blob) {
+               addLog(`Resize success. New size: ${(blob.size / 1024).toFixed(1)} KB`);
+               resolve(blob);
+            } else {
+               reject(new Error("Canvas toBlob returned null"));
+            }
+          }, 'image/jpeg', 0.6); // 60% quality
+        };
+        img.onerror = (err) => reject(new Error("Image object failed to load"));
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = (err) => reject(new Error("FileReader failed"));
+      reader.readAsDataURL(file);
+    });
+  };
 
   const handleProcess = async () => {
     if (!rawText.trim()) return;
@@ -49,10 +116,11 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         createdBy: user?.displayName || user?.email || 'Unknown' 
       }));
       setGeneratedItems(newItems);
-      setStep(2); // Move to photo upload step
-    } catch (err) {
+      setStep(2); 
+    } catch (err: any) {
       console.error(err);
       setError("Failed to process text. Ensure your connection is stable.");
+      addLog(`Text processing error: ${err.message}`);
     } finally {
       setIsProcessing(false);
     }
@@ -70,8 +138,8 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         };
       });
       setPendingPhotos(prev => [...prev, ...newPhotos]);
+      addLog(`Selected ${e.target.files.length} new photos.`);
     }
-    // Reset input
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -86,24 +154,42 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const handleFinalize = async () => {
     if (uploadProgress) return; 
 
+    setDebugLogs([]); // Clear previous logs
+    setShowDebug(true); // Auto-show logs on start
+    addLog("--- Starting Batch Process ---");
+    
     const finalPhotos: ReportPhoto[] = [];
     const total = pendingPhotos.length;
     
-    // Start Progress
     if (total > 0) {
-      setUploadProgress({ current: 0, total });
-      
-      // Process in batches of 4 for network efficiency
-      const BATCH_SIZE = 4;
-      let completedCount = 0;
+      setUploadProgress({ current: 0, total, status: 'Starting...' });
 
-      const processPhoto = async (p: PendingPhoto) => {
+      // SEQUENTIAL LOOP (Not parallel) to allow UI updates and prevent freezing
+      for (let i = 0; i < total; i++) {
+        const p = pendingPhotos[i];
+        
         try {
-          // DIRECT UPLOAD: Skipping client-side compression to avoid UI freeze.
-          // This delegates resizing to server-side extensions if configured, 
-          // or simply stores the original quality image.
-          const storagePath = `reports/${currentDate}/${p.id}.jpg`; // Assumes .jpg or original extension is fine for retrieval
-          const downloadUrl = await uploadReportImage(p.file, storagePath);
+          // 1. Resize
+          setUploadProgress({ current: i + 1, total, status: `Resizing photo ${i+1}...` });
+          // Add a small delay to let UI render the progress update
+          await new Promise(r => setTimeout(r, 50)); 
+          
+          let blobToUpload: Blob;
+          try {
+            blobToUpload = await resizeImageToBlob(p.file);
+          } catch (resizeErr: any) {
+            addLog(`Resize failed for ${p.file.name}: ${resizeErr.message}. Uploading original.`);
+            blobToUpload = p.file; // Fallback to original
+          }
+
+          // 2. Upload
+          setUploadProgress({ current: i + 1, total, status: `Uploading photo ${i+1}...` });
+          addLog(`Uploading ${p.id}...`);
+          
+          const storagePath = `reports/${currentDate}/${p.id}.jpg`;
+          const downloadUrl = await uploadReportImage(blobToUpload, storagePath);
+          
+          addLog(`Upload complete: ${downloadUrl.substring(0, 20)}...`);
 
           finalPhotos.push({
             id: p.id,
@@ -112,36 +198,33 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
             uploadedBy: user?.displayName || 'Unknown',
             timestamp: new Date().toISOString()
           });
-        } catch (e) {
-          console.error("Error uploading photo:", p.id, e);
-          setError("Failed to upload some photos. Check internet connection.");
-        } finally {
-          completedCount++;
-          setUploadProgress({ current: completedCount, total });
-        }
-      };
 
-      try {
-        // Execute in batches
-        for (let i = 0; i < total; i += BATCH_SIZE) {
-          const batch = pendingPhotos.slice(i, i + BATCH_SIZE);
-          await Promise.all(batch.map(processPhoto));
+        } catch (e: any) {
+          addLog(`ERROR on photo ${i+1}: ${e.message}`);
+          console.error(e);
+          // Don't abort the whole batch, just skip this one
         }
-      } catch (e) {
-        console.error("Batch processing error", e);
-        setError("Network error occurred during upload.");
       }
+    }
+
+    addLog(`Batch complete. Success: ${finalPhotos.length}/${total}`);
+
+    if (finalPhotos.length === 0 && total > 0) {
+      setError("All uploads failed. Please check the debug log below.");
+      setUploadProgress(null);
+      return; 
     }
 
     onItemsAdded(generatedItems, finalPhotos);
     
-    // Clean up
+    // Cleanup
     pendingPhotos.forEach(p => URL.revokeObjectURL(p.preview));
     setRawText('');
     setPendingPhotos([]);
     setGeneratedItems([]);
     setUploadProgress(null);
     setStep(1);
+    setShowDebug(false);
   };
 
   return (
@@ -184,15 +267,28 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                <i className="fas fa-check-circle text-green-500"></i> Cloud Sync Active
              </div>
              <div className="flex items-center text-sm text-slate-600 gap-2">
-               <i className="fas fa-cloud-upload-alt text-blue-500"></i> Direct Upload Mode
+               <i className="fas fa-bug text-orange-500"></i> 
+               <button onClick={() => setShowDebug(!showDebug)} className="hover:underline">
+                 Diagnostic Mode {showDebug ? 'ON' : 'OFF'}
+               </button>
              </div>
-           </div>
-           {/* Hidden signature */}
-           <div className="absolute bottom-1 right-1">
-             <span className="text-white text-[1px] opacity-[0.01] select-none">built by Rishab Nakarmi</span>
            </div>
         </div>
       </div>
+
+      {/* DEBUG CONSOLE */}
+      {showDebug && (
+        <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs max-h-40 overflow-y-auto border border-slate-700 shadow-inner">
+           <div className="flex justify-between border-b border-slate-700 pb-2 mb-2">
+             <span className="font-bold">Diagnostic Log</span>
+             <button onClick={() => setDebugLogs([])} className="text-slate-500 hover:text-white">Clear</button>
+           </div>
+           {debugLogs.length === 0 && <span className="text-slate-600 opacity-50">Waiting for actions...</span>}
+           {debugLogs.map((log, i) => (
+             <div key={i}>{log}</div>
+           ))}
+        </div>
+      )}
 
       {/* STEP 1: TEXT INPUT */}
       {step === 1 && (
@@ -290,7 +386,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                 <i className="fas fa-images text-4xl text-indigo-300 mb-3"></i>
                 <p className="text-indigo-600 font-medium">Click to select photos</p>
                 <p className="text-xs text-slate-400 mt-1">Select multiple files at once. 
-                   <span className="font-bold text-indigo-500 ml-1">Direct Upload Mode Enabled.</span>
+                   <span className="font-bold text-indigo-500 ml-1">Safe-Mode Enabled.</span>
                 </p>
                 <input 
                    type="file" 
@@ -334,7 +430,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
              {uploadProgress && (
                 <div className="space-y-2">
                    <div className="flex justify-between text-xs font-bold text-indigo-600">
-                      <span>Uploading Originals...</span>
+                      <span>{uploadProgress.status}</span>
                       <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
                    </div>
                    <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
@@ -343,7 +439,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                          style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
                       ></div>
                    </div>
-                   <p className="text-center text-xs text-slate-400">Uploading photo {uploadProgress.current} of {uploadProgress.total}</p>
+                   <p className="text-center text-xs text-slate-400">Processing photo {uploadProgress.current} of {uploadProgress.total}</p>
                 </div>
              )}
 
@@ -361,7 +457,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                   className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-lg shadow-green-200 transition-all transform hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed"
                >
                   {uploadProgress ? (
-                     <span><i className="fas fa-circle-notch fa-spin mr-2"></i> Uploading...</span>
+                     <span><i className="fas fa-circle-notch fa-spin mr-2"></i> Working...</span>
                   ) : (
                      <span>Finalize Report <i className="fas fa-arrow-right ml-2"></i></span>
                   )}
