@@ -3,7 +3,7 @@ import { parseConstructionData } from '../services/geminiService';
 import { DPRItem, ReportPhoto } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 import { User } from 'firebase/auth';
-import { uploadReportImage, getStorageConfig } from '../services/firebaseService';
+import { uploadReportImage, getStorageConfig, testStorageConnection } from '../services/firebaseService';
 
 interface InputSectionProps {
   currentDate: string;
@@ -36,14 +36,25 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   // Debugging State
   const [showDebug, setShowDebug] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const startTimeRef = useRef<number>(0);
 
   const dateObj = new Date(currentDate);
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const nepaliDate = getNepaliDate(currentDate);
 
+  const startTimer = () => {
+    startTimeRef.current = Date.now();
+  };
+
+  const getElapsed = () => {
+    if (!startTimeRef.current) return "0.0s";
+    return ((Date.now() - startTimeRef.current) / 1000).toFixed(1) + "s";
+  };
+
   const addLog = (msg: string) => {
     const time = new Date().toLocaleTimeString();
-    setDebugLogs(prev => [`[${time}] ${msg}`, ...prev]);
+    const timer = getElapsed();
+    setDebugLogs(prev => [`[${time}] [T+${timer}] ${msg}`, ...prev]);
     console.log(`[DPR DEBUG] ${msg}`);
   };
 
@@ -61,6 +72,13 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           reject(err);
         });
     });
+  };
+
+  const handleTestConnection = async () => {
+    startTimer();
+    addLog("Testing Storage connection...");
+    const result = await testStorageConnection();
+    addLog(result);
   };
 
   const handleProcess = async () => {
@@ -97,6 +115,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         };
       });
       setPendingPhotos(prev => [...prev, ...newPhotos]);
+      startTimer();
       addLog(`Selected ${e.target.files.length} new photos.`);
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -110,12 +129,24 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     setPendingPhotos(prev => prev.filter(p => p.id !== id));
   };
 
+  const downloadBackup = () => {
+    pendingPhotos.forEach(p => {
+        const link = document.createElement('a');
+        link.href = p.preview;
+        link.download = `BACKUP_${p.file.name}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    });
+  };
+
   const handleFinalize = async () => {
     if (uploadProgress) return; 
 
     setDebugLogs([]); 
     setShowDebug(true);
-    addLog("--- Starting Uploads (No Resize) ---");
+    startTimer();
+    addLog("--- Starting 3-Stage Smart Upload ---");
     
     // Config Check
     const { bucket, projectId, isInitialized } = getStorageConfig();
@@ -130,6 +161,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
 
     const finalPhotos: ReportPhoto[] = [];
     const total = pendingPhotos.length;
+    let failCount = 0;
     
     if (total > 0) {
       setUploadProgress({ current: 0, total, status: 'Initializing...' });
@@ -153,11 +185,12 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
              throw new Error("User session invalid. Cannot upload.");
           }
 
-          // Increased timeout to 120s just in case
+          // Smart upload strategy handled in service (Binary -> Resumable -> Base64)
+          // Timeout increased to 3 minutes to allow for fallback retries
           const downloadUrl = await withTimeout(
-            uploadReportImage(blobToUpload, storagePath),
-            120000, 
-            "Upload timed out (120s). Check internet/firewall."
+            uploadReportImage(blobToUpload, storagePath, (msg) => addLog(msg)),
+            180000, 
+            "Upload timed out (180s). Firewall may be blocking both binary and text uploads."
           );
           
           addLog(`Success: Uploaded.`);
@@ -172,6 +205,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
 
         } catch (e: any) {
           addLog(`FAILED photo ${i+1}: ${e.message}`);
+          failCount++;
           console.error(e);
           // Continue to next photo despite error
         }
@@ -181,7 +215,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     addLog(`Finished. Success: ${finalPhotos.length}/${total}`);
 
     if (finalPhotos.length === 0 && total > 0) {
-      setError("All uploads failed. See diagnostic log below.");
+      setError("All uploads failed. Use Manual Backup button.");
       setUploadProgress(null);
       return; 
     }
@@ -251,8 +285,11 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       {showDebug && (
         <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs max-h-40 overflow-y-auto border border-slate-700 shadow-inner">
            <div className="flex justify-between border-b border-slate-700 pb-2 mb-2">
-             <span className="font-bold">Diagnostic Log</span>
-             <button onClick={() => setDebugLogs([])} className="text-slate-500 hover:text-white">Clear</button>
+             <span className="font-bold">Diagnostic Log (Time Elapsed Enabled)</span>
+             <div className="flex gap-2">
+                 <button onClick={handleTestConnection} className="text-xs bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded">Test Connectivity</button>
+                 <button onClick={() => setDebugLogs([])} className="text-slate-500 hover:text-white px-2">Clear</button>
+             </div>
            </div>
            {debugLogs.length === 0 && <span className="text-slate-600 opacity-50">Waiting for actions...</span>}
            {debugLogs.map((log, i) => (
@@ -357,7 +394,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                 <i className="fas fa-images text-4xl text-indigo-300 mb-3"></i>
                 <p className="text-indigo-600 font-medium">Click to select photos</p>
                 <p className="text-xs text-slate-400 mt-1">Select multiple files at once. 
-                   <span className="font-bold text-indigo-500 ml-1">Safe-Mode Enabled (No Resize).</span>
+                   <span className="font-bold text-indigo-500 ml-1">Safe-Mode Enabled (Smart Fallback).</span>
                 </p>
                 <input 
                    type="file" 
@@ -412,6 +449,20 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                    </div>
                    <p className="text-center text-xs text-slate-400">Processing photo {uploadProgress.current} of {uploadProgress.total}</p>
                 </div>
+             )}
+
+             {/* Error & Manual Backup */}
+             {error && pendingPhotos.length > 0 && (
+                 <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex flex-col items-center gap-2 text-center animate-fade-in">
+                     <div className="text-red-700 font-bold"><i className="fas fa-exclamation-triangle mr-2"></i> Uploads Failed</div>
+                     <p className="text-xs text-red-600 max-w-sm">The cloud upload could not complete due to network restrictions. Use the button below to save your photos locally so you can send them manually.</p>
+                     <button 
+                        onClick={downloadBackup}
+                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-lg"
+                     >
+                        <i className="fas fa-download mr-2"></i> Download Manual Backup
+                     </button>
+                 </div>
              )}
 
              <div className="flex justify-between items-center pt-4 border-t border-slate-100">

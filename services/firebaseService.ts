@@ -1,13 +1,14 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, onSnapshot, query, orderBy, limit, Unsubscribe, updateDoc, arrayUnion } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
-import { getStorage, ref, uploadString, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { getStorage, ref, uploadString, uploadBytes, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { DailyReport, LogEntry, DPRItem, TrashItem } from "../types";
 
 // Helper to sanitize bucket name (remove gs:// prefix if present)
 const sanitizeBucket = (bucket: string | undefined) => {
   if (!bucket) return undefined;
-  return bucket.replace(/^gs:\/\//, '').replace(/\/$/, '');
+  // Remove gs:// prefix, trailing slashes, and any accidental quotes
+  return bucket.replace(/^gs:\/\//, '').replace(/\/$/, '').replace(/['"]/g, '').trim();
 }
 
 // Your web app's Firebase configuration
@@ -59,6 +60,17 @@ export const getStorageConfig = () => ({
   projectId: firebaseConfig.projectId,
   isInitialized: !!storage
 });
+
+export const testStorageConnection = async (): Promise<string> => {
+  if (!storage) throw new Error("Storage not initialized");
+  try {
+    const testRef = ref(storage, 'connectivity_test.txt');
+    await uploadString(testRef, 'test', 'raw');
+    return "Success: Write access verified.";
+  } catch (e: any) {
+    return `Failed: ${e.message}`;
+  }
+};
 
 // --- Authentication ---
 
@@ -126,57 +138,95 @@ export const saveReportToCloud = async (report: DailyReport): Promise<void> => {
 
 // --- Storage ---
 
-export const uploadReportImage = async (file: Blob | File | string, path: string): Promise<string> => {
+export const uploadReportImage = async (
+  file: Blob | File | string, 
+  path: string,
+  onLog?: (msg: string) => void
+): Promise<string> => {
   if (!storage) {
       const msg = "Storage not initialized. Check FIREBASE_STORAGE_BUCKET.";
       console.error(msg);
       throw new Error(msg);
   }
+
+  const log = (msg: string) => {
+    if (onLog) onLog(msg);
+    console.log(`[UploadService] ${msg}`);
+  };
   
   const storageRef = ref(storage, path);
+  
+  // STRATEGY: 3-Stage Fallback
+  // 1. Standard Binary (uploadBytes) - Fast
+  // 2. Resumable Binary (uploadBytesResumable) - Robust
+  // 3. Base64 (uploadString) - Firewall Bypass
+
   try {
+    // --- STAGE 1: Standard Binary ---
+    if (typeof file !== 'string') {
+        try {
+            log("Method A: Standard Binary...");
+            const metadata = { contentType: file.type || 'image/jpeg' };
+            const snapshot = await uploadBytes(storageRef, file, metadata);
+            log("Method A Success.");
+            return await getDownloadURL(snapshot.ref);
+        } catch (err: any) {
+            log(`Method A Failed: ${err.code || err.message}. Switching...`);
+            if (err.code === 'storage/unauthorized') throw err; 
+        }
+
+        // --- STAGE 2: Resumable Binary ---
+        try {
+            log("Method B: Resumable Upload...");
+            const metadata = { contentType: file.type || 'image/jpeg' };
+            const uploadTask = uploadBytesResumable(storageRef, file, metadata);
+            
+            await new Promise<void>((resolve, reject) => {
+                uploadTask.on('state_changed', 
+                    null, 
+                    (error) => reject(error), 
+                    () => resolve()
+                );
+            });
+            log("Method B Success.");
+            return await getDownloadURL(uploadTask.snapshot.ref);
+        } catch (err: any) {
+            log(`Method B Failed: ${err.code || err.message}. Switching...`);
+            if (err.code === 'storage/unauthorized') throw err;
+        }
+    }
+
+    // --- STAGE 3: Base64 Fallback ---
+    log("Method C: Base64 Fallback...");
+    let dataUrl = '';
+    
     if (typeof file === 'string') {
-        // Handle Base64 strings (legacy support)
-        await uploadString(storageRef, file, 'data_url');
-        return await getDownloadURL(storageRef);
+        dataUrl = file;
     } else {
-        // Use uploadBytesResumable for better reliability than uploadBytes
-        const metadata = {
-          contentType: 'image/jpeg', // Force JPEG content type for consistency
-        };
-        
-        const uploadTask = uploadBytesResumable(storageRef, file, metadata);
-        
-        return new Promise((resolve, reject) => {
-          uploadTask.on('state_changed', 
-            (snapshot) => {
-              // Optional: We could track detailed progress here
-              // const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-            }, 
-            (error) => {
-              console.error("Upload failed:", error);
-              if (error.code === 'storage/unauthorized') {
-                  reject(new Error("Permission denied. Check Firebase Storage Rules."));
-              } else if (error.code === 'storage/canceled') {
-                  reject(new Error("Upload canceled."));
-              } else {
-                  reject(error);
-              }
-            }, 
-            async () => {
-              try {
-                const url = await getDownloadURL(uploadTask.snapshot.ref);
-                resolve(url);
-              } catch (err) {
-                reject(err);
-              }
-            }
-          );
+        // Convert Blob/File to Base64
+        dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target?.result as string);
+            reader.onerror = (e) => reject(new Error("Failed to read file for base64 fallback"));
+            reader.readAsDataURL(file as Blob);
         });
     }
+
+    await uploadString(storageRef, dataUrl, 'data_url');
+    log("Method C Success.");
+    const url = await getDownloadURL(storageRef);
+    return url;
+
   } catch (error: any) {
-    console.error("Error uploading image:", error);
-    throw error;
+    console.error("Final upload error:", error);
+    if (error.code === 'storage/unauthorized') {
+        throw new Error("Permission denied. Check Firebase Storage Rules.");
+    }
+    if (error.code === 'storage/canceled') {
+        throw new Error("Upload canceled.");
+    }
+    // Generic Network Error
+    throw new Error(`All upload methods failed. Network/Firewall issue.`);
   }
 };
 
