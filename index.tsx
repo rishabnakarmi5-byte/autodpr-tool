@@ -7,7 +7,7 @@ import { ReportTable } from './components/ReportTable';
 import { ActivityLogs } from './components/ActivityLogs';
 import { RecycleBin } from './components/RecycleBin';
 import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem } from './services/firebaseService';
-import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ReportPhoto } from './types';
+import { DailyReport, DPRItem, TabView, LogEntry, TrashItem } from './types';
 import { User } from "firebase/auth";
 
 const App = () => {
@@ -25,7 +25,6 @@ const App = () => {
   const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
   const [currentEntries, setCurrentEntries] = useState<DPRItem[]>([]);
-  const [currentPhotos, setCurrentPhotos] = useState<ReportPhoto[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
   // --- PERSISTENCE & SYNC ---
@@ -76,9 +75,6 @@ const App = () => {
       if (JSON.stringify(existingReport.entries) !== JSON.stringify(currentEntries)) {
          setCurrentEntries(existingReport.entries);
       }
-      if (JSON.stringify(existingReport.photos) !== JSON.stringify(currentPhotos)) {
-         setCurrentPhotos(existingReport.photos || []);
-      }
     } else {
       const isIdBelongingToOtherDate = reports.some(r => r.id === currentReportId && r.date !== currentDate);
       
@@ -86,7 +82,6 @@ const App = () => {
          const newId = crypto.randomUUID();
          setCurrentReportId(newId);
          setCurrentEntries([]);
-         setCurrentPhotos([]);
       }
     }
   }, [currentDate, reports]);
@@ -125,7 +120,7 @@ const App = () => {
       setActiveTab(tab);
   };
 
-  const saveCurrentState = async (entries: DPRItem[], date: string, reportId: string | null, photos: ReportPhoto[]) => {
+  const saveCurrentState = async (entries: DPRItem[], date: string, reportId: string | null) => {
     const id = reportId || crypto.randomUUID();
     if (!reportId) setCurrentReportId(id);
     
@@ -135,8 +130,7 @@ const App = () => {
       date,
       lastUpdated: new Date().toISOString(),
       projectTitle: "Bhotekoshi Hydroelectric Project",
-      entries,
-      photos
+      entries
     };
     
     try {
@@ -148,17 +142,15 @@ const App = () => {
     }
   };
 
-  const handleItemsAdded = (newItems: DPRItem[], newPhotos?: ReportPhoto[]) => {
+  const handleItemsAdded = (newItems: DPRItem[]) => {
     const updatedEntries = [...currentEntries, ...newItems];
-    const updatedPhotos = [...currentPhotos, ...(newPhotos || [])];
     
     setCurrentEntries(updatedEntries);
-    setCurrentPhotos(updatedPhotos);
     
-    saveCurrentState(updatedEntries, currentDate, currentReportId, updatedPhotos);
+    saveCurrentState(updatedEntries, currentDate, currentReportId);
     
     setActiveTab(TabView.VIEW_REPORT);
-    logActivity(getUserName(), "Report Updated", `Added ${newItems.length} items and ${newPhotos?.length || 0} photos`, currentDate);
+    logActivity(getUserName(), "Report Updated", `Added ${newItems.length} items`, currentDate);
   };
 
   const handleUpdateItem = (id: string, field: keyof DPRItem, value: string) => {
@@ -166,7 +158,7 @@ const App = () => {
       item.id === id ? { ...item, [field]: value } : item
     );
     setCurrentEntries(updatedEntries);
-    saveCurrentState(updatedEntries, currentDate, currentReportId, currentPhotos);
+    saveCurrentState(updatedEntries, currentDate, currentReportId);
     
     const item = currentEntries.find(i => i.id === id);
     logActivity(getUserName(), "Updated Item", `Changed ${field}`, currentDate);
@@ -180,7 +172,7 @@ const App = () => {
 
     const updatedEntries = currentEntries.filter(item => item.id !== id);
     setCurrentEntries(updatedEntries);
-    saveCurrentState(updatedEntries, currentDate, currentReportId, currentPhotos);
+    saveCurrentState(updatedEntries, currentDate, currentReportId);
     
     logActivity(getUserName(), "Deleted Item", `Deleted entry for ${item?.location}`, currentDate);
   };
@@ -198,7 +190,6 @@ const App = () => {
       
       if (currentReportId === id) {
          setCurrentEntries([]);
-         setCurrentPhotos([]);
       }
     }
   };
@@ -213,8 +204,7 @@ const App = () => {
     date: currentDate,
     lastUpdated: new Date().toISOString(),
     projectTitle: "Bhotekoshi Hydroelectric Project", 
-    entries: currentEntries,
-    photos: currentPhotos
+    entries: currentEntries
   };
 
   if (authLoading) {

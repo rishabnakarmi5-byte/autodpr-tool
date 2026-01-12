@@ -1,87 +1,28 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { parseConstructionData } from '../services/geminiService';
-import { DPRItem, ReportPhoto } from '../types';
+import { DPRItem } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 import { User } from 'firebase/auth';
-import { uploadReportImage, getStorageConfig, testStorageConnection } from '../services/firebaseService';
 
 interface InputSectionProps {
   currentDate: string;
   onDateChange: (date: string) => void;
-  onItemsAdded: (items: DPRItem[], photos?: ReportPhoto[]) => void;
+  onItemsAdded: (items: DPRItem[]) => void;
   entryCount: number;
   user: User | null;
 }
 
-interface PendingPhoto {
-  id: string;
-  file: File;
-  preview: string;
-  caption: string;
-}
-
 export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateChange, onItemsAdded, entryCount, user }) => {
-  const [step, setStep] = useState<1 | 2>(1);
   const [rawText, setRawText] = useState('');
   const [instructions, setInstructions] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [generatedItems, setGeneratedItems] = useState<DPRItem[]>([]);
   
-  // Photo State
-  const [pendingPhotos, setPendingPhotos] = useState<PendingPhoto[]>([]);
-  const [uploadProgress, setUploadProgress] = useState<{current: number, total: number, status: string} | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Debugging State
-  const [showDebug, setShowDebug] = useState(false);
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const startTimeRef = useRef<number>(0);
-
   const dateObj = new Date(currentDate);
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const nepaliDate = getNepaliDate(currentDate);
 
-  const startTimer = () => {
-    startTimeRef.current = Date.now();
-  };
-
-  const getElapsed = () => {
-    if (!startTimeRef.current) return "0.0s";
-    return ((Date.now() - startTimeRef.current) / 1000).toFixed(1) + "s";
-  };
-
-  const addLog = (msg: string) => {
-    const time = new Date().toLocaleTimeString();
-    const timer = getElapsed();
-    setDebugLogs(prev => [`[${time}] [T+${timer}] ${msg}`, ...prev]);
-    console.log(`[DPR DEBUG] ${msg}`);
-  };
-
-  // --- Timeout Helper ---
-  const withTimeout = <T,>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> => {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(errorMsg)), ms);
-      promise
-        .then(value => {
-          clearTimeout(timer);
-          resolve(value);
-        })
-        .catch(err => {
-          clearTimeout(timer);
-          reject(err);
-        });
-    });
-  };
-
-  const handleTestConnection = async () => {
-    startTimer();
-    addLog("Testing Storage connection...");
-    const result = await testStorageConnection();
-    addLog(result);
-  };
-
-  const handleProcess = async () => {
+  const handleProcessAndAdd = async () => {
     if (!rawText.trim()) return;
     setIsProcessing(true);
     setError(null);
@@ -92,144 +33,17 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         id: crypto.randomUUID(),
         createdBy: user?.displayName || user?.email || 'Unknown' 
       }));
-      setGeneratedItems(newItems);
-      setStep(2); 
+      
+      onItemsAdded(newItems);
+      setRawText('');
+      setInstructions('');
+      
     } catch (err: any) {
       console.error(err);
       setError("Failed to process text. Ensure your connection is stable.");
-      addLog(`Text processing error: ${err.message}`);
     } finally {
       setIsProcessing(false);
     }
-  };
-
-  const handleFilesSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const newPhotos: PendingPhoto[] = Array.from(e.target.files).map((file: File) => {
-        const preview = URL.createObjectURL(file);
-        return {
-          id: crypto.randomUUID(),
-          file,
-          preview,
-          caption: ''
-        };
-      });
-      setPendingPhotos(prev => [...prev, ...newPhotos]);
-      startTimer();
-      addLog(`Selected ${e.target.files.length} new photos.`);
-    }
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handleCaptionChange = (id: string, caption: string) => {
-    setPendingPhotos(prev => prev.map(p => p.id === id ? { ...p, caption } : p));
-  };
-
-  const handleRemovePendingPhoto = (id: string) => {
-    setPendingPhotos(prev => prev.filter(p => p.id !== id));
-  };
-
-  const downloadBackup = () => {
-    pendingPhotos.forEach(p => {
-        const link = document.createElement('a');
-        link.href = p.preview;
-        link.download = `BACKUP_${p.file.name}`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    });
-  };
-
-  const handleFinalize = async () => {
-    if (uploadProgress) return; 
-
-    setDebugLogs([]); 
-    setShowDebug(true);
-    startTimer();
-    addLog("--- Starting 3-Stage Smart Upload ---");
-    
-    // Config Check
-    const { bucket, projectId, isInitialized } = getStorageConfig();
-    addLog(`Config: Project=${projectId}, Bucket=${bucket ? bucket : 'UNDEFINED'}`);
-    
-    if (!isInitialized || !bucket) {
-       const msg = "CRITICAL: Firebase Storage is not configured. Check FIREBASE_STORAGE_BUCKET env var.";
-       addLog(msg);
-       setError(msg);
-       return;
-    }
-
-    const finalPhotos: ReportPhoto[] = [];
-    const total = pendingPhotos.length;
-    let failCount = 0;
-    
-    if (total > 0) {
-      setUploadProgress({ current: 0, total, status: 'Initializing...' });
-
-      for (let i = 0; i < total; i++) {
-        const p = pendingPhotos[i];
-        
-        try {
-          // DIRECT UPLOAD - No Resize
-          setUploadProgress({ current: i + 1, total, status: `Uploading ${i+1}/${total}...` });
-          
-          // Use original file
-          const blobToUpload = p.file;
-          
-          addLog(`Uploading ${p.file.name} (${(blobToUpload.size/1024).toFixed(0)}KB)...`);
-          
-          const storagePath = `reports/${currentDate}/${p.id}.jpg`;
-          
-          // Verify user is authenticated before upload
-          if (!user) {
-             throw new Error("User session invalid. Cannot upload.");
-          }
-
-          // Smart upload strategy handled in service (Binary -> Resumable -> Base64)
-          // Timeout increased to 3 minutes to allow for fallback retries
-          const downloadUrl = await withTimeout(
-            uploadReportImage(blobToUpload, storagePath, (msg) => addLog(msg)),
-            180000, 
-            "Upload timed out (180s). Firewall may be blocking both binary and text uploads."
-          );
-          
-          addLog(`Success: Uploaded.`);
-
-          finalPhotos.push({
-            id: p.id,
-            url: downloadUrl,
-            caption: p.caption || 'Site Photo',
-            uploadedBy: user?.displayName || 'Unknown',
-            timestamp: new Date().toISOString()
-          });
-
-        } catch (e: any) {
-          addLog(`FAILED photo ${i+1}: ${e.message}`);
-          failCount++;
-          console.error(e);
-          // Continue to next photo despite error
-        }
-      }
-    }
-
-    addLog(`Finished. Success: ${finalPhotos.length}/${total}`);
-
-    if (finalPhotos.length === 0 && total > 0) {
-      setError("All uploads failed. Use Manual Backup button.");
-      setUploadProgress(null);
-      return; 
-    }
-
-    onItemsAdded(generatedItems, finalPhotos);
-    
-    // Cleanup
-    pendingPhotos.forEach(p => URL.revokeObjectURL(p.preview));
-    setRawText('');
-    setPendingPhotos([]);
-    setGeneratedItems([]);
-    setUploadProgress(null);
-    setStep(1);
-    setShowDebug(false);
   };
 
   return (
@@ -271,223 +85,87 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
              <div className="flex items-center text-sm text-slate-600 gap-2">
                <i className="fas fa-check-circle text-green-500"></i> Cloud Sync Active
              </div>
-             <div className="flex items-center text-sm text-slate-600 gap-2">
-               <i className="fas fa-bug text-orange-500"></i> 
-               <button onClick={() => setShowDebug(!showDebug)} className="hover:underline">
-                 Diagnostic Mode {showDebug ? 'ON' : 'OFF'}
-               </button>
+             <div className="flex items-center text-sm text-slate-400 gap-2">
+               <i className="fas fa-camera-slash"></i> Photos Disabled
              </div>
            </div>
         </div>
       </div>
 
-      {/* DEBUG CONSOLE */}
-      {showDebug && (
-        <div className="bg-slate-900 text-green-400 p-4 rounded-xl font-mono text-xs max-h-40 overflow-y-auto border border-slate-700 shadow-inner">
-           <div className="flex justify-between border-b border-slate-700 pb-2 mb-2">
-             <span className="font-bold">Diagnostic Log (Time Elapsed Enabled)</span>
-             <div className="flex gap-2">
-                 <button onClick={handleTestConnection} className="text-xs bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded">Test Connectivity</button>
-                 <button onClick={() => setDebugLogs([])} className="text-slate-500 hover:text-white px-2">Clear</button>
-             </div>
-           </div>
-           {debugLogs.length === 0 && <span className="text-slate-600 opacity-50">Waiting for actions...</span>}
-           {debugLogs.map((log, i) => (
-             <div key={i}>{log}</div>
-           ))}
+      {/* TEXT INPUT SECTION */}
+      <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 overflow-hidden">
+        <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <i className="fab fa-whatsapp text-green-500 text-xl"></i> 
+            Data Parser
+          </h2>
         </div>
-      )}
-
-      {/* STEP 1: TEXT INPUT */}
-      {step === 1 && (
-        <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 overflow-hidden">
-          <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <i className="fab fa-whatsapp text-green-500 text-xl"></i> 
-              Data Parser
-            </h2>
-            <span className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded font-medium">Step 1 of 2</span>
-          </div>
-          
-          <div className="p-6 md:p-8 space-y-6">
-            <div>
-               <label className="block text-sm font-medium text-slate-700 mb-2">Paste Site Engineer's Update</label>
-               <div className="relative group">
-                  <textarea
-                    value={rawText}
-                    onChange={(e) => setRawText(e.target.value)}
-                    placeholder="Paste text here... e.g., 'Headworks: Apron concreting 45m3 done...'"
-                    className="w-full h-40 p-5 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-all resize-none font-mono text-sm leading-relaxed"
-                  />
-                  <div className="absolute top-4 right-4 flex gap-2">
-                     {rawText && (
-                        <button 
-                          onClick={() => setRawText('')}
-                          className="p-1.5 text-slate-400 hover:text-red-500 transition-colors bg-white rounded shadow-sm border border-slate-200"
-                          title="Clear text"
-                        >
-                          <i className="fas fa-times"></i>
-                        </button>
-                     )}
-                  </div>
-               </div>
-            </div>
-
-            <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
-               <label className="block text-xs font-bold text-indigo-800 mb-2 uppercase tracking-wide">
-                 <i className="fas fa-robot mr-1"></i> Special Instructions (Optional)
-               </label>
-               <input
-                  type="text"
-                  value={instructions}
-                  onChange={(e) => setInstructions(e.target.value)}
-                  placeholder="e.g. 'Split separate locations into different rows' or 'Ignore safety mentions'"
-                  className="w-full p-3 border border-indigo-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-400 focus:outline-none text-sm text-slate-700 placeholder-indigo-300"
-               />
-            </div>
-
-            {error && (
-              <div className="p-4 bg-red-50 text-red-700 rounded-xl text-sm flex items-center border border-red-100 animate-pulse">
-                <i className="fas fa-exclamation-triangle mr-3 text-lg"></i> {error}
-              </div>
-            )}
-
-            <div className="flex justify-between items-center pt-2">
-               <p className="text-xs text-slate-400 hidden md:block">
-                 <i className="fas fa-shield-alt mr-1"></i> Data processed securely
-               </p>
-               <button
-                onClick={handleProcess}
-                disabled={isProcessing || !rawText.trim()}
-                className={`flex items-center px-8 py-3.5 rounded-xl font-bold text-white shadow-lg shadow-indigo-500/30 transition-all transform
-                  ${isProcessing || !rawText.trim() 
-                    ? 'bg-slate-300 shadow-none cursor-not-allowed translate-y-0' 
-                    : 'bg-indigo-600 hover:bg-indigo-700 hover:-translate-y-1 active:translate-y-0'
-                  }`}
-              >
-                {isProcessing ? <i className="fas fa-circle-notch fa-spin mr-2"></i> : <i className="fas fa-wand-magic-sparkles mr-2"></i>}
-                Analyze & Proceed
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 2: PHOTOS */}
-      {step === 2 && (
-        <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 overflow-hidden">
-           <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-               <i className="fas fa-camera text-indigo-500 text-xl"></i> 
-               Bulk Photo Upload
-             </h2>
-             <span className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded font-medium">Step 2 of 2</span>
-           </div>
-
-           <div className="p-6 md:p-8 space-y-6">
-             
-             {/* Bulk Input */}
-             <div 
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full border-2 border-dashed border-indigo-200 bg-indigo-50/30 hover:bg-indigo-50 rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors"
-             >
-                <i className="fas fa-images text-4xl text-indigo-300 mb-3"></i>
-                <p className="text-indigo-600 font-medium">Click to select photos</p>
-                <p className="text-xs text-slate-400 mt-1">Select multiple files at once. 
-                   <span className="font-bold text-indigo-500 ml-1">Safe-Mode Enabled (Smart Fallback).</span>
-                </p>
-                <input 
-                   type="file" 
-                   multiple 
-                   accept="image/*"
-                   ref={fileInputRef}
-                   className="hidden"
-                   onChange={handleFilesSelect}
+        
+        <div className="p-6 md:p-8 space-y-6">
+          <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Paste Site Engineer's Update</label>
+              <div className="relative group">
+                <textarea
+                  value={rawText}
+                  onChange={(e) => setRawText(e.target.value)}
+                  placeholder="Paste text here... e.g., 'Headworks: Apron concreting 45m3 done...'"
+                  className="w-full h-40 p-5 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-all resize-none font-mono text-sm leading-relaxed"
                 />
-             </div>
-
-             {/* Photo Grid */}
-             {pendingPhotos.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                   {pendingPhotos.map(p => (
-                      <div key={p.id} className="flex gap-4 p-3 bg-white border border-slate-200 rounded-lg shadow-sm">
-                         <div className="w-24 h-24 flex-shrink-0 bg-slate-100 rounded overflow-hidden relative">
-                            <img src={p.preview} className="w-full h-full object-cover" alt="preview" />
-                            <button 
-                               onClick={() => handleRemovePendingPhoto(p.id)}
-                               className="absolute top-1 right-1 bg-red-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs hover:bg-red-600"
-                            >
-                               <i className="fas fa-times"></i>
-                            </button>
-                         </div>
-                         <div className="flex-1">
-                            <label className="text-xs font-bold text-slate-500 uppercase">Caption</label>
-                            <textarea 
-                               value={p.caption}
-                               onChange={(e) => handleCaptionChange(p.id, e.target.value)}
-                               placeholder="Enter caption..."
-                               className="w-full mt-1 p-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-indigo-400 resize-none h-16"
-                            />
-                         </div>
-                      </div>
-                   ))}
+                <div className="absolute top-4 right-4 flex gap-2">
+                    {rawText && (
+                      <button 
+                        onClick={() => setRawText('')}
+                        className="p-1.5 text-slate-400 hover:text-red-500 transition-colors bg-white rounded shadow-sm border border-slate-200"
+                        title="Clear text"
+                      >
+                        <i className="fas fa-times"></i>
+                      </button>
+                    )}
                 </div>
-             )}
+              </div>
+          </div>
 
-             {/* Progress Bar */}
-             {uploadProgress && (
-                <div className="space-y-2">
-                   <div className="flex justify-between text-xs font-bold text-indigo-600">
-                      <span>{uploadProgress.status}</span>
-                      <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
-                   </div>
-                   <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
-                      <div 
-                         className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300" 
-                         style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
-                      ></div>
-                   </div>
-                   <p className="text-center text-xs text-slate-400">Processing photo {uploadProgress.current} of {uploadProgress.total}</p>
-                </div>
-             )}
+          <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+              <label className="block text-xs font-bold text-indigo-800 mb-2 uppercase tracking-wide">
+                <i className="fas fa-robot mr-1"></i> Special Instructions (Optional)
+              </label>
+              <input
+                type="text"
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+                placeholder="e.g. 'Split separate locations into different rows' or 'Ignore safety mentions'"
+                className="w-full p-3 border border-indigo-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-400 focus:outline-none text-sm text-slate-700 placeholder-indigo-300"
+              />
+          </div>
 
-             {/* Error & Manual Backup */}
-             {error && pendingPhotos.length > 0 && (
-                 <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex flex-col items-center gap-2 text-center animate-fade-in">
-                     <div className="text-red-700 font-bold"><i className="fas fa-exclamation-triangle mr-2"></i> Uploads Failed</div>
-                     <p className="text-xs text-red-600 max-w-sm">The cloud upload could not complete due to network restrictions. Use the button below to save your photos locally so you can send them manually.</p>
-                     <button 
-                        onClick={downloadBackup}
-                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-lg"
-                     >
-                        <i className="fas fa-download mr-2"></i> Download Manual Backup
-                     </button>
-                 </div>
-             )}
+          {error && (
+            <div className="p-4 bg-red-50 text-red-700 rounded-xl text-sm flex items-center border border-red-100 animate-pulse">
+              <i className="fas fa-exclamation-triangle mr-3 text-lg"></i> {error}
+            </div>
+          )}
 
-             <div className="flex justify-between items-center pt-4 border-t border-slate-100">
-               <button 
-                  onClick={() => setStep(1)} 
-                  disabled={!!uploadProgress}
-                  className="text-slate-500 font-bold text-sm hover:text-slate-700 disabled:opacity-50"
-               >
-                 Back
-               </button>
-               <button
-                  onClick={handleFinalize}
-                  disabled={!!uploadProgress}
-                  className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl shadow-lg shadow-green-200 transition-all transform hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed"
-               >
-                  {uploadProgress ? (
-                     <span><i className="fas fa-circle-notch fa-spin mr-2"></i> Working...</span>
-                  ) : (
-                     <span>Finalize Report <i className="fas fa-arrow-right ml-2"></i></span>
-                  )}
-               </button>
-             </div>
-           </div>
+          <div className="flex justify-between items-center pt-2">
+              <p className="text-xs text-slate-400 hidden md:block">
+                <i className="fas fa-shield-alt mr-1"></i> Data processed securely
+              </p>
+              <button
+              onClick={handleProcessAndAdd}
+              disabled={isProcessing || !rawText.trim()}
+              className={`flex items-center px-8 py-3.5 rounded-xl font-bold text-white shadow-lg shadow-indigo-500/30 transition-all transform
+                ${isProcessing || !rawText.trim() 
+                  ? 'bg-slate-300 shadow-none cursor-not-allowed translate-y-0' 
+                  : 'bg-green-600 hover:bg-green-700 hover:-translate-y-1 active:translate-y-0'
+                }`}
+            >
+              {isProcessing ? (
+                  <span><i className="fas fa-circle-notch fa-spin mr-2"></i> Processing...</span> 
+              ) : (
+                  <span><i className="fas fa-wand-magic-sparkles mr-2"></i> Analyze & Add to Report</span>
+              )}
+            </button>
+          </div>
         </div>
-      )}
+      </div>
 
     </div>
   );

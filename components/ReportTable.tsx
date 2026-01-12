@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { DailyReport, DPRItem, ReportPhoto } from '../types';
+import { DailyReport, DPRItem } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 import { LOCATION_HIERARCHY } from '../utils/constants';
 
@@ -12,10 +12,8 @@ interface ReportTableProps {
 export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, onUpdateItem }) => {
   
   const [entries, setEntries] = useState<DPRItem[]>(report.entries);
-  const [photos, setPhotos] = useState<ReportPhoto[]>(report.photos || []);
   const [fontSize, setFontSize] = useState<number>(12);
   const [isExporting, setIsExporting] = useState(false);
-  const [zoomedPhoto, setZoomedPhoto] = useState<string | null>(null);
   
   // Drag and Drop State
   const dragItem = useRef<number | null>(null);
@@ -27,7 +25,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   
   useEffect(() => {
     setEntries(report.entries);
-    setPhotos(report.photos || []);
   }, [report]);
 
   const handlePrint = () => {
@@ -104,12 +101,10 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     dragItem.current = index;
     // Set transparency or effect
     e.dataTransfer.effectAllowed = "move";
-    // Optional: Set drag image if needed, default is usually fine
   };
 
   const onDragEnter = (e: React.DragEvent, index: number) => {
     dragOverItem.current = index;
-    // We could add visual cues here by updating a "hovered" state
   };
 
   const onDragEnd = () => {
@@ -349,65 +344,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
           </div>
         </div>
 
-        {/* --- PAGE 2+: PHOTOS --- */}
-        {photos.length > 0 && (
-          <div className="print:break-before-page">
-             {/* We chunk photos into groups of 4 for pagination simulation */}
-             {Array.from({ length: Math.ceil(photos.length / 4) }).map((_, pageIndex) => (
-                <div 
-                   key={pageIndex}
-                   className="report-page bg-white p-[20mm] shadow-2xl mx-auto w-[210mm] min-h-[297mm] text-left relative mb-8"
-                   style={{ printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact' }}
-                >
-                   {/* Header Repeated for Photo Pages */}
-                   <div className="mb-6 border-b border-black pb-2 flex justify-between items-end">
-                      <div>
-                        <h2 className="text-xl font-bold uppercase">Site Photographs</h2>
-                        <p className="text-xs text-gray-500">Page {pageIndex + 2}</p>
-                      </div>
-                      <div className="text-right text-xs">
-                         <p>{report.date}</p>
-                      </div>
-                   </div>
-
-                   {/* Grid 2x2 */}
-                   <div className="grid grid-cols-2 gap-8 h-[800px] content-start">
-                      {photos.slice(pageIndex * 4, (pageIndex + 1) * 4).map(photo => (
-                        <div key={photo.id} className="flex flex-col h-[380px] border border-gray-300 p-2 break-inside-avoid">
-                           <div className="flex-1 overflow-hidden relative bg-gray-100 flex items-center justify-center">
-                              <img 
-                                src={photo.url} 
-                                alt={photo.caption} 
-                                className="max-w-full max-h-full object-contain cursor-zoom-in" 
-                                onClick={() => setZoomedPhoto(photo.url)}
-                              />
-                           </div>
-                           <div className="mt-2 text-sm font-medium border-t pt-2 border-gray-100">
-                              {photo.caption}
-                              <div className="text-[10px] text-gray-400 font-normal">By {photo.uploadedBy}</div>
-                           </div>
-                        </div>
-                      ))}
-                   </div>
-
-                   <div className="absolute bottom-1 right-1 print:block">
-                     <span className="text-white text-[1px] opacity-[0.01] select-none">built by Rishab Nakarmi</span>
-                   </div>
-                </div>
-             ))}
-          </div>
-        )}
       </div>
-
-      {/* Zoom Modal */}
-      {zoomedPhoto && (
-        <div 
-          className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center p-4 cursor-zoom-out"
-          onClick={() => setZoomedPhoto(null)}
-        >
-           <img src={zoomedPhoto} className="max-w-full max-h-full object-contain" alt="Zoomed" />
-        </div>
-      )}
 
     </div>
   );

@@ -1,22 +1,13 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, onSnapshot, query, orderBy, limit, Unsubscribe, updateDoc, arrayUnion } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
-import { getStorage, ref, uploadString, uploadBytes, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { DailyReport, LogEntry, DPRItem, TrashItem } from "../types";
-
-// Helper to sanitize bucket name (remove gs:// prefix if present)
-const sanitizeBucket = (bucket: string | undefined) => {
-  if (!bucket) return undefined;
-  // Remove gs:// prefix, trailing slashes, and any accidental quotes
-  return bucket.replace(/^gs:\/\//, '').replace(/\/$/, '').replace(/['"]/g, '').trim();
-}
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: process.env.FIREBASE_API_KEY,
   authDomain: process.env.FIREBASE_AUTH_DOMAIN,
   projectId: process.env.FIREBASE_PROJECT_ID,
-  storageBucket: sanitizeBucket(process.env.FIREBASE_STORAGE_BUCKET),
   messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.FIREBASE_APP_ID,
   measurementId: process.env.measurementId
@@ -34,15 +25,13 @@ if (missingKeys.length > 0) {
 let app;
 let db: any;
 let auth: any;
-let storage: any;
 
 if (missingKeys.length === 0) {
   try {
     app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
-    storage = getStorage(app);
-    console.log("Firebase initialized successfully. Storage Bucket:", firebaseConfig.storageBucket);
+    console.log("Firebase initialized successfully (Auth & Firestore only).");
   } catch (error) {
     console.error("Failed to initialize Firebase:", error);
   }
@@ -53,24 +42,6 @@ if (missingKeys.length === 0) {
 const REPORT_COLLECTION = "daily_reports";
 const LOG_COLLECTION = "activity_logs";
 const TRASH_COLLECTION = "trash_bin";
-
-// --- Debug Helper ---
-export const getStorageConfig = () => ({
-  bucket: firebaseConfig.storageBucket,
-  projectId: firebaseConfig.projectId,
-  isInitialized: !!storage
-});
-
-export const testStorageConnection = async (): Promise<string> => {
-  if (!storage) throw new Error("Storage not initialized");
-  try {
-    const testRef = ref(storage, 'connectivity_test.txt');
-    await uploadString(testRef, 'test', 'raw');
-    return "Success: Write access verified.";
-  } catch (e: any) {
-    return `Failed: ${e.message}`;
-  }
-};
 
 // --- Authentication ---
 
@@ -133,100 +104,6 @@ export const saveReportToCloud = async (report: DailyReport): Promise<void> => {
   } catch (e) {
     console.error("Error adding document: ", e);
     throw e;
-  }
-};
-
-// --- Storage ---
-
-export const uploadReportImage = async (
-  file: Blob | File | string, 
-  path: string,
-  onLog?: (msg: string) => void
-): Promise<string> => {
-  if (!storage) {
-      const msg = "Storage not initialized. Check FIREBASE_STORAGE_BUCKET.";
-      console.error(msg);
-      throw new Error(msg);
-  }
-
-  const log = (msg: string) => {
-    if (onLog) onLog(msg);
-    console.log(`[UploadService] ${msg}`);
-  };
-  
-  const storageRef = ref(storage, path);
-  
-  // STRATEGY: 3-Stage Fallback
-  // 1. Standard Binary (uploadBytes) - Fast
-  // 2. Resumable Binary (uploadBytesResumable) - Robust
-  // 3. Base64 (uploadString) - Firewall Bypass
-
-  try {
-    // --- STAGE 1: Standard Binary ---
-    if (typeof file !== 'string') {
-        try {
-            log("Method A: Standard Binary...");
-            const metadata = { contentType: file.type || 'image/jpeg' };
-            const snapshot = await uploadBytes(storageRef, file, metadata);
-            log("Method A Success.");
-            return await getDownloadURL(snapshot.ref);
-        } catch (err: any) {
-            log(`Method A Failed: ${err.code || err.message}. Switching...`);
-            if (err.code === 'storage/unauthorized') throw err; 
-        }
-
-        // --- STAGE 2: Resumable Binary ---
-        try {
-            log("Method B: Resumable Upload...");
-            const metadata = { contentType: file.type || 'image/jpeg' };
-            const uploadTask = uploadBytesResumable(storageRef, file, metadata);
-            
-            await new Promise<void>((resolve, reject) => {
-                uploadTask.on('state_changed', 
-                    null, 
-                    (error) => reject(error), 
-                    () => resolve()
-                );
-            });
-            log("Method B Success.");
-            return await getDownloadURL(uploadTask.snapshot.ref);
-        } catch (err: any) {
-            log(`Method B Failed: ${err.code || err.message}. Switching...`);
-            if (err.code === 'storage/unauthorized') throw err;
-        }
-    }
-
-    // --- STAGE 3: Base64 Fallback ---
-    log("Method C: Base64 Fallback...");
-    let dataUrl = '';
-    
-    if (typeof file === 'string') {
-        dataUrl = file;
-    } else {
-        // Convert Blob/File to Base64
-        dataUrl = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve(e.target?.result as string);
-            reader.onerror = (e) => reject(new Error("Failed to read file for base64 fallback"));
-            reader.readAsDataURL(file as Blob);
-        });
-    }
-
-    await uploadString(storageRef, dataUrl, 'data_url');
-    log("Method C Success.");
-    const url = await getDownloadURL(storageRef);
-    return url;
-
-  } catch (error: any) {
-    console.error("Final upload error:", error);
-    if (error.code === 'storage/unauthorized') {
-        throw new Error("Permission denied. Check Firebase Storage Rules.");
-    }
-    if (error.code === 'storage/canceled') {
-        throw new Error("Upload canceled.");
-    }
-    // Generic Network Error
-    throw new Error(`All upload methods failed. Network/Firewall issue.`);
   }
 };
 

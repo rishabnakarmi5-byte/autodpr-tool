@@ -8,21 +8,12 @@ export interface DPRItem {
   createdBy?: string; // Track who added this item
 }
 
-export interface ReportPhoto {
-  id: string;
-  url: string;
-  caption: string;
-  uploadedBy: string;
-  timestamp: string;
-}
-
 export interface DailyReport {
   id: string;
   date: string;
   lastUpdated: string;
   projectTitle: string;
   entries: DPRItem[];
-  photos?: ReportPhoto[];
 }
 
 export interface LogEntry {
