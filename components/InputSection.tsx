@@ -17,6 +17,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const [instructions, setInstructions] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   
   const dateObj = new Date(currentDate);
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -37,6 +38,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       onItemsAdded(newItems);
       setRawText('');
       setInstructions('');
+      setShowSuccessModal(true);
       
     } catch (err: any) {
       console.error(err);
@@ -44,6 +46,14 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleSendEmail = () => {
+    const subject = encodeURIComponent(`DPR Update: ${currentDate}`);
+    const body = encodeURIComponent(`Hi,\n\nI have updated the Daily Progress Report for ${currentDate}.\n\nEntries Added: ${entryCount} (plus new items).\n\nPlease check the dashboard for details.\n\nRegards,\n${user?.displayName || 'Site Engineer'}`);
+    const recipients = `rishabnakarmi5@gmail.com,${user?.email || ''}`;
+    
+    window.location.href = `mailto:${recipients}?subject=${subject}&body=${body}`;
   };
 
   return (
@@ -166,6 +176,62 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           </div>
         </div>
       </div>
+
+      {/* SUCCESS POPUP MODAL */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
+           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center border border-slate-200 relative">
+              <button 
+                 onClick={() => setShowSuccessModal(false)}
+                 className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"
+              >
+                 <i className="fas fa-times"></i>
+              </button>
+
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white shadow-lg">
+                 <i className="fas fa-check text-green-600 text-3xl"></i>
+              </div>
+              
+              <h3 className="text-xl font-bold text-slate-800 mb-1">Thank you, {user?.displayName ? user.displayName.split(' ')[0] : 'Engineer'}!</h3>
+              <p className="text-slate-600 mb-6 text-sm">
+                 Thank you for updating your site's progress in this DPR.
+              </p>
+              
+              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mb-6 text-left shadow-inner">
+                 <ul className="space-y-3 text-sm text-slate-700">
+                    <li className="flex items-start gap-3">
+                       <i className="fab fa-whatsapp text-green-500 mt-1 text-lg flex-shrink-0"></i>
+                       <span><span className="font-bold">Important:</span> Don't forget to send site photos in the WhatsApp group!</span>
+                    </li>
+                    <li className="flex items-start gap-3">
+                       <i className="fas fa-edit text-indigo-500 mt-1 flex-shrink-0"></i>
+                       <span>Please check your report now. You can edit entries if you need any changes.</span>
+                    </li>
+                 </ul>
+              </div>
+
+              <div className="space-y-3">
+                  <button 
+                     onClick={() => setShowSuccessModal(false)}
+                     className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-black transition-colors shadow-lg shadow-slate-300/50"
+                  >
+                     Review Report
+                  </button>
+                  <button 
+                     onClick={handleSendEmail}
+                     className="w-full bg-white text-slate-700 font-bold py-3 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
+                  >
+                     <i className="fas fa-envelope text-indigo-500"></i> Notify Developer via Email
+                  </button>
+              </div>
+
+              <p className="mt-6 text-[10px] text-slate-400 bg-slate-50 p-2 rounded-lg">
+                 <i className="fas fa-info-circle mr-1"></i>
+                 Photo upload feature in the app is currently in testing and may take several months after budget approval.
+              </p>
+           </div>
+        </div>
+      )}
 
     </div>
   );

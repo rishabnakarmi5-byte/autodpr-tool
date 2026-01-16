@@ -19,8 +19,16 @@ export const parseConstructionData = async (
 
     ${instructionBlock}
 
+    CRITICAL CATEGORIZATION RULES:
+    1. HEADWORKS: If the text contains keywords like "barrage", "stilling basin", "apron", "key", "settling basin", "desander", "headpond", or "syphon", classify the 'location' as "Headworks".
+    2. HRT (HEADRACE TUNNEL): 
+       - If the text mentions work from the "Inlet" side, set 'location' to "HRT - Inlet".
+       - If the text mentions work from the "Adit" side, set 'location' to "HRT - Adit".
+    3. PRESSURE TUNNELS: 
+       - If the text mentions "Vertical shaft" (especially "concrete infill" or "C10"), set 'location' to "Pressure Tunnels" and 'chainageOrArea' to "Vertical Shaft".
+
     The output format must be a list of items with the following fields:
-    - location: The major site location (e.g., "Powerhouse", "Headworks", "HRT - Inlet"). Infer this from context if possible.
+    - location: The major site location based on the rules above.
     - chainageOrArea: The specific sub-area or chainage mentioned (e.g., "Tailrace Invert", "Apron", "Ch 100-200").
     - activityDescription: What work was done today (include quantities like m3, T, msq).
     - plannedNextActivity: What is planned for tomorrow/next day.
