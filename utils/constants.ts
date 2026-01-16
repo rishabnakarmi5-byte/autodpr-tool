@@ -32,3 +32,24 @@ export const LOCATION_HIERARCHY: Record<string, string[]> = {
     "Tailrace Flood Walls"
   ]
 };
+
+// Defined sort order for the report
+export const LOCATION_SORT_ORDER = [
+  "Headworks",
+  "HRT from Inlet",
+  "HRT from Adit",
+  "Pressure Tunnels",
+  "Powerhouse Main Building",
+  "Powerhouse", 
+  "Bifurcation",
+  "Tailrace Tunnel"
+];
+
+export const getLocationPriority = (location: string): number => {
+  if (!location) return 999;
+  // Find index where the defined sort key is contained within the location string
+  const index = LOCATION_SORT_ORDER.findIndex(key => 
+    location.toLowerCase().includes(key.toLowerCase())
+  );
+  return index === -1 ? 999 : index;
+};

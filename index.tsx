@@ -9,6 +9,7 @@ import { RecycleBin } from './components/RecycleBin';
 import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem } from './services/firebaseService';
 import { DailyReport, DPRItem, TabView, LogEntry, TrashItem } from './types';
 import { User } from "firebase/auth";
+import { getLocationPriority } from './utils/constants';
 
 const App = () => {
   // --- STATE ---
@@ -120,6 +121,10 @@ const App = () => {
       setActiveTab(tab);
   };
 
+  const handleViewReport = () => {
+    setActiveTab(TabView.VIEW_REPORT);
+  };
+
   const saveCurrentState = async (entries: DPRItem[], date: string, reportId: string | null) => {
     const id = reportId || crypto.randomUUID();
     if (!reportId) setCurrentReportId(id);
@@ -143,14 +148,21 @@ const App = () => {
   };
 
   const handleItemsAdded = (newItems: DPRItem[]) => {
-    const updatedEntries = [...currentEntries, ...newItems];
+    // 1. Merge items
+    let updatedEntries = [...currentEntries, ...newItems];
+
+    // 2. Sort items according to fixed hierarchy
+    updatedEntries.sort((a, b) => {
+      return getLocationPriority(a.location) - getLocationPriority(b.location);
+    });
     
+    // 3. Update State
     setCurrentEntries(updatedEntries);
-    
     saveCurrentState(updatedEntries, currentDate, currentReportId);
-    
-    setActiveTab(TabView.VIEW_REPORT);
     logActivity(getUserName(), "Report Updated", `Added ${newItems.length} items`, currentDate);
+    
+    // NOTE: We do NOT switch tab here anymore. 
+    // The InputSection component will handle the success modal and call handleViewReport when user clicks "Okay".
   };
 
   const handleUpdateItem = (id: string, field: keyof DPRItem, value: string) => {
@@ -259,6 +271,7 @@ const App = () => {
             currentDate={currentDate}
             onDateChange={handleDateChange}
             onItemsAdded={handleItemsAdded}
+            onViewReport={handleViewReport}
             entryCount={currentEntries.length}
             user={user}
           />

@@ -8,16 +8,18 @@ interface InputSectionProps {
   currentDate: string;
   onDateChange: (date: string) => void;
   onItemsAdded: (items: DPRItem[]) => void;
+  onViewReport: () => void;
   entryCount: number;
   user: User | null;
 }
 
-export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateChange, onItemsAdded, entryCount, user }) => {
+export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateChange, onItemsAdded, onViewReport, entryCount, user }) => {
   const [rawText, setRawText] = useState('');
   const [instructions, setInstructions] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [emailSelf, setEmailSelf] = useState(true);
   
   const dateObj = new Date(currentDate);
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -38,7 +40,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       onItemsAdded(newItems);
       setRawText('');
       setInstructions('');
-      setShowSuccessModal(true);
+      setShowSuccessModal(true); // Now this will show because we don't navigate away immediately
       
     } catch (err: any) {
       console.error(err);
@@ -48,12 +50,25 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     }
   };
 
-  const handleSendEmail = () => {
+  const handleOkay = () => {
+    // 1. Construct Email
     const subject = encodeURIComponent(`DPR Update: ${currentDate}`);
     const body = encodeURIComponent(`Hi,\n\nI have updated the Daily Progress Report for ${currentDate}.\n\nEntries Added: ${entryCount} (plus new items).\n\nPlease check the dashboard for details.\n\nRegards,\n${user?.displayName || 'Site Engineer'}`);
-    const recipients = `rishabnakarmi5@gmail.com,${user?.email || ''}`;
     
-    window.location.href = `mailto:${recipients}?subject=${subject}&body=${body}`;
+    const recipients = ['rishabnakarmi5@gmail.com'];
+    if (emailSelf && user?.email) {
+      recipients.push(user.email);
+    }
+    const recipientsStr = recipients.join(',');
+
+    // 2. Trigger Mail Client
+    window.location.href = `mailto:${recipientsStr}?subject=${subject}&body=${body}`;
+
+    // 3. Navigate after a short delay to allow mail client trigger
+    setTimeout(() => {
+       setShowSuccessModal(false);
+       onViewReport();
+    }, 1000);
   };
 
   return (
@@ -181,13 +196,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       {showSuccessModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center border border-slate-200 relative">
-              <button 
-                 onClick={() => setShowSuccessModal(false)}
-                 className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"
-              >
-                 <i className="fas fa-times"></i>
-              </button>
-
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white shadow-lg">
                  <i className="fas fa-check text-green-600 text-3xl"></i>
               </div>
@@ -201,29 +209,34 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                  <ul className="space-y-3 text-sm text-slate-700">
                     <li className="flex items-start gap-3">
                        <i className="fab fa-whatsapp text-green-500 mt-1 text-lg flex-shrink-0"></i>
-                       <span><span className="font-bold">Important:</span> Don't forget to send site photos in the WhatsApp group!</span>
+                       <span className="font-bold">Don't forget to send photos in WhatsApp!</span>
                     </li>
                     <li className="flex items-start gap-3">
                        <i className="fas fa-edit text-indigo-500 mt-1 flex-shrink-0"></i>
-                       <span>Please check your report now. You can edit entries if you need any changes.</span>
+                       <span>Please check your report now. You can edit if you need any changes.</span>
                     </li>
                  </ul>
               </div>
 
-              <div className="space-y-3">
-                  <button 
-                     onClick={() => setShowSuccessModal(false)}
-                     className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-black transition-colors shadow-lg shadow-slate-300/50"
-                  >
-                     Review Report
-                  </button>
-                  <button 
-                     onClick={handleSendEmail}
-                     className="w-full bg-white text-slate-700 font-bold py-3 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
-                  >
-                     <i className="fas fa-envelope text-indigo-500"></i> Notify Developer via Email
-                  </button>
+              <div className="flex items-center justify-center gap-2 mb-6">
+                <input 
+                  type="checkbox" 
+                  id="emailSelf" 
+                  checked={emailSelf} 
+                  onChange={(e) => setEmailSelf(e.target.checked)}
+                  className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer"
+                />
+                <label htmlFor="emailSelf" className="text-sm text-slate-600 cursor-pointer select-none">
+                  Send email to self
+                </label>
               </div>
+
+              <button 
+                  onClick={handleOkay}
+                  className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-black transition-colors shadow-lg shadow-slate-300/50"
+              >
+                  Okay
+              </button>
 
               <p className="mt-6 text-[10px] text-slate-400 bg-slate-50 p-2 rounded-lg">
                  <i className="fas fa-info-circle mr-1"></i>
