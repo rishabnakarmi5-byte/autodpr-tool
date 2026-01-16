@@ -19,7 +19,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [emailSelf, setEmailSelf] = useState(true);
   
   const dateObj = new Date(currentDate);
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -40,7 +39,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       onItemsAdded(newItems);
       setRawText('');
       setInstructions('');
-      setShowSuccessModal(true); // Now this will show because we don't navigate away immediately
+      setShowSuccessModal(true); 
       
     } catch (err: any) {
       console.error(err);
@@ -51,24 +50,8 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   };
 
   const handleOkay = () => {
-    // 1. Construct Email
-    const subject = encodeURIComponent(`DPR Update: ${currentDate}`);
-    const body = encodeURIComponent(`Hi,\n\nI have updated the Daily Progress Report for ${currentDate}.\n\nEntries Added: ${entryCount} (plus new items).\n\nPlease check the dashboard for details.\n\nRegards,\n${user?.displayName || 'Site Engineer'}`);
-    
-    const recipients = ['rishabnakarmi5@gmail.com'];
-    if (emailSelf && user?.email) {
-      recipients.push(user.email);
-    }
-    const recipientsStr = recipients.join(',');
-
-    // 2. Trigger Mail Client
-    window.location.href = `mailto:${recipientsStr}?subject=${subject}&body=${body}`;
-
-    // 3. Navigate after a short delay to allow mail client trigger
-    setTimeout(() => {
-       setShowSuccessModal(false);
-       onViewReport();
-    }, 1000);
+    setShowSuccessModal(false);
+    onViewReport();
   };
 
   return (
@@ -218,22 +201,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                  </ul>
               </div>
 
-              <div className="flex items-center justify-center gap-2 mb-6">
-                <input 
-                  type="checkbox" 
-                  id="emailSelf" 
-                  checked={emailSelf} 
-                  onChange={(e) => setEmailSelf(e.target.checked)}
-                  className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer"
-                />
-                <label htmlFor="emailSelf" className="text-sm text-slate-600 cursor-pointer select-none">
-                  Send email to self
-                </label>
-              </div>
-
               <button 
                   onClick={handleOkay}
-                  className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-black transition-colors shadow-lg shadow-slate-300/50"
+                  className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-black transition-colors shadow-lg shadow-slate-300/50 flex items-center justify-center"
               >
                   Okay
               </button>
