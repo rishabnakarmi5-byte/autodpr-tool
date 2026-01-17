@@ -32,17 +32,11 @@ export const parseConstructionData = async (
     VALID HIERARCHY:
     ${hierarchyString}
 
-    EXAMPLES:
-    1. Text: "Barrage raft concreting" 
-       -> location: "Headworks", component: "Barrage", chainageOrArea: "Raft".
-    2. Text: "HRT from Inlet face work" 
-       -> location: "Headrace Tunnel (HRT)", component: "HRT from Inlet".
-    3. Text: "Vertical shaft mucking" 
-       -> location: "Pressure Tunnels", component: "Vertical Shaft".
-    4. Text: "Machine Hall slab" 
-       -> location: "Powerhouse", component: "Main Building", chainageOrArea: "Machine Hall Slab".
-    5. Text: "TRT wall" 
-       -> location: "Powerhouse", component: "Tailrace Tunnel (TRT)", chainageOrArea: "Wall".
+    IMPORTANT OVERRIDES:
+    1. "Bifurcation" ALWAYS belongs to "Pressure Tunnels".
+    2. "Vertical Shaft" ALWAYS belongs to "Pressure Tunnels".
+    3. "Tailrace Tunnel" or "TRT" ALWAYS belongs to "Powerhouse".
+    4. "HRT Inlet" or "HRT from Adit" ALWAYS belongs to "Headrace Tunnel (HRT)".
 
     The output format must be a list of items with the following fields:
     - location: The major site location (Must match VALID HIERARCHY keys).

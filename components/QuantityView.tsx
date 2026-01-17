@@ -136,34 +136,43 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
         let needsUpdate = false;
         let updates: Partial<QuantityEntry> = {};
 
-        // Find source report entry if possible to check if component was added later
+        // Find source report entry to verify latest Location/Component
         const sourceReport = reports.find(r => r.id === qty.reportId);
         const sourceEntry = sourceReport?.entries.find(e => e.id === qty.originalReportItemId);
-        const sourceComponent = sourceEntry?.component;
         
-        const details = parseQuantityDetails(qty.location, sourceComponent, qty.structure, qty.description);
-
-        if (qty.detailElement !== details.detailElement) {
-           updates.detailElement = details.detailElement;
-           needsUpdate = true;
-        }
-        
-        if (qty.detailLocation !== details.detailLocation) {
-           updates.detailLocation = details.detailLocation;
-           needsUpdate = true;
-        }
-
-        // If structure was updated by inference (e.g. Tailrace Lift -> Wall) or explicit source component found
-        if (details.structure !== qty.structure) {
-            // Be careful not to overwrite manual edits. 
-            // Only update if current structure looks like raw chainage text OR if we found a new explicit component in the report
-            const isDefaultish = qty.structure.toLowerCase().includes('ch ') || qty.structure.toLowerCase().includes('chainage') || qty.structure === qty.location;
-            if (isDefaultish || sourceComponent) {
-                updates.structure = details.structure;
+        if (sourceEntry) {
+            // Check if Location Changed (Normalized from "Tailrace" -> "Powerhouse")
+            if (sourceEntry.location !== qty.location) {
+                updates.location = sourceEntry.location;
                 needsUpdate = true;
             }
-        }
 
+            // Check if Component Changed (Normalized to "Tailrace Tunnel")
+            // Note: If sourceEntry.component is set, it overrides local inference
+            const sourceComponent = sourceEntry.component;
+            
+            // Re-run parsing with latest source info
+            const details = parseQuantityDetails(sourceEntry.location, sourceComponent, qty.structure, qty.description);
+            
+            // Logic: If source has strict component, use it. Otherwise rely on parser.
+            const strictStructure = sourceComponent || details.structure;
+
+            if (strictStructure !== qty.structure) {
+                 updates.structure = strictStructure;
+                 needsUpdate = true;
+            }
+
+            // Also check details updates
+            if (qty.detailElement !== details.detailElement) {
+               updates.detailElement = details.detailElement;
+               needsUpdate = true;
+            }
+            if (qty.detailLocation !== details.detailLocation) {
+               updates.detailLocation = details.detailLocation;
+               needsUpdate = true;
+            }
+        }
+        
         // Recalculate Item Type if needed
         if (!qty.itemType || qty.itemType === 'Other') {
            const newType = identifyItemType(qty.description);
@@ -185,7 +194,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
 
       let msg = "";
       if (addedCount > 0) msg += `Added ${addedCount} new items. `;
-      if (updatedCount > 0) msg += `Updated ${updatedCount} items with smarter details (Chainage formatting & Component inference). `;
+      if (updatedCount > 0) msg += `Updated ${updatedCount} items based on latest report corrections. `;
       if (!msg) msg = "Everything is up to date.";
       
       alert(msg);

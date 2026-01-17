@@ -159,6 +159,10 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         "tailrace": "Tailrace Tunnel (TRT)", // Assuming 'Tailrace' context usually means the tunnel in PH
         "hrt": "Headrace Tunnel (HRT)",
         "headrace tunnel": "Headrace Tunnel (HRT)",
+        "hrt inlet": "HRT from Inlet",
+        "hrt from inlet": "HRT from Inlet",
+        "hrt adit": "HRT from Adit",
+        "hrt from adit": "HRT from Adit",
         "adit": "Adit Tunnel",
         "surge": "Surge Tank",
         "surge tank": "Surge Tank",
@@ -166,6 +170,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         "pressure tunnel": "Pressure Tunnels", // This is a location, but sometimes written as component
         "lpt": "Lower Pressure Tunnel (LPT)",
         "lower pressure": "Lower Pressure Tunnel (LPT)",
+        "bifurcation": "Bifurcation or Y",
         "barrage": "Barrage",
         "weir": "Weir",
         "intake": "Intake",
@@ -178,7 +183,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         "machine hall": "Main Building",
         "service bay": "Main Building",
         "control building": "Main Building",
-        "transformer": "Main Building" // Transformer hall usually part of PH complex
+        "transformer": "Transformer Cavern", 
+        "transformer cavern": "Transformer Cavern"
     };
 
     // Sort components by length (descending) to ensure we match "Tailrace Tunnel" before "Tailrace"

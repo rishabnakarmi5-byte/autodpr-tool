@@ -1,4 +1,5 @@
 
+
 export const LOCATION_HIERARCHY: Record<string, string[]> = {
   "Headworks": [
     "Barrage",
@@ -37,7 +38,11 @@ export const LOCATION_HIERARCHY: Record<string, string[]> = {
     "Tailrace Pool (TRT Pool)",
     "Turbine Outlet Gate",
     "Tailrace Gate",
-    "Tailrace Downstream Apron and Flood Wall"
+    "Tailrace Downstream Apron and Flood Wall",
+    "Transformer Cavern",
+    "Control Building",
+    "Service Bay",
+    "Other Works"
   ]
 };
 
