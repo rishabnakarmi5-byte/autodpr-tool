@@ -139,8 +139,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
 
     const validLocations = Object.keys(LOCATION_HIERARCHY);
     
-    // Create a reverse map for fast component -> location lookup
-    // Normalizes everything to lowercase for loose matching
+    // Reverse Lookup Map for official components
     const componentMap = new Map<string, { parent: string, exact: string }>();
     validLocations.forEach(loc => {
         LOCATION_HIERARCHY[loc].forEach(comp => {
@@ -148,123 +147,143 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         });
     });
 
-    // Helper: Find a known component inside a text string
-    const findKnownComponent = (text: string | undefined): { parent: string, exact: string } | null => {
-        if (!text) return null;
-        const lower = text.toLowerCase();
-        // Check exact match first
-        if (componentMap.has(lower)) return componentMap.get(lower)!;
+    // Explicit Mappings for Common Non-Standard Variations
+    const EXPLICIT_MAPPINGS: Record<string, { location: string, component: string }> = {
+        // Powerhouse mappings
+        "tailrace tunnel": { location: "Powerhouse", component: "Tailrace Tunnel (TRT)" },
+        "trt": { location: "Powerhouse", component: "Tailrace Tunnel (TRT)" },
+        "tailrace": { location: "Powerhouse", component: "Tailrace Tunnel (TRT)" },
+        "powerhouse": { location: "Powerhouse", component: "" },
+        "ph": { location: "Powerhouse", component: "" },
+        "machine hall": { location: "Powerhouse", component: "Main Building" },
         
-        // Check inclusion (longer strings first to avoid partial matches like "Key" inside "Monkey")
-        const allComps = Array.from(componentMap.keys()).sort((a, b) => b.length - a.length);
-        for (const c of allComps) {
-            // Use regex for word boundary if possible, or simple include for complex names
-            if (lower.includes(c)) return componentMap.get(c)!;
-        }
-        return null;
+        // HRT mappings
+        "hrt from inlet": { location: "Headrace Tunnel (HRT)", component: "HRT from Inlet" },
+        "hrt from adit": { location: "Headrace Tunnel (HRT)", component: "HRT from Adit" },
+        "hrt": { location: "Headrace Tunnel (HRT)", component: "" },
+        "headrace tunnel": { location: "Headrace Tunnel (HRT)", component: "" },
+        "adit": { location: "Headrace Tunnel (HRT)", component: "Adit Tunnel" },
+        "rock trap": { location: "Headrace Tunnel (HRT)", component: "Rock Trap" },
+
+        // Pressure Tunnel mappings
+        "pressure tunnel": { location: "Pressure Tunnels", component: "" },
+        "pressure tunnels": { location: "Pressure Tunnels", component: "" },
+        "surge tank": { location: "Pressure Tunnels", component: "Surge Tank" },
+        "vertical shaft": { location: "Pressure Tunnels", component: "Vertical Shaft" },
+        
+        // Headworks mappings
+        "headworks": { location: "Headworks", component: "" },
+        "barrage": { location: "Headworks", component: "Barrage" },
+        "weir": { location: "Headworks", component: "Weir" },
+        "intake": { location: "Headworks", component: "Intake" },
+        "stilling basin": { location: "Headworks", component: "Stilling Basin" },
+        "gravel trap": { location: "Headworks", component: "Gravel Trap" }
     };
+
+    const norm = (s: string) => (s || "").trim().toLowerCase();
 
     let changeCount = 0;
 
     const newEntries = entries.map(item => {
-        let newLocation = item.location;
-        let newComponent = item.component || "";
-        let newChainage = item.chainageOrArea || "";
+        let loc = item.location;
+        let comp = item.component || "";
+        let chain = item.chainageOrArea || "";
         let hasChanged = false;
 
-        // 1. INFERENCE STRATEGY
-        // Try to identify the strict component from ANY field if the current one is missing or invalid.
-        
-        let inferred: { parent: string, exact: string } | null = null;
+        const originalLoc = loc;
+        const originalComp = comp;
+        const originalChain = chain;
 
-        // A. Is the Location actually a Component? (e.g. Loc: "Barrage")
-        inferred = findKnownComponent(item.location);
-        
-        // B. If not, check the Component field itself (maybe casing is wrong, or it's valid)
-        if (!inferred) inferred = findKnownComponent(item.component);
+        // --- STEP 1: FIX LOCATION BASED ON INPUT (Explicit or Inferred) ---
+        const lowerLoc = norm(loc);
 
-        // C. If not, check Chainage/Area (Crucial: "Barrage" in chainage field)
-        if (!inferred) {
-             const fromChainage = findKnownComponent(item.chainageOrArea);
-             if (fromChainage) {
-                 inferred = fromChainage;
-                 // If the chainage field was JUST the component name, clear it.
-                 // e.g. Chainage: "Barrage" -> Component: "Barrage", Chainage: ""
-                 if (item.chainageOrArea.trim().toLowerCase() === fromChainage.exact.toLowerCase()) {
-                     newChainage = "";
-                     hasChanged = true;
+        // 1a. Explicit override
+        if (EXPLICIT_MAPPINGS[lowerLoc]) {
+             loc = EXPLICIT_MAPPINGS[lowerLoc].location;
+             // Only overwrite component if explicit mapping provides a specific one (and current is empty or matches)
+             if (EXPLICIT_MAPPINGS[lowerLoc].component) {
+                 comp = EXPLICIT_MAPPINGS[lowerLoc].component;
+             }
+        }
+        // 1b. Reverse Lookup (Is the Location actually a Component?)
+        else if (componentMap.has(lowerLoc)) {
+             const match = componentMap.get(lowerLoc)!;
+             loc = match.parent;
+             comp = match.exact;
+        }
+        // 1c. Partial/Fuzzy Match (e.g. Input "Tailrace Tunnel" -> Matches "Tailrace Tunnel (TRT)")
+        else {
+             // Check if any official component starts with or contains the input
+             for (const [key, val] of componentMap.entries()) {
+                 // Condition 1: Official Key contains Input (e.g. "tailrace tunnel (trt)" contains "tailrace tunnel")
+                 // Condition 2: Input contains Official Key (e.g. "barrage area" contains "barrage")
+                 if (key.includes(lowerLoc) || lowerLoc.includes(key)) {
+                     // Filter out tiny matches to avoid noise
+                     if (key.length > 3 && lowerLoc.length > 3) {
+                        loc = val.parent;
+                        comp = val.exact;
+                        break;
+                     }
                  }
              }
         }
 
-        // D. If still nothing, check Description (Last resort)
-        if (!inferred && (!newComponent || !validLocations.includes(newLocation))) {
-            inferred = findKnownComponent(item.activityDescription);
-        }
+        // --- STEP 2: FILL MISSING COMPONENT FROM OTHER FIELDS ---
+        const validComps = LOCATION_HIERARCHY[loc]; // Get valid list for the (now potentially fixed) location
+        const isLocValid = validLocations.includes(loc);
 
+        // If component is invalid or empty, scan Chainage & Description
+        if (isLocValid && (!comp || (validComps && !validComps.includes(comp)))) {
+             
+             // Combined text to search for components
+             const textToSearch = (norm(chain) + " " + norm(item.activityDescription));
+             
+             // Sort components by length (desc) to match specific ones first (e.g. "Tailrace Tunnel (TRT)" before "Tailrace")
+             // We use the entries from componentMap that belong to this Location
+             const candidates = Array.from(componentMap.values())
+                                .filter(v => v.parent === loc)
+                                .sort((a,b) => b.exact.length - a.exact.length);
 
-        // 2. APPLY INFERENCE
-        if (inferred) {
-            if (newLocation !== inferred.parent) {
-                newLocation = inferred.parent;
-                hasChanged = true;
-            }
-            if (newComponent !== inferred.exact) {
-                newComponent = inferred.exact;
-                hasChanged = true;
-            }
-        } 
-        else {
-            // 3. LEGACY MAPPING (Fallbacks)
-            // Handle "HRT" -> "Headrace Tunnel (HRT)"
-            if (newLocation === "HRT" || newLocation.includes("Headrace")) {
-                if (newLocation !== "Headrace Tunnel (HRT)") {
-                    newLocation = "Headrace Tunnel (HRT)";
-                    hasChanged = true;
-                }
-            }
-            else if (newLocation === "TRT" || newLocation.includes("Tailrace")) {
-                 newLocation = "Powerhouse";
-                 if (!newComponent) newComponent = "Tailrace Tunnel (TRT)";
-                 hasChanged = true;
-            }
-        }
-
-        // 4. STRICT VALIDATION
-        // If after all inference, the Location is NOT in the valid keys, mark as Unclassified.
-        if (!validLocations.includes(newLocation)) {
-            const unclassifiedLabel = "Unclassified / Needs Fix";
-            if (newLocation !== unclassifiedLabel) {
-                newLocation = unclassifiedLabel;
-                hasChanged = true;
-            }
-        } else {
-             // Location is valid, check if component belongs to it
-             const validComps = LOCATION_HIERARCHY[newLocation];
-             if (newComponent && !validComps.includes(newComponent)) {
-                 // Component exists but doesn't belong to this location? 
-                 // It might be a valid component for another location, but we already tried inference.
-                 // If we are here, it matches NO valid component. Keep it but user must fix, or clear it?
-                 // Let's keep it but maybe flag? For now, we leave it as is, usually inference Step 1 catches mismatched parents.
+             for (const cand of candidates) {
+                 const cKey = cand.exact.toLowerCase();
+                 // Create variations for search (e.g. "tailrace tunnel" without "(trt)")
+                 const simpleCKey = cKey.replace(/\(.*\)/, '').trim(); 
+                 
+                 if (textToSearch.includes(cKey) || (simpleCKey.length > 3 && textToSearch.includes(simpleCKey))) {
+                     comp = cand.exact;
+                     
+                     // If found in Chainage field specifically, clean it up? 
+                     // e.g. Chainage: "Barrage" -> Component: "Barrage", Chainage: ""
+                     if (norm(chain) === cKey || norm(chain) === simpleCKey) {
+                         chain = ""; 
+                     }
+                     break;
+                 }
              }
         }
 
-        if (hasChanged) {
-            changeCount++;
-            // Trigger persistence updates
-            if (item.location !== newLocation) onUpdateItem(item.id, 'location', newLocation);
-            if (item.component !== newComponent) onUpdateItem(item.id, 'component', newComponent);
-            if (item.chainageOrArea !== newChainage) onUpdateItem(item.id, 'chainageOrArea', newChainage);
-
-            return { ...item, location: newLocation, component: newComponent, chainageOrArea: newChainage };
+        // --- STEP 3: STRICT VALIDATION ---
+        // If after all efforts, Location is still not one of the 4 strict keys, mark it.
+        if (!validLocations.includes(loc)) {
+             loc = "Unclassified / Needs Fix";
         }
 
-        return item;
-    });
+        // Detect Change
+        if (loc !== originalLoc || comp !== originalComp || chain !== originalChain) {
+            hasChanged = true;
+            changeCount++;
+            
+            if (loc !== originalLoc) onUpdateItem(item.id, 'location', loc);
+            if (comp !== originalComp) onUpdateItem(item.id, 'component', comp);
+            if (chain !== originalChain) onUpdateItem(item.id, 'chainageOrArea', chain);
+        }
 
-    if(changeCount > 0) {
+        return { ...item, location: loc, component: comp, chainageOrArea: chain };
+    });
+    
+    if (changeCount > 0) {
         setEntries(newEntries);
-        alert(`Normalized ${changeCount} entries.\n\nItems that could not be matched were marked as 'Unclassified'.`);
+        alert(`Normalized ${changeCount} items to strict project standards.`);
     } else {
         alert("Report is already strictly synchronized.");
     }
