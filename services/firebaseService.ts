@@ -52,6 +52,7 @@ const REPORT_COLLECTION = "daily_reports";
 const LOG_COLLECTION = "activity_logs";
 const TRASH_COLLECTION = "trash_bin";
 const BACKUP_COLLECTION = "permanent_backups";
+const REPORT_HISTORY_COLLECTION = "report_history";
 const QUANTITY_COLLECTION = "quantities";
 
 // --- Authentication ---
@@ -116,6 +117,24 @@ export const saveReportToCloud = async (report: DailyReport): Promise<void> => {
     console.error("Error adding document: ", e);
     throw e;
   }
+};
+
+// Automatic full-state backup
+export const saveReportHistory = async (report: DailyReport) => {
+    if (!db) return;
+    try {
+        const historyId = crypto.randomUUID();
+        await setDoc(doc(db, REPORT_HISTORY_COLLECTION, historyId), {
+            historyId,
+            timestamp: new Date().toISOString(),
+            reportId: report.id,
+            reportDate: report.date,
+            snapshot: report
+        });
+        console.log("Database state snapshot saved.");
+    } catch (e) {
+        console.error("Failed to save history snapshot:", e);
+    }
 };
 
 // --- Quantities ---

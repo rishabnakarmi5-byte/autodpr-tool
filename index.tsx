@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Layout } from './components/Layout';
@@ -7,7 +8,7 @@ import { ReportTable } from './components/ReportTable';
 import { ActivityLogs } from './components/ActivityLogs';
 import { RecycleBin } from './components/RecycleBin';
 import { QuantityView } from './components/QuantityView';
-import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup } from './services/firebaseService';
+import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory } from './services/firebaseService';
 import { DailyReport, DPRItem, TabView, LogEntry, TrashItem } from './types';
 import { getLocationPriority } from './utils/constants';
 
@@ -145,6 +146,8 @@ const App = () => {
     
     try {
       await saveReportToCloud(report);
+      // Auto-Backup State History
+      await saveReportHistory(report);
     } catch (e) {
       console.error("Failed to save", e);
     } finally {

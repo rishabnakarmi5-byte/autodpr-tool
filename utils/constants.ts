@@ -1,59 +1,59 @@
 
 export const LOCATION_HIERARCHY: Record<string, string[]> = {
   "Headworks": [
-    "Barrage", 
-    "Weir", 
+    "Barrage",
+    "Weir",
+    "Upstream Apron",
+    "Stilling Basin",
     "Syphon",
-    "Apron", 
-    "Intake", 
-    "Settling Basin", 
-    "Headpond", 
-    "Headworks Flood Walls"
+    "Intake",
+    "Gravel Trap",
+    "Settling Basin / Headpond",
+    "Downstream Works",
+    "Flood Walls",
+    "Other Headworks"
   ],
-  "HRT": [
-    "HRT from Inlet", 
-    "HRT from Adit", 
-    "Rock Trap"
+  "Headrace Tunnel (HRT)": [
+    "HRT from Inlet",
+    "HRT from Adit",
+    "Rock Trap",
+    "Portals",
+    "Adit Tunnel",
+    "Other HRT Works"
   ],
   "Pressure Tunnels": [
-    "Vertical Shaft", 
-    "Lower Pressure Tunnel", 
-    "Anchor Block (Top)", 
-    "Anchor Block (Bottom)", 
-    "Surge Tank", 
-    "Connecting Tunnel", 
-    "Ventilation Shaft"
+    "Surge Tank",
+    "Ventilation Tunnel",
+    "Vertical Shaft",
+    "Anchor Block (Top)",
+    "Anchor Block (Bottom) or 90",
+    "Lower Pressure Tunnel (LPT)",
+    "Bifurcation or Y",
+    "Other Works"
   ],
   "Powerhouse": [
-    "Powerhouse Main building", 
-    "Transformer Cavern", 
-    "Tailrace Tunnel", 
-    "Tailrace Pool", 
-    "Tailrace Outlet", 
-    "Tailrace Flood Walls"
-  ],
-  "Bifurcation": [
-      "Bifurcation"
+    "Main Building",
+    "Tailrace Tunnel (TRT)",
+    "Tailrace Pool (TRT Pool)",
+    "Turbine Outlet Gate",
+    "Tailrace Gate",
+    "Tailrace Downstream Apron and Flood Wall"
   ]
 };
 
 // Defined sort order for the report
 export const LOCATION_SORT_ORDER = [
   "Headworks",
-  "HRT",
-  "HRT from Inlet",
-  "HRT from Adit",
+  "Headrace Tunnel (HRT)",
   "Pressure Tunnels",
-  "Powerhouse",
-  "Powerhouse Main Building",
-  "Bifurcation",
-  "Tailrace Tunnel"
+  "Powerhouse"
 ];
 
 export const getLocationPriority = (location: string): number => {
   if (!location) return 999;
   const index = LOCATION_SORT_ORDER.findIndex(key => 
-    location.toLowerCase().includes(key.toLowerCase())
+    location.toLowerCase().includes(key.toLowerCase()) || 
+    key.toLowerCase().includes(location.toLowerCase())
   );
   return index === -1 ? 999 : index;
 };
@@ -95,6 +95,16 @@ export const STRUCTURAL_ELEMENTS = [
   { regex: /\b(glacis)\b/i, label: "Glacis" },
   { regex: /\b(apron)\b/i, label: "Apron" },
   { regex: /\b(soling)\b/i, label: "Soling" },
+  { regex: /\b(casing)\b/i, label: "Casing" },
+  { regex: /\b(gantry)\b/i, label: "Gantry" },
+  { regex: /\b(bulkhead)\b/i, label: "Bulkhead" },
+  { regex: /\b(overbreak)\b/i, label: "Overbreak Zone" },
+  { regex: /\b(machine hall)\b/i, label: "Machine Hall" },
+  { regex: /\b(control building)\b/i, label: "Control Building" },
+  { regex: /\b(service bay)\b/i, label: "Service Bay" },
+  { regex: /\b(turbine floor)\b/i, label: "Turbine Floor" },
+  { regex: /\b(generator floor)\b/i, label: "Generator Floor" },
+  { regex: /\b(miv|main inlet valve)\b/i, label: "MIV" },
   { regex: /\b(first|1st)\s+lift\b/i, label: "1st Lift" },
   { regex: /\b(second|2nd)\s+lift\b/i, label: "2nd Lift" },
   { regex: /\b(third|3rd)\s+lift\b/i, label: "3rd Lift" },
@@ -204,7 +214,7 @@ export const parseQuantityDetails = (
   if (lowerLoc.includes('tailrace') && lowerDesc.includes('lift')) {
       if (!elements.has('Wall')) elements.add('Wall');
       // If component is generic, we might want to ensure it says Tailrace Tunnel or Wall
-      if (component === location) component = "Tailrace Tunnel"; 
+      if (component === location) component = "Tailrace Tunnel (TRT)"; 
   }
 
   if (lowerLoc.includes('pressure tunnel') && lowerDesc.includes('lift')) {

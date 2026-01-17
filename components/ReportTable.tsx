@@ -133,6 +133,70 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
      }
   };
 
+  // --- Normalization / Sync Logic ---
+  const handleNormalize = () => {
+    if(!window.confirm("This will attempt to map existing location names to the new strict standards. Continue?")) return;
+
+    const validLocations = Object.keys(LOCATION_HIERARCHY);
+    let changeCount = 0;
+
+    const newEntries = entries.map(item => {
+        let newLocation = item.location;
+        let newComponent = item.component;
+        let changed = false;
+
+        // 1. Try to fix Location
+        if (!validLocations.includes(item.location)) {
+            // Find closest match (simple inclusion check)
+            const match = validLocations.find(k => 
+                k.toLowerCase().includes(item.location.toLowerCase()) || 
+                item.location.toLowerCase().includes(k.toLowerCase()) ||
+                (item.location === "HRT" && k.includes("Headrace Tunnel")) ||
+                (item.location === "TRT" && k.includes("Tailrace Tunnel"))
+            );
+            if (match) {
+                newLocation = match;
+                changed = true;
+            }
+        }
+
+        // 2. Try to fix Component if Location is valid
+        if (validLocations.includes(newLocation)) {
+            const validComponents = LOCATION_HIERARCHY[newLocation];
+            // If component is missing or invalid
+            if (!newComponent || !validComponents.includes(newComponent)) {
+                // Try fuzzy match
+                const compMatch = validComponents.find(c => 
+                    (newComponent || "").toLowerCase().includes(c.toLowerCase()) || 
+                    c.toLowerCase().includes((newComponent || "").toLowerCase())
+                );
+                
+                if (compMatch) {
+                    newComponent = compMatch;
+                    changed = true;
+                }
+            }
+        }
+
+        if (changed) {
+            changeCount++;
+            // Trigger update immediately (for persistence)
+            if (newLocation !== item.location) onUpdateItem(item.id, 'location', newLocation);
+            if (newComponent !== item.component) onUpdateItem(item.id, 'component', newComponent || '');
+            
+            return { ...item, location: newLocation, component: newComponent };
+        }
+        return item;
+    });
+
+    if(changeCount > 0) {
+        setEntries(newEntries);
+        alert(`Updated ${changeCount} entries to new standards.`);
+    } else {
+        alert("No obvious standard deviations found. Manually check for 'Unclassified' items.");
+    }
+  };
+
   // --- Drag and Drop Handlers ---
   const onDragStart = (e: React.DragEvent, index: number) => {
     if (!isDragMode) {
@@ -215,6 +279,14 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         {/* Controls */}
         <div className="flex flex-col md:flex-row items-center gap-4 w-full xl:w-auto">
           
+          <button 
+             onClick={handleNormalize}
+             className="px-4 py-2 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-yellow-100 transition-colors"
+             title="Attempts to fix old names to new standards"
+          >
+             <i className="fas fa-magic"></i> Normalize & Sync
+          </button>
+
           <button
              onClick={() => setIsDragMode(!isDragMode)}
              className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 border w-full md:w-auto justify-center transition-colors ${
