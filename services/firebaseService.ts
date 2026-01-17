@@ -5,7 +5,7 @@ import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry }
 
 // Workaround for potential type definition mismatches
 const { initializeApp } = _app as any;
-const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion } = _firestore as any;
+const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, getDocs, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion } = _firestore as any;
 const { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } = _auth as any;
 
 // Define loose types for internal use to avoid import errors
@@ -249,6 +249,22 @@ export const savePermanentBackup = async (
     console.log("Permanent backup saved.");
   } catch (e) {
     console.error("Failed to save backup:", e);
+  }
+};
+
+export const getBackups = async (limitCount = 50): Promise<BackupEntry[]> => {
+  if (!db) return [];
+  try {
+    const q = query(collection(db, BACKUP_COLLECTION), orderBy("timestamp", "desc"), limit(limitCount));
+    const snapshot = await getDocs(q);
+    const backups: BackupEntry[] = [];
+    snapshot.forEach((doc: any) => {
+      backups.push(doc.data() as BackupEntry);
+    });
+    return backups;
+  } catch (e) {
+    console.error("Error fetching backups:", e);
+    return [];
   }
 };
 

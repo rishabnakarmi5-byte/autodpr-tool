@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { LogEntry } from '../types';
+import { LogEntry, BackupEntry } from '../types';
+import { getBackups } from '../services/firebaseService';
 
 interface ActivityLogsProps {
   logs: LogEntry[];
@@ -7,6 +8,12 @@ interface ActivityLogsProps {
 
 export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs }) => {
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
+  
+  // Backup / Storage State
+  const [isStorageOpen, setIsStorageOpen] = useState(false);
+  const [backups, setBackups] = useState<BackupEntry[]>([]);
+  const [loadingBackups, setLoadingBackups] = useState(false);
+  const [selectedBackup, setSelectedBackup] = useState<BackupEntry | null>(null);
 
   const formatDetails = (details: string) => {
       try {
@@ -21,11 +28,32 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs }) => {
       }
   };
 
+  const handleOpenStorage = async () => {
+    setIsStorageOpen(true);
+    setLoadingBackups(true);
+    try {
+      const data = await getBackups(50); // Get last 50 entries
+      setBackups(data);
+    } catch (error) {
+      alert("Failed to load archived data.");
+    } finally {
+      setLoadingBackups(false);
+    }
+  };
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
-      <div className="border-b border-slate-200 pb-4">
-        <h2 className="text-3xl font-bold text-slate-800">Activity Logs</h2>
-        <p className="text-slate-500 mt-1">Audit trail of all changes made by users across the system.</p>
+    <div className="max-w-5xl mx-auto space-y-6 animate-fade-in relative">
+      <div className="border-b border-slate-200 pb-4 flex justify-between items-end">
+        <div>
+           <h2 className="text-3xl font-bold text-slate-800">Activity Logs</h2>
+           <p className="text-slate-500 mt-1">Audit trail of all changes made by users across the system.</p>
+        </div>
+        <button 
+           onClick={handleOpenStorage}
+           className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md transition-all flex items-center gap-2"
+        >
+           <i className="fas fa-database"></i> Raw Input Storage
+        </button>
       </div>
 
       <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
@@ -114,6 +142,116 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs }) => {
            </div>
         </div>
       )}
+
+      {/* RAW STORAGE MODAL */}
+      {isStorageOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in">
+           <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full h-[90vh] relative flex flex-col overflow-hidden">
+              
+              {/* Header */}
+              <div className="flex justify-between items-center p-6 border-b border-slate-200 bg-slate-50">
+                 <div>
+                    <h3 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
+                       <i className="fas fa-database text-indigo-600"></i> Raw Input Archive
+                    </h3>
+                    <p className="text-sm text-slate-500 mt-1">
+                       Original WhatsApp text and AI-parsed results saved automatically.
+                    </p>
+                 </div>
+                 <button onClick={() => setIsStorageOpen(false)} className="w-10 h-10 rounded-full bg-white hover:bg-slate-100 shadow border border-slate-200 flex items-center justify-center transition-colors">
+                    <i className="fas fa-times text-slate-600"></i>
+                 </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 flex overflow-hidden">
+                  {/* Sidebar List */}
+                  <div className="w-1/3 border-r border-slate-200 overflow-y-auto bg-slate-50/50">
+                     {loadingBackups ? (
+                         <div className="p-8 text-center text-slate-400">
+                             <i className="fas fa-circle-notch fa-spin text-2xl mb-2"></i><br/>
+                             Loading archive...
+                         </div>
+                     ) : backups.length === 0 ? (
+                         <div className="p-8 text-center text-slate-400 italic">No archives found.</div>
+                     ) : (
+                         <div className="divide-y divide-slate-100">
+                             {backups.map(item => {
+                                 const date = new Date(item.timestamp);
+                                 const isActive = selectedBackup?.id === item.id;
+                                 return (
+                                     <div 
+                                        key={item.id} 
+                                        onClick={() => setSelectedBackup(item)}
+                                        className={`p-4 cursor-pointer hover:bg-indigo-50 transition-colors ${isActive ? 'bg-indigo-50 border-l-4 border-indigo-600' : 'border-l-4 border-transparent'}`}
+                                     >
+                                        <div className="flex justify-between items-start mb-1">
+                                            <span className="text-xs font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded">
+                                                {item.date}
+                                            </span>
+                                            <span className="text-[10px] text-slate-400">{date.toLocaleTimeString()}</span>
+                                        </div>
+                                        <div className="text-sm font-medium text-slate-800 mb-1 line-clamp-2">
+                                            {item.rawInput.substring(0, 60).replace(/\n/g, ' ')}...
+                                        </div>
+                                        <div className="flex justify-between items-center text-xs text-slate-500">
+                                            <span><i className="fas fa-user mr-1"></i> {item.user}</span>
+                                            <span><i className="fas fa-list-check mr-1"></i> {item.parsedItems.length} items</span>
+                                        </div>
+                                     </div>
+                                 );
+                             })}
+                         </div>
+                     )}
+                  </div>
+
+                  {/* Main Detail View */}
+                  <div className="w-2/3 p-6 overflow-y-auto bg-white">
+                      {selectedBackup ? (
+                          <div className="space-y-6">
+                              <div className="flex justify-between items-start bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                  <div>
+                                     <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Archive ID</div>
+                                     <div className="text-sm font-mono text-slate-600">{selectedBackup.id}</div>
+                                  </div>
+                                  <div className="text-right">
+                                     <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Captured At</div>
+                                     <div className="text-sm font-mono text-slate-600">{new Date(selectedBackup.timestamp).toLocaleString()}</div>
+                                  </div>
+                              </div>
+
+                              <div>
+                                  <h4 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
+                                      <i className="fab fa-whatsapp text-green-500 text-lg"></i> Original Raw Input
+                                  </h4>
+                                  <div className="bg-slate-100 p-4 rounded-xl border border-slate-200 text-sm font-mono whitespace-pre-wrap text-slate-700">
+                                      {selectedBackup.rawInput}
+                                  </div>
+                              </div>
+
+                              <div>
+                                  <h4 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
+                                      <i className="fas fa-robot text-indigo-500"></i> AI Parsed Output
+                                  </h4>
+                                  <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 overflow-x-auto shadow-inner">
+                                      <pre className="text-xs font-mono text-green-400">
+                                          {JSON.stringify(selectedBackup.parsedItems, null, 2)}
+                                      </pre>
+                                  </div>
+                              </div>
+                          </div>
+                      ) : (
+                          <div className="h-full flex flex-col items-center justify-center text-slate-300">
+                              <i className="fas fa-mouse-pointer text-4xl mb-4"></i>
+                              <p>Select an archived item from the list to view details.</p>
+                          </div>
+                      )}
+                  </div>
+              </div>
+           </div>
+        </div>
+      )}
+
     </div>
   );
 };
