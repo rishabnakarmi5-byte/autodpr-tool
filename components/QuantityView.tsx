@@ -218,6 +218,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
         updatedBy: user?.displayName || 'Unknown'
       } as QuantityEntry;
 
+      // This will trigger the sync back to the Report via firebaseService
       await updateQuantity(updatedItem, originalItem, user?.displayName || 'Unknown');
       setEditingId(null);
       setEditForm({});
@@ -252,12 +253,21 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   // --- MEMO: Analysis Filter Options ---
   const analysisComponents = useMemo(() => {
     if (analysisLocation === 'All') return [];
+    if (analysisLocation === 'Unclassified') {
+        // Return components of items that have missing or unknown locations/components
+        return Array.from(new Set(quantities.filter(q => !q.location || !q.structure).map(q => q.structure || '(Empty)'))).sort();
+    }
     return Array.from(new Set(quantities.filter(q => q.location.includes(analysisLocation)).map(q => q.structure))).sort();
   }, [quantities, analysisLocation]);
 
   const analysisItems = useMemo(() => {
       let filtered = quantities;
-      if (analysisLocation !== 'All') filtered = filtered.filter(q => q.location.includes(analysisLocation));
+      if (analysisLocation === 'Unclassified') {
+          filtered = filtered.filter(q => !q.location || !q.structure || !q.itemType || q.itemType === 'Other');
+      } else if (analysisLocation !== 'All') {
+          filtered = filtered.filter(q => q.location.includes(analysisLocation));
+      }
+      
       if (analysisComponent !== 'All') filtered = filtered.filter(q => q.structure === analysisComponent);
       return Array.from(new Set(filtered.map(q => q.itemType || 'Other'))).sort();
   }, [quantities, analysisLocation, analysisComponent]);
@@ -265,7 +275,13 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   // --- MEMO: Analysis Filtered Data ---
   const analysisData = useMemo(() => {
       return quantities.filter(q => {
-          if (analysisLocation !== 'All' && !q.location.includes(analysisLocation)) return false;
+          if (analysisLocation === 'Unclassified') {
+              // Show items that need fixing: Missing Location, Missing Structure, or "Other" type
+              if (q.location && q.structure && q.itemType && q.itemType !== 'Other') return false;
+          } else if (analysisLocation !== 'All' && !q.location.includes(analysisLocation)) {
+              return false;
+          }
+
           if (analysisComponent !== 'All' && q.structure !== analysisComponent) return false;
           if (analysisItemType !== 'All' && (q.itemType || 'Other') !== analysisItemType) return false;
           return true;
@@ -478,6 +494,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                       className="p-3 border border-indigo-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm"
                    >
                      <option value="All">All Locations</option>
+                     <option value="Unclassified" className="text-red-600 font-bold">Unclassified / Needs Fix</option>
                      {Object.keys(LOCATION_HIERARCHY).map(loc => <option key={loc} value={loc}>{loc}</option>)}
                    </select>
                 </div>
@@ -537,17 +554,46 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase border-b">Detail / Description</th>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase w-24 border-b">Date</th>
                      <th className="p-3 text-xs font-bold text-indigo-700 uppercase text-right w-24 border-b">Qty</th>
+                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase w-12 border-b">Edit</th>
                    </tr>
                  </thead>
                  <tbody className="divide-y divide-slate-100 text-sm">
                    {analysisData.map((item) => (
                      <tr key={item.id} className="hover:bg-indigo-50/30">
-                       <td className="p-3 text-slate-700 text-xs font-medium">{item.structure}</td>
-                       <td className="p-3 text-indigo-700 text-xs font-medium">{item.detailElement}</td>
-                       <td className="p-3 text-slate-600 text-xs"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded">{item.itemType || 'Other'}</span></td>
-                       <td className="p-3 text-slate-500 text-xs">{item.description}</td>
-                       <td className="p-3 text-slate-400 text-xs">{item.date}</td>
-                       <td className="p-3 text-right font-mono font-bold text-slate-800">{item.quantityValue}</td>
+                       {editingId === item.id ? (
+                           <>
+                              <td className="p-2"><input className="input-edit" value={editForm.structure} onChange={e => setEditForm({...editForm, structure: e.target.value})} placeholder="Component" /></td>
+                              <td className="p-2"><input className="input-edit" value={editForm.detailElement || ''} onChange={e => setEditForm({...editForm, detailElement: e.target.value})} /></td>
+                              <td className="p-2"><input className="input-edit" value={editForm.itemType} onChange={e => setEditForm({...editForm, itemType: e.target.value})} /></td>
+                              <td className="p-2"><input className="input-edit" value={editForm.description} onChange={e => setEditForm({...editForm, description: e.target.value})} /></td>
+                              <td className="p-2 text-xs text-slate-400">{item.date}</td>
+                              <td className="p-2 text-right"><input className="input-edit text-right" type="number" value={editForm.quantityValue} onChange={e => setEditForm({...editForm, quantityValue: parseFloat(e.target.value)})} /></td>
+                              <td className="p-2 flex gap-1">
+                                  <button onClick={handleSaveEdit} className="text-green-600 hover:bg-green-100 p-1 rounded"><i className="fas fa-check"></i></button>
+                                  <button onClick={handleCancelEdit} className="text-red-500 hover:bg-red-100 p-1 rounded"><i className="fas fa-times"></i></button>
+                              </td>
+                           </>
+                       ) : (
+                           <>
+                              <td className="p-3 text-slate-700 text-xs font-medium">
+                                  {item.structure || <span className="text-red-500 italic">Unknown</span>}
+                              </td>
+                              <td className="p-3 text-indigo-700 text-xs font-medium">{item.detailElement}</td>
+                              <td className="p-3 text-slate-600 text-xs">
+                                  <span className={`px-2 py-1 rounded ${!item.itemType || item.itemType === 'Other' ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-indigo-50 text-indigo-700'}`}>
+                                      {item.itemType || 'Unknown'}
+                                  </span>
+                              </td>
+                              <td className="p-3 text-slate-500 text-xs">{item.description}</td>
+                              <td className="p-3 text-slate-400 text-xs">{item.date}</td>
+                              <td className="p-3 text-right font-mono font-bold text-slate-800">{item.quantityValue}</td>
+                              <td className="p-3">
+                                  <button onClick={() => handleEditClick(item)} className="text-blue-500 hover:text-blue-700 px-2">
+                                      <i className="fas fa-pen"></i>
+                                  </button>
+                              </td>
+                           </>
+                       )}
                      </tr>
                    ))}
                  </tbody>

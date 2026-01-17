@@ -151,12 +151,49 @@ export const addQuantity = async (quantity: QuantityEntry) => {
 export const updateQuantity = async (quantity: QuantityEntry, previousState: QuantityEntry, user: string) => {
   if(!db) return;
   try {
+    // 1. Update the Quantity Document
     await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
-    // Log detailed change for safety
+    
+    // 2. Log Activity
     await logActivity(user, "Edit Quantity", JSON.stringify({
       before: previousState,
       after: quantity
     }), quantity.date);
+
+    // 3. REVERSE SYNC: If Location or Component (Structure) changed, update the original Report Item
+    if (quantity.reportId && quantity.originalReportItemId) {
+        const hasLocationChanged = quantity.location !== previousState.location;
+        const hasStructureChanged = quantity.structure !== previousState.structure;
+
+        if (hasLocationChanged || hasStructureChanged) {
+            const reportRef = doc(db, REPORT_COLLECTION, quantity.reportId);
+            const reportSnap = await getDoc(reportRef);
+
+            if (reportSnap.exists()) {
+                const reportData = reportSnap.data() as DailyReport;
+                
+                // Map over entries to find and update the specific item
+                let itemUpdated = false;
+                const updatedEntries = reportData.entries.map((entry) => {
+                    if (entry.id === quantity.originalReportItemId) {
+                        itemUpdated = true;
+                        return {
+                            ...entry,
+                            location: quantity.location,
+                            component: quantity.structure
+                        };
+                    }
+                    return entry;
+                });
+
+                if (itemUpdated) {
+                    await updateDoc(reportRef, { entries: updatedEntries });
+                    await logActivity(user, "Auto-Sync Report", `Updated Report Item from Quantity Edit: ${quantity.location} - ${quantity.structure}`, quantity.date);
+                }
+            }
+        }
+    }
+
   } catch (e) {
     console.error("Error updating quantity:", e);
     throw e;

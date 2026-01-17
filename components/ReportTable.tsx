@@ -21,8 +21,9 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
 
-  // Component Editor State
+  // Editors State
   const [editingComponentId, setEditingComponentId] = useState<string | null>(null);
+  const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
   
   useEffect(() => {
     setEntries(report.entries);
@@ -164,6 +165,30 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     dragOverItem.current = null;
   };
 
+  // --- Location Selector Logic ---
+  const openLocationEditor = (id: string) => {
+    setEditingLocationId(id);
+  };
+  
+  const applyLocation = (id: string, value: string) => {
+      // When Main Location changes, verify if current component is valid for it. 
+      // If not, clear component to force re-selection (helps consistency).
+      const currentItem = entries.find(e => e.id === id);
+      const validComponents = LOCATION_HIERARCHY[value] || [];
+      const currentComponent = currentItem?.component || '';
+      
+      handleLocalChange(id, 'location', value);
+      onUpdateItem(id, 'location', value);
+      
+      if (currentComponent && !validComponents.includes(currentComponent)) {
+          // If the old component doesn't belong to the new location, clear it
+           handleLocalChange(id, 'component', '');
+           onUpdateItem(id, 'component', '');
+      }
+
+      setEditingLocationId(null);
+  };
+
   // --- Component Selector Logic ---
   const openComponentEditor = (id: string) => {
     setEditingComponentId(id);
@@ -183,7 +208,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         <div>
            <h2 className="text-xl font-bold text-slate-800">Final Report</h2>
            <p className="text-sm text-slate-500 mt-1">
-             Drag rows to reorder. Click Component column to select structure.
+             Drag rows to reorder. Click Location/Component columns to select structures.
            </p>
         </div>
 
@@ -287,7 +312,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                     ${isDragMode ? 'cursor-move' : ''}
                   `}
                 >
-                  {/* Location (Simple Text) */}
+                  {/* Location (Dropdown Editor) */}
                   <div className="col-span-2 p-2 relative flex items-start">
                     {/* Drag Handle (Visual Only) */}
                     {isDragMode && (
@@ -295,14 +320,30 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                             <i className="fas fa-grip-vertical"></i>
                         </div>
                     )}
-                    <textarea
-                        value={item.location}
-                        onChange={(e) => handleLocalChange(item.id, 'location', e.target.value)}
-                        onBlur={(e) => handleBlur(item.id, 'location', e.target.value)}
-                        className="w-full h-full bg-transparent resize-none outline-none font-bold"
-                        style={{ fontSize: `${fontSize}px` }}
-                        rows={Math.max(2, Math.ceil(item.location.length / 12))}
-                    />
+                    
+                    {editingLocationId === item.id ? (
+                      <div className="absolute top-0 left-0 z-30 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48">
+                         <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                            {Object.keys(LOCATION_HIERARCHY).map(loc => (
+                              <button 
+                                key={loc}
+                                onClick={() => applyLocation(item.id, loc)}
+                                className="text-left text-xs p-1 hover:bg-indigo-50 rounded"
+                              >
+                                {loc}
+                              </button>
+                            ))}
+                         </div>
+                         <button onClick={() => setEditingLocationId(null)} className="text-[10px] text-red-500 underline w-full text-right mt-1">Cancel</button>
+                      </div>
+                    ) : (
+                      <div className="relative w-full h-full" onClick={() => openLocationEditor(item.id)}>
+                         <div className="w-full h-full min-h-[30px] whitespace-pre-wrap cursor-pointer font-bold" style={{ fontSize: `${fontSize}px` }}>
+                            {item.location}
+                        </div>
+                        <div className="no-print absolute top-0 right-0 text-gray-300 text-[10px]"><i className="fas fa-chevron-down"></i></div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Component (Dropdown Editor) */}
@@ -326,7 +367,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                                 {sub}
                               </button>
                             ))}
-                            {/* If location doesn't match standard keys, show all or default? */}
+                            {/* Fallback: if location isn't in hierarchy, allow picking from all? or just show warning? */}
                             {(!LOCATION_HIERARCHY[item.location]) && Object.values(LOCATION_HIERARCHY).flat().map(sub => (
                                 <button key={sub} onClick={() => applyComponent(item.id, sub)} className="text-left text-xs p-1 hover:bg-indigo-50 rounded">{sub}</button>
                             ))}
