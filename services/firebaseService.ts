@@ -1,7 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, onSnapshot, query, orderBy, limit, Unsubscribe, updateDoc, arrayUnion } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
-import { DailyReport, LogEntry, DPRItem, TrashItem } from "../types";
+import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry } from "../types";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -42,6 +42,8 @@ if (missingKeys.length === 0) {
 const REPORT_COLLECTION = "daily_reports";
 const LOG_COLLECTION = "activity_logs";
 const TRASH_COLLECTION = "trash_bin";
+const BACKUP_COLLECTION = "permanent_backups";
+const QUANTITY_COLLECTION = "quantities";
 
 // --- Authentication ---
 
@@ -104,6 +106,103 @@ export const saveReportToCloud = async (report: DailyReport): Promise<void> => {
   } catch (e) {
     console.error("Error adding document: ", e);
     throw e;
+  }
+};
+
+// --- Quantities ---
+
+export const subscribeToQuantities = (onUpdate: (quantities: QuantityEntry[]) => void): Unsubscribe => {
+  if (!db) return () => {};
+  // Order by date descending
+  const q = query(collection(db, QUANTITY_COLLECTION), orderBy("date", "desc"));
+  
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    const items: QuantityEntry[] = [];
+    snapshot.forEach((doc) => {
+      items.push(doc.data() as QuantityEntry);
+    });
+    onUpdate(items);
+  }, (error) => {
+    console.error("Error subscribing to quantities:", error);
+  });
+
+  return unsubscribe;
+};
+
+export const addQuantity = async (quantity: QuantityEntry) => {
+  if (!db) return;
+  try {
+    await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
+  } catch (e) {
+    console.error("Error adding quantity:", e);
+    throw e;
+  }
+};
+
+export const updateQuantity = async (quantity: QuantityEntry, previousState: QuantityEntry, user: string) => {
+  if(!db) return;
+  try {
+    await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
+    // Log detailed change for safety
+    await logActivity(user, "Edit Quantity", JSON.stringify({
+      before: previousState,
+      after: quantity
+    }), quantity.date);
+  } catch (e) {
+    console.error("Error updating quantity:", e);
+    throw e;
+  }
+}
+
+export const deleteQuantity = async (quantity: QuantityEntry, user: string) => {
+  if (!db) return;
+  try {
+     // 1. Move to Trash
+     const trashItem: TrashItem = {
+      trashId: crypto.randomUUID(),
+      originalId: quantity.id,
+      type: 'quantity',
+      content: quantity,
+      deletedAt: new Date().toISOString(),
+      deletedBy: user,
+      reportDate: quantity.date
+    };
+    await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
+
+    // 2. Delete from Collection
+    await deleteDoc(doc(db, QUANTITY_COLLECTION, quantity.id));
+  } catch(e) {
+    console.error("Error deleting quantity", e);
+    throw e;
+  }
+}
+
+
+// --- Backup System (Robust Data Safety) ---
+
+export const savePermanentBackup = async (
+  date: string, 
+  rawInput: string, 
+  parsedItems: DPRItem[], 
+  user: string, 
+  reportIdContext: string
+) => {
+  if (!db) return;
+  try {
+    const backupEntry: BackupEntry = {
+      id: crypto.randomUUID(),
+      date,
+      timestamp: new Date().toISOString(),
+      user: user || "Anonymous",
+      rawInput,
+      parsedItems,
+      reportIdContext
+    };
+    // This collection is intended to be append-only and never deleted by the app
+    await setDoc(doc(db, BACKUP_COLLECTION, backupEntry.id), backupEntry);
+    console.log("Permanent backup saved.");
+  } catch (e) {
+    console.error("Failed to save backup:", e);
   }
 };
 
@@ -188,7 +287,6 @@ export const restoreTrashItem = async (trashItem: TrashItem): Promise<void> => {
   try {
     if (trashItem.type === 'report') {
       const report = trashItem.content as DailyReport;
-      // Restore report
       await setDoc(doc(db, REPORT_COLLECTION, report.id), report);
     } 
     else if (trashItem.type === 'item') {
@@ -201,17 +299,13 @@ export const restoreTrashItem = async (trashItem: TrashItem): Promise<void> => {
       const reportSnap = await getDoc(reportRef);
 
       if (reportSnap.exists()) {
-        // If report exists, append the item
         const reportData = reportSnap.data() as DailyReport;
-        // Check if item already exists to avoid dupes?
         if (!reportData.entries.some(e => e.id === item.id)) {
            await updateDoc(reportRef, {
              entries: arrayUnion(item)
            });
         }
       } else {
-        // If report doesn't exist (maybe permanently deleted?), create a partial one or specific container
-        // Strategy: Create a new report for that date
         const newReport: DailyReport = {
           id: reportId,
           date: trashItem.reportDate,
@@ -221,6 +315,10 @@ export const restoreTrashItem = async (trashItem: TrashItem): Promise<void> => {
         };
         await setDoc(reportRef, newReport);
       }
+    }
+    else if (trashItem.type === 'quantity') {
+       const quantity = trashItem.content as QuantityEntry;
+       await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
     }
 
     // Remove from trash after successful restore

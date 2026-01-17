@@ -6,7 +6,8 @@ import { HistoryList } from './components/HistoryList';
 import { ReportTable } from './components/ReportTable';
 import { ActivityLogs } from './components/ActivityLogs';
 import { RecycleBin } from './components/RecycleBin';
-import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem } from './services/firebaseService';
+import { QuantityView } from './components/QuantityView';
+import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup } from './services/firebaseService';
 import { DailyReport, DPRItem, TabView, LogEntry, TrashItem } from './types';
 import { User } from "firebase/auth";
 import { getLocationPriority } from './utils/constants';
@@ -70,18 +71,23 @@ const App = () => {
     const existingReport = reports.find(r => r.date === currentDate);
 
     if (existingReport) {
+      // Always sync the ID if it doesn't match
       if (currentReportId !== existingReport.id) {
          setCurrentReportId(existingReport.id);
       }
+      // Only update entries if they are different (to avoid loop, though JSON.stringify is heavy, it works for this scale)
       if (JSON.stringify(existingReport.entries) !== JSON.stringify(currentEntries)) {
          setCurrentEntries(existingReport.entries);
       }
     } else {
+      // No report exists for this date yet.
+      // If our currentReportId belongs to a DIFFERENT date, reset.
       const isIdBelongingToOtherDate = reports.some(r => r.id === currentReportId && r.date !== currentDate);
       
       if (isIdBelongingToOtherDate || !currentReportId) {
-         const newId = crypto.randomUUID();
-         setCurrentReportId(newId);
+         // Don't generate ID here to avoid phantom IDs. 
+         // We generate ID only when saving for the first time or creating explicit new.
+         setCurrentReportId(null); 
          setCurrentEntries([]);
       }
     }
@@ -147,22 +153,37 @@ const App = () => {
     }
   };
 
-  const handleItemsAdded = (newItems: DPRItem[]) => {
-    // 1. Merge items
-    let updatedEntries = [...currentEntries, ...newItems];
+  const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
+    // ROBUSTNESS FIX:
+    // Instead of trusting `currentEntries` or `currentReportId` which might be stale if other users are updating,
+    // we find the report ID and entries from the LATEST `reports` state (synced via listener) for the `currentDate`.
+    
+    const existingReportOnServer = reports.find(r => r.date === currentDate);
+    
+    // Determine the ID to use: Server's ID if exists, otherwise existing local, otherwise new.
+    const effectiveReportId = existingReportOnServer ? existingReportOnServer.id : (currentReportId || crypto.randomUUID());
+    
+    // Determine the entries to merge with: Server's entries if exists.
+    const baseEntries = existingReportOnServer ? existingReportOnServer.entries : currentEntries;
 
-    // 2. Sort items according to fixed hierarchy
+    // 1. Merge items
+    let updatedEntries = [...baseEntries, ...newItems];
+
+    // 2. Sort items
     updatedEntries.sort((a, b) => {
       return getLocationPriority(a.location) - getLocationPriority(b.location);
     });
     
-    // 3. Update State
-    setCurrentEntries(updatedEntries);
-    saveCurrentState(updatedEntries, currentDate, currentReportId);
-    logActivity(getUserName(), "Report Updated", `Added ${newItems.length} items`, currentDate);
+    // 3. Save to Permanent Backup (Independent of report logic)
+    await savePermanentBackup(currentDate, rawText, newItems, getUserName(), effectiveReportId);
+
+    // 4. Update State & Save Report
+    setCurrentReportId(effectiveReportId);
+    setCurrentEntries(updatedEntries); // Optimistic update
     
-    // NOTE: We do NOT switch tab here anymore. 
-    // The InputSection component will handle the success modal and call handleViewReport when user clicks "Okay".
+    await saveCurrentState(updatedEntries, currentDate, effectiveReportId);
+    
+    logActivity(getUserName(), "Report Updated", `Added ${newItems.length} items (Backup Secured)`, currentDate);
   };
 
   const handleUpdateItem = (id: string, field: keyof DPRItem, value: string) => {
@@ -283,6 +304,10 @@ const App = () => {
             onDeleteItem={handleDeleteItem}
             onUpdateItem={handleUpdateItem}
           />
+        )}
+
+        {activeTab === TabView.QUANTITY && (
+          <QuantityView reports={reports} />
         )}
 
         {activeTab === TabView.HISTORY && (

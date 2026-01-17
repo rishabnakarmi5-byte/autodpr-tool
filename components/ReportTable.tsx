@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { DailyReport, DPRItem } from '../types';
+import { DailyReport, DPRItem, QuantityEntry } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 import { LOCATION_HIERARCHY } from '../utils/constants';
+import { addQuantity } from '../services/firebaseService';
 
 interface ReportTableProps {
   report: DailyReport;
@@ -14,6 +15,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   const [entries, setEntries] = useState<DPRItem[]>(report.entries);
   const [fontSize, setFontSize] = useState<number>(12);
   const [isExporting, setIsExporting] = useState(false);
+  const [isDragMode, setIsDragMode] = useState(false);
   
   // Drag and Drop State
   const dragItem = useRef<number | null>(null);
@@ -90,24 +92,58 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     }
   };
 
-  const handleDeleteClick = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this specific entry?')) {
-      onDeleteItem(id);
+  const handleDeleteClick = (item: DPRItem) => {
+    const confirmMsg = `Are you sure you want to delete this entry?\n\n${item.location}: ${item.activityDescription.substring(0, 50)}...`;
+    if (window.confirm(confirmMsg)) {
+      onDeleteItem(item.id);
     }
+  };
+  
+  const handleSendToQuantity = async (item: DPRItem) => {
+     const regex = /(\d+(\.\d+)?)\s*(m3|cum|sqm|sq\.m|m|mtr|nos|t|ton)/i;
+     const match = item.activityDescription.match(regex);
+     
+     if(match) {
+         if(window.confirm(`Add this quantity to collection?\n\n${match[0]}`)) {
+             const newQty: QuantityEntry = {
+                id: crypto.randomUUID(),
+                date: report.date,
+                location: item.location,
+                structure: item.chainageOrArea,
+                description: item.activityDescription,
+                quantityValue: parseFloat(match[1]),
+                quantityUnit: match[3],
+                originalRawString: match[0],
+                originalReportItemId: item.id,
+                reportId: report.id,
+                lastUpdated: new Date().toISOString(),
+                updatedBy: item.createdBy || 'Manual Send'
+              };
+              await addQuantity(newQty);
+         }
+     } else {
+         alert("No explicit quantity (e.g., 50 m3) found in description.");
+     }
   };
 
   // --- Drag and Drop Handlers ---
   const onDragStart = (e: React.DragEvent, index: number) => {
+    if (!isDragMode) {
+      e.preventDefault();
+      return;
+    }
     dragItem.current = index;
     // Set transparency or effect
     e.dataTransfer.effectAllowed = "move";
   };
 
   const onDragEnter = (e: React.DragEvent, index: number) => {
+    if (!isDragMode) return;
     dragOverItem.current = index;
   };
 
   const onDragEnd = () => {
+    if (!isDragMode) return;
     const dragIndex = dragItem.current;
     const dragOverIndex = dragOverItem.current;
 
@@ -117,8 +153,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
       _entries.splice(dragIndex, 1);
       _entries.splice(dragOverIndex, 0, draggedItemContent);
       setEntries(_entries);
-      // NOTE: For true persistence of order, the backend schema needs an 'order' field or array replacement.
-      // Currently we only update local state for the session view.
+      // Note: Backend re-ordering requires schema change or full array update.
+      // For now, this is visual for the current session/print.
     }
     dragItem.current = null;
     dragOverItem.current = null;
@@ -159,6 +195,19 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
 
         {/* Controls */}
         <div className="flex flex-col md:flex-row items-center gap-4 w-full xl:w-auto">
+          
+          <button
+             onClick={() => setIsDragMode(!isDragMode)}
+             className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 border w-full md:w-auto justify-center transition-colors ${
+               isDragMode 
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' 
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+             }`}
+          >
+             {isDragMode ? <i className="fas fa-check"></i> : <i className="fas fa-arrows-up-down"></i>}
+             {isDragMode ? 'Done Reordering' : 'Enable Drag Mode'}
+          </button>
+
           <div className="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-xl border border-slate-200 w-full md:w-auto">
              <i className="fas fa-font text-slate-400 text-xs"></i>
              <input 
@@ -234,14 +283,24 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               entries.map((item, index) => (
                 <div 
                   key={item.id} 
-                  draggable
+                  draggable={isDragMode}
                   onDragStart={(e) => onDragStart(e, index)}
                   onDragEnter={(e) => onDragEnter(e, index)}
                   onDragEnd={onDragEnd}
-                  className={`grid grid-cols-12 divide-x divide-black text-xs leading-relaxed group hover:bg-blue-50/10 cursor-move transition-colors ${index !== entries.length - 1 ? 'border-b border-black' : ''}`}
+                  className={`grid grid-cols-12 divide-x divide-black text-xs leading-relaxed group hover:bg-blue-50/10 transition-colors 
+                    ${index !== entries.length - 1 ? 'border-b border-black' : ''}
+                    ${isDragMode ? 'cursor-move' : ''}
+                  `}
                 >
                   {/* Location (Custom Editor) */}
-                  <div className="col-span-2 p-2 relative">
+                  <div className="col-span-2 p-2 relative flex items-start">
+                    {/* Drag Handle (Visual Only) */}
+                    {isDragMode && (
+                        <div className="no-print mr-2 mt-1 text-slate-400 cursor-move">
+                            <i className="fas fa-grip-vertical"></i>
+                        </div>
+                    )}
+
                     {editingLocationId === item.id ? (
                       <div className="absolute top-0 left-0 z-10 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-64">
                          <div className="space-y-2">
@@ -317,21 +376,22 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                       rows={Math.max(2, Math.ceil(item.plannedNextActivity.length / 20))}
                     />
                     
-                    {/* Floating Actions - Updated for Drag Hint */}
-                    <div className="no-print absolute top-1 right-1 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {/* Floating Actions */}
+                    <div className="no-print absolute top-1 right-1 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20 bg-white/90 p-1 rounded shadow-sm">
                       <button 
-                        onClick={() => handleDeleteClick(item.id)}
+                        onClick={() => handleSendToQuantity(item)}
+                        className="bg-white hover:bg-green-50 text-green-600 border border-green-200 rounded w-6 h-6 flex items-center justify-center shadow-sm"
+                        title="Add to Quantities"
+                      >
+                         <i className="fas fa-calculator text-[10px]"></i>
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteClick(item)}
                         className="bg-white hover:bg-red-50 text-red-500 border border-slate-200 rounded w-6 h-6 flex items-center justify-center shadow-sm"
                         title="Delete"
                       >
                         <i className="fas fa-trash-alt text-[10px]"></i>
                       </button>
-                      <div 
-                         className="bg-white text-slate-400 border border-slate-200 rounded w-6 h-6 flex items-center justify-center shadow-sm cursor-move"
-                         title="Drag to reorder"
-                      >
-                         <i className="fas fa-grip-vertical text-[10px]"></i>
-                      </div>
                     </div>
                   </div>
                 </div>

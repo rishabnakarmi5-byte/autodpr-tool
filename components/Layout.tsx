@@ -66,6 +66,14 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
           />
 
           <NavButton 
+            active={activeTab === TabView.QUANTITY} 
+            onClick={() => onTabChange(TabView.QUANTITY)}
+            icon="fa-calculator"
+            label="Quantities"
+            desc="Items & volumes"
+          />
+
+          <NavButton 
             active={activeTab === TabView.HISTORY} 
             onClick={() => onTabChange(TabView.HISTORY)}
             icon="fa-clock-rotate-left"
@@ -144,16 +152,16 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
           label="Report"
         />
         <MobileNavButton 
+          active={activeTab === TabView.QUANTITY} 
+          onClick={() => onTabChange(TabView.QUANTITY)}
+          icon="fa-calculator"
+          label="Qty"
+        />
+        <MobileNavButton 
           active={activeTab === TabView.HISTORY} 
           onClick={() => onTabChange(TabView.HISTORY)}
           icon="fa-clock-rotate-left"
           label="History"
-        />
-        <MobileNavButton 
-          active={activeTab === TabView.RECYCLE_BIN} 
-          onClick={() => onTabChange(TabView.RECYCLE_BIN)}
-          icon="fa-trash"
-          label="Bin"
         />
       </div>
     </div>

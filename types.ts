@@ -21,24 +21,50 @@ export interface LogEntry {
   timestamp: string;
   user: string;
   action: string;
-  details: string;
+  details: string; // Can be a simple string or JSON stringified object
   reportDate: string;
 }
 
 export interface TrashItem {
   trashId: string;
   originalId: string; // ID of the report or the item
-  type: 'report' | 'item';
-  content: DailyReport | DPRItem; // The actual data to restore
+  type: 'report' | 'item' | 'quantity';
+  content: DailyReport | DPRItem | QuantityEntry; // The actual data to restore
   deletedAt: string;
   deletedBy: string;
   reportDate: string;
   reportId?: string; // If it's an item, we need to know which report it belonged to
 }
 
+export interface BackupEntry {
+  id: string;
+  date: string;
+  timestamp: string;
+  user: string;
+  rawInput: string;
+  parsedItems: DPRItem[];
+  reportIdContext: string;
+}
+
+export interface QuantityEntry {
+  id: string;
+  date: string;
+  location: string;
+  structure: string; // Chainage or sub-area
+  description: string;
+  quantityValue: number; // Parsed number
+  quantityUnit: string; // Parsed unit
+  originalRawString: string; // The full "35.6 m3" string
+  originalReportItemId?: string; // Link to source report item (to prevent duplicates)
+  reportId?: string;
+  lastUpdated: string;
+  updatedBy: string;
+}
+
 export enum TabView {
   INPUT = 'input',
   VIEW_REPORT = 'view_report',
+  QUANTITY = 'quantity',
   HISTORY = 'history',
   LOGS = 'logs',
   RECYCLE_BIN = 'recycle_bin'

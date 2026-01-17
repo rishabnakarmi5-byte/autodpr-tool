@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LogEntry, TrashItem, DPRItem, DailyReport } from '../types';
+import { LogEntry, TrashItem, DPRItem, DailyReport, QuantityEntry } from '../types';
 
 interface RecycleBinProps {
   logs: LogEntry[];
@@ -10,6 +10,7 @@ interface RecycleBinProps {
 export const RecycleBin: React.FC<RecycleBinProps> = ({ logs, trashItems, onRestore }) => {
   const [activeTab, setActiveTab] = useState<'recoverable' | 'logs'>('recoverable');
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [viewDetailsItem, setViewDetailsItem] = useState<TrashItem | null>(null);
 
   // Filter for deletion events for the log view
   const deletedLogs = logs.filter(log => 
@@ -31,7 +32,7 @@ export const RecycleBin: React.FC<RecycleBinProps> = ({ logs, trashItems, onRest
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
+    <div className="max-w-5xl mx-auto space-y-6 animate-fade-in relative">
       <div className="border-b border-slate-200 pb-4 flex justify-between items-end">
         <div>
            <h2 className="text-3xl font-bold text-slate-800">Recycle Bin</h2>
@@ -95,6 +96,9 @@ export const RecycleBin: React.FC<RecycleBinProps> = ({ logs, trashItems, onRest
                      let summary = "";
                      if (item.type === 'report') {
                         summary = `Full Report for ${(item.content as DailyReport).date}`;
+                     } else if (item.type === 'quantity') {
+                        const qty = item.content as QuantityEntry;
+                        summary = `QTY: ${qty.location} (${qty.quantityValue} ${qty.quantityUnit})`;
                      } else {
                         const dpr = item.content as DPRItem;
                         summary = `${dpr.location} - ${dpr.activityDescription.substring(0, 30)}...`;
@@ -107,13 +111,16 @@ export const RecycleBin: React.FC<RecycleBinProps> = ({ logs, trashItems, onRest
                          </td>
                          <td className="p-4">
                            <span className={`text-[10px] font-bold px-2 py-1 rounded-full uppercase ${
-                             item.type === 'report' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                             item.type === 'report' ? 'bg-purple-100 text-purple-700' : 
+                             item.type === 'quantity' ? 'bg-green-100 text-green-700' :
+                             'bg-blue-100 text-blue-700'
                            }`}>
                              {item.type}
                            </span>
                          </td>
-                         <td className="p-4 text-sm text-slate-700 font-medium">
+                         <td className="p-4 text-sm text-slate-700 font-medium cursor-pointer hover:text-indigo-600" onClick={() => setViewDetailsItem(item)}>
                            {summary}
+                           <i className="fas fa-eye ml-2 text-slate-300 text-xs"></i>
                          </td>
                          <td className="p-4 text-sm text-slate-500">
                            {item.deletedBy}
@@ -185,6 +192,30 @@ export const RecycleBin: React.FC<RecycleBinProps> = ({ logs, trashItems, onRest
            </div>
          )}
       </div>
+
+      {/* Detail View Modal */}
+      {viewDetailsItem && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
+           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 relative flex flex-col max-h-[90vh]">
+              <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
+                 <h3 className="text-lg font-bold text-slate-800">Deleted Item Details</h3>
+                 <button onClick={() => setViewDetailsItem(null)} className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center">
+                    <i className="fas fa-times text-slate-500"></i>
+                 </button>
+              </div>
+              <div className="bg-slate-900 rounded-lg p-4 overflow-auto flex-1 border border-slate-700 shadow-inner">
+                  <pre className="text-xs font-mono text-green-400 whitespace-pre-wrap">
+                      {JSON.stringify(viewDetailsItem.content, null, 2)}
+                  </pre>
+              </div>
+              <div className="mt-4 pt-2 border-t border-slate-100 text-xs text-slate-400 flex justify-between">
+                 <span>Deleted by: {viewDetailsItem.deletedBy}</span>
+                 <span>ID: {viewDetailsItem.originalId}</span>
+              </div>
+           </div>
+        </div>
+      )}
+
     </div>
   );
 };

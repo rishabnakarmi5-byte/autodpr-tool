@@ -7,7 +7,7 @@ import { User } from 'firebase/auth';
 interface InputSectionProps {
   currentDate: string;
   onDateChange: (date: string) => void;
-  onItemsAdded: (items: DPRItem[]) => void;
+  onItemsAdded: (items: DPRItem[], rawText: string) => void;
   onViewReport: () => void;
   entryCount: number;
   user: User | null;
@@ -36,7 +36,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         createdBy: user?.displayName || user?.email || 'Unknown' 
       }));
       
-      onItemsAdded(newItems);
+      onItemsAdded(newItems, rawText);
       setRawText('');
       setInstructions('');
       setShowSuccessModal(true); 
@@ -96,6 +96,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
              <div className="flex items-center text-sm text-slate-400 gap-2">
                <i className="fas fa-camera-slash"></i> Photos Disabled
              </div>
+             <div className="flex items-center text-sm text-indigo-600 gap-2 font-bold">
+               <i className="fas fa-shield-alt"></i> Backup Enabled
+             </div>
            </div>
         </div>
       </div>
@@ -154,7 +157,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
 
           <div className="flex justify-between items-center pt-2">
               <p className="text-xs text-slate-400 hidden md:block">
-                <i className="fas fa-shield-alt mr-1"></i> Data processed securely
+                <i className="fas fa-shield-alt mr-1"></i> Data backed up automatically
               </p>
               <button
               onClick={handleProcessAndAdd}
@@ -195,8 +198,8 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                        <span className="font-bold">Don't forget to send photos in WhatsApp!</span>
                     </li>
                     <li className="flex items-start gap-3">
-                       <i className="fas fa-edit text-indigo-500 mt-1 flex-shrink-0"></i>
-                       <span>Please check your report now. You can edit if you need any changes.</span>
+                       <i className="fas fa-database text-indigo-500 mt-1 flex-shrink-0"></i>
+                       <span>Data safely backed up in permanent storage.</span>
                     </li>
                  </ul>
               </div>
@@ -207,11 +210,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
               >
                   Okay
               </button>
-
-              <p className="mt-6 text-[10px] text-slate-400 bg-slate-50 p-2 rounded-lg">
-                 <i className="fas fa-info-circle mr-1"></i>
-                 Photo upload feature in the app is currently in testing and may take several months after budget approval.
-              </p>
            </div>
         </div>
       )}
