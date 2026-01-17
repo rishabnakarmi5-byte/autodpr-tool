@@ -7,8 +7,8 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 export const parseConstructionData = async (
   rawText: string,
   instructions?: string,
-  contextLocation?: string,
-  contextComponent?: string
+  contextLocations?: string[],
+  contextComponents?: string[]
 ): Promise<Omit<DPRItem, 'id'>[]> => {
   
   const instructionBlock = instructions 
@@ -17,12 +17,12 @@ export const parseConstructionData = async (
 
   // Context Block
   let contextBlock = "";
-  if (contextLocation) {
-      contextBlock += `\n    DEFAULT LOCATION CONTEXT: "${contextLocation}"`;
-      if (contextComponent) {
-          contextBlock += `\n    DEFAULT COMPONENT CONTEXT: "${contextComponent}"`;
+  if (contextLocations && contextLocations.length > 0) {
+      contextBlock += `\n    SELECTED LOCATIONS CONTEXT: ${JSON.stringify(contextLocations)}`;
+      if (contextComponents && contextComponents.length > 0) {
+          contextBlock += `\n    SELECTED COMPONENTS CONTEXT: ${JSON.stringify(contextComponents)}`;
       }
-      contextBlock += `\n    IMPORTANT: The user has explicitly selected the above context. Assume all items in the text belong to this Location/Component unless the text EXPLICITLY mentions a different location.`;
+      contextBlock += `\n    IMPORTANT: The user has explicitly selected the above context. Assume all items in the text belong to these Locations and Components unless the text EXPLICITLY mentions a completely different location.`;
   }
 
   // Flatten the hierarchy to show the model valid components

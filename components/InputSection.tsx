@@ -24,9 +24,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // AI Context State
-  const [aiLocation, setAiLocation] = useState('');
-  const [aiComponent, setAiComponent] = useState('');
+  // AI Context State (Multi-select)
+  const [aiLocations, setAiLocations] = useState<string[]>([]);
+  const [aiComponents, setAiComponents] = useState<string[]>([]);
 
   // Manual State
   const [manualLoc, setManualLoc] = useState('');
@@ -42,16 +42,53 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const nepaliDate = getNepaliDate(currentDate);
 
+  // Toggle Handlers
+  const toggleLocation = (loc: string) => {
+    setAiLocations(prev => {
+        const isActive = prev.includes(loc);
+        if (isActive) {
+            // Remove location and its components from selection
+            const componentsToRemove = LOCATION_HIERARCHY[loc] || [];
+            setAiComponents(curr => curr.filter(c => !componentsToRemove.includes(c)));
+            return prev.filter(l => l !== loc);
+        } else {
+            return [...prev, loc];
+        }
+    });
+  };
+
+  const toggleComponent = (comp: string) => {
+    setAiComponents(prev => 
+        prev.includes(comp) ? prev.filter(c => c !== comp) : [...prev, comp]
+    );
+  };
+
+  const selectAllComponents = (loc: string) => {
+      const locationComps = LOCATION_HIERARCHY[loc] || [];
+      const allSelected = locationComps.every(c => aiComponents.includes(c));
+      
+      if (allSelected) {
+          // Deselect all for this location
+          setAiComponents(prev => prev.filter(c => !locationComps.includes(c)));
+      } else {
+          // Select all for this location
+          setAiComponents(prev => {
+              const newSet = new Set([...prev, ...locationComps]);
+              return Array.from(newSet);
+          });
+      }
+  };
+
   const handleProcessAndAdd = async () => {
-    if (!rawText.trim() || !aiLocation || !aiComponent) {
-        setError("Please select a Location and Component, and enter text.");
+    if (!rawText.trim() || aiLocations.length === 0 || aiComponents.length === 0) {
+        setError("Please select at least one Location and Component, and enter text.");
         return;
     }
     
     setIsProcessing(true);
     setError(null);
     try {
-      const parsedData = await parseConstructionData(rawText, instructions, aiLocation, aiComponent);
+      const parsedData = await parseConstructionData(rawText, instructions, aiLocations, aiComponents);
       const newItems: DPRItem[] = parsedData.map(item => ({ 
         ...item, 
         id: crypto.randomUUID(),
@@ -109,7 +146,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   };
 
   // Helper to check validity of AI form
-  const isAiFormValid = rawText.trim().length > 0 && aiLocation !== '' && aiComponent !== '';
+  const isAiFormValid = rawText.trim().length > 0 && aiLocations.length > 0 && aiComponents.length > 0;
 
   return (
     <div className="space-y-8 animate-fade-in relative">
@@ -161,21 +198,19 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       </div>
 
       {/* INPUT SECTION WRAPPER */}
-      <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 overflow-hidden transition-all">
+      <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 overflow-hidden transition-all relative">
         
-        {/* Toggle Header */}
-        <div className="p-2 bg-slate-50 border-b border-slate-200 flex gap-2">
+        {/* Header with hidden toggle */}
+        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
+            <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                {mode === 'ai' ? <i className="fab fa-whatsapp text-green-600 text-lg"></i> : <i className="fas fa-keyboard text-slate-500"></i>}
+                {mode === 'ai' ? 'Progress Entry' : 'Manual Entry'}
+            </h3>
             <button 
-                onClick={() => setMode('ai')}
-                className={`flex-1 py-3 text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-all ${mode === 'ai' ? 'bg-white text-indigo-600 shadow-md ring-1 ring-slate-200' : 'text-slate-500 hover:bg-slate-100'}`}
+                onClick={() => setMode(mode === 'ai' ? 'manual' : 'ai')}
+                className="text-xs text-slate-400 hover:text-indigo-600 hover:bg-white border border-transparent hover:border-slate-200 px-3 py-1.5 rounded-full transition-all"
             >
-                <i className="fab fa-whatsapp text-lg"></i> AI Text Parser
-            </button>
-            <button 
-                onClick={() => setMode('manual')}
-                className={`flex-1 py-3 text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-all ${mode === 'manual' ? 'bg-white text-indigo-600 shadow-md ring-1 ring-slate-200' : 'text-slate-500 hover:bg-slate-100'}`}
-            >
-                <i className="fas fa-keyboard text-lg"></i> Manual Entry
+                {mode === 'ai' ? 'Switch to Manual' : 'Back to Smart Entry'}
             </button>
         </div>
         
@@ -183,44 +218,87 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         {mode === 'ai' && (
             <div className="p-6 md:p-8 space-y-6 animate-fade-in">
             
-            {/* Compulsory Selectors */}
-            <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Multi-Select Context */}
+            <div className="bg-indigo-50/50 p-5 rounded-xl border border-indigo-100 space-y-4">
+                 
+                 {/* 1. Location Selection */}
                  <div>
-                    <label className="block text-xs font-bold text-indigo-800 uppercase mb-1">
-                       <i className="fas fa-map-marker-alt mr-1"></i> Location <span className="text-red-500">*</span>
+                    <label className="block text-xs font-bold text-indigo-800 uppercase mb-2">
+                       <i className="fas fa-map-marker-alt mr-1"></i> 1. Select Work Locations <span className="text-red-500">*</span>
                     </label>
-                    <select 
-                        value={aiLocation} 
-                        onChange={e => {
-                            setAiLocation(e.target.value);
-                            setAiComponent(''); // Reset component
-                        }}
-                        className={`w-full p-2 border rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-400 outline-none ${!aiLocation ? 'border-red-300' : 'border-indigo-200'}`}
-                    >
-                        <option value="">Select Location...</option>
-                        {Object.keys(LOCATION_HIERARCHY).map(loc => (
-                            <option key={loc} value={loc}>{loc}</option>
-                        ))}
-                    </select>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
+                        {Object.keys(LOCATION_HIERARCHY).map(loc => {
+                            const isSelected = aiLocations.includes(loc);
+                            return (
+                                <button 
+                                    key={loc}
+                                    onClick={() => toggleLocation(loc)}
+                                    className={`text-left px-3 py-2 rounded-lg text-xs font-medium border transition-all flex items-center gap-2 ${
+                                        isSelected 
+                                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' 
+                                        : 'bg-white text-slate-600 border-indigo-200 hover:border-indigo-400'
+                                    }`}
+                                >
+                                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${isSelected ? 'bg-white border-white' : 'border-slate-300'}`}>
+                                        {isSelected && <i className="fas fa-check text-indigo-600 text-[10px]"></i>}
+                                    </div>
+                                    {loc}
+                                </button>
+                            );
+                        })}
+                    </div>
                  </div>
-                 <div>
-                    <label className="block text-xs font-bold text-indigo-800 uppercase mb-1">
-                       <i className="fas fa-layer-group mr-1"></i> Component <span className="text-red-500">*</span>
-                    </label>
-                    <select 
-                        value={aiComponent} 
-                        onChange={e => setAiComponent(e.target.value)}
-                        disabled={!aiLocation}
-                        className={`w-full p-2 border rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-400 outline-none disabled:opacity-50 ${!aiComponent ? 'border-red-300' : 'border-indigo-200'}`}
-                    >
-                        <option value="">Select Component...</option>
-                        {aiLocation && LOCATION_HIERARCHY[aiLocation]?.map(comp => (
-                            <option key={comp} value={comp}>{comp}</option>
-                        ))}
-                    </select>
-                 </div>
-                 <div className="md:col-span-2 text-[10px] text-indigo-600 italic">
-                     * These selections tell the AI exactly where this work belongs.
+
+                 {/* 2. Component Selection (Conditional) */}
+                 {aiLocations.length > 0 && (
+                     <div className="animate-fade-in">
+                        <label className="block text-xs font-bold text-indigo-800 uppercase mb-2 mt-4">
+                           <i className="fas fa-layer-group mr-1"></i> 2. Select Components <span className="text-red-500">*</span>
+                        </label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {aiLocations.map(loc => {
+                                const components = LOCATION_HIERARCHY[loc] || [];
+                                const selectedCount = components.filter(c => aiComponents.includes(c)).length;
+                                const isAllSelected = selectedCount === components.length && components.length > 0;
+
+                                return (
+                                    <div key={loc} className="bg-white border border-indigo-100 rounded-lg p-3">
+                                        <div className="flex justify-between items-center mb-2 pb-2 border-b border-slate-100">
+                                            <span className="text-xs font-bold text-indigo-900">{loc}</span>
+                                            <button 
+                                                onClick={() => selectAllComponents(loc)}
+                                                className="text-[10px] text-indigo-500 hover:text-indigo-700 font-bold"
+                                            >
+                                                {isAllSelected ? 'Deselect All' : 'Select All'}
+                                            </button>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                            {components.map(comp => {
+                                                const isSelected = aiComponents.includes(comp);
+                                                return (
+                                                    <button
+                                                        key={comp}
+                                                        onClick={() => toggleComponent(comp)}
+                                                        className={`text-xs px-2 py-1 rounded border transition-colors ${
+                                                            isSelected
+                                                            ? 'bg-indigo-100 text-indigo-700 border-indigo-200 font-bold'
+                                                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-indigo-300'
+                                                        }`}
+                                                    >
+                                                        {comp}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                     </div>
+                 )}
+                 
+                 <div className="text-[10px] text-indigo-600 italic mt-2">
+                     * Select all areas and components relevant to your update. This helps the AI assign items correctly.
                  </div>
             </div>
 
@@ -230,7 +308,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                     <textarea
                     value={rawText}
                     onChange={(e) => setRawText(e.target.value)}
-                    placeholder="Paste text here... e.g., 'Apron concreting 45m3 done...'"
+                    placeholder="Paste text here... e.g., 'Apron concreting 45m3 done. Bifurcation excavation in progress...'"
                     className="w-full h-40 p-5 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-all resize-none font-mono text-sm leading-relaxed"
                     />
                     <div className="absolute top-4 right-4 flex gap-2">
