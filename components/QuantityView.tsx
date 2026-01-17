@@ -2,11 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { DailyReport, QuantityEntry, DPRItem } from '../types';
 import { LOCATION_HIERARCHY, ITEM_PATTERNS, STRUCTURAL_ELEMENTS, CHAINAGE_PATTERN, ELEVATION_PATTERN } from '../utils/constants';
 import { subscribeToQuantities, addQuantity, updateQuantity, deleteQuantity } from '../services/firebaseService';
-import { User } from 'firebase/auth';
 
 interface QuantityViewProps {
   reports: DailyReport[];
-  user?: User | null;
+  user?: any;
 }
 
 type SubTab = 'ledger' | 'analysis';
@@ -56,11 +55,12 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     return "Other";
   };
 
-  const extractSplitDetails = (text: string): { element: string, loc: string } => {
+  // Improved Extraction with Context (Location)
+  const extractSplitDetails = (text: string, locationContext: string = ""): { element: string, loc: string } => {
     const elements: string[] = [];
     const locs: string[] = [];
 
-    // 1. Extract Elements (Area)
+    // 1. Extract Elements (Area) using patterns
     STRUCTURAL_ELEMENTS.forEach(p => {
       if (p.regex.test(text)) {
         if (!elements.includes(p.label)) {
@@ -69,14 +69,28 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
       }
     });
 
-    // 2. Extract Chainage
+    // 2. Contextual Inference based on Location Rules
+    const lowerText = text.toLowerCase();
+    const lowerLoc = locationContext.toLowerCase();
+
+    // Rule: Tailrace Tunnel + Lift (1st/2nd) -> Implies "Wall" work
+    if (lowerLoc.includes('tailrace') && lowerText.includes('lift')) {
+        if (!elements.includes('Wall')) elements.push('Wall');
+    }
+    
+    // Rule: Pressure Tunnel + Lift (1st/2nd) -> Implies "Infill" concrete (treated as Area/Element here for clarity)
+    if (lowerLoc.includes('pressure tunnel') && lowerText.includes('lift')) {
+         if (!elements.includes('Infill')) elements.push('Infill');
+    }
+
+    // 3. Extract Chainage
     const chMatch = text.match(CHAINAGE_PATTERN);
     if (chMatch) {
        // Match full string like "Ch 10-20"
        locs.push(chMatch[0].trim());
     }
 
-    // 3. Extract Elevation
+    // 4. Extract Elevation
     const elMatch = text.match(ELEVATION_PATTERN);
     if (elMatch) {
        locs.push(elMatch[0].trim());
@@ -88,12 +102,12 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     };
   };
 
-  const extractQuantityData = (text: string): { val: number, unit: string, raw: string, type: string, element: string, loc: string } => {
+  const extractQuantityData = (text: string, locationContext: string): { val: number, unit: string, raw: string, type: string, element: string, loc: string } => {
     // 1. Identify Type
     const type = identifyItem(text);
     
-    // 2. Extract Split Details
-    const { element, loc } = extractSplitDetails(text);
+    // 2. Extract Split Details (Passing context now)
+    const { element, loc } = extractSplitDetails(text, locationContext);
 
     // 3. Extract Number and Unit
     const regex = /(\d+(\.\d+)?)\s*(m3|cum|sqm|sq\.m|m2|m|mtr|nos|t|ton|kg)/i;
@@ -136,7 +150,9 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
       for (const report of reports) {
         for (const entry of report.entries) {
           if (!existingRefIds.has(entry.id)) {
-            const qtyData = extractQuantityData(entry.activityDescription);
+            // Pass Full Location Context (Location + Component)
+            const fullLocationContext = `${entry.location} ${entry.chainageOrArea}`;
+            const qtyData = extractQuantityData(entry.activityDescription, fullLocationContext);
             
             if (qtyData.val > 0) {
               const newQty: QuantityEntry = {
@@ -144,7 +160,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                 date: report.date,
                 location: entry.location, // Main Location
                 structure: entry.chainageOrArea, // Component (e.g. Barrage)
-                detailElement: qtyData.element, // Area (e.g. Raft)
+                detailElement: qtyData.element, // Area (e.g. Raft, Wall)
                 detailLocation: qtyData.loc, // Chainage/EL (e.g. Ch 10)
                 itemType: qtyData.type,
                 description: entry.activityDescription,
@@ -164,18 +180,22 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
       }
 
       // 2. REPAIR/UPDATE EXISTING ITEMS 
-      // This step ensures we split 'specificLocation' into 'detailElement' and 'detailLocation' for existing items
+      // This step re-runs extraction to improve data based on new rules (Tailrace->Wall)
       for (const qty of quantities) {
         let needsUpdate = false;
         let updates: Partial<QuantityEntry> = {};
 
-        // Recalculate details from description
-        const { element, loc } = extractSplitDetails(qty.description);
+        // Recalculate details from description using stored location context
+        const fullLocationContext = `${qty.location} ${qty.structure}`;
+        const { element, loc } = extractSplitDetails(qty.description, fullLocationContext);
 
+        // Update Area/Element if improved (e.g., added "Wall" inferred from Lift)
         if (qty.detailElement !== element) {
            updates.detailElement = element;
            needsUpdate = true;
         }
+        
+        // Update Chainage if improved
         if (qty.detailLocation !== loc) {
            updates.detailLocation = loc;
            needsUpdate = true;
@@ -202,7 +222,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
 
       let msg = "";
       if (addedCount > 0) msg += `Added ${addedCount} new items. `;
-      if (updatedCount > 0) msg += `Updated ${updatedCount} items with split details (Area vs Chainage). `;
+      if (updatedCount > 0) msg += `Updated ${updatedCount} items with smarter details (Area vs Chainage). `;
       if (!msg) msg = "Everything is up to date.";
       
       alert(msg);
@@ -361,7 +381,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
          <div>
             <h2 className="text-2xl font-bold text-slate-800">Quantity Collection</h2>
             <p className="text-sm text-slate-500 mt-1">
-                Centralized database. Sync extracts Area (Raft, Wall) and Chainage automatically.
+                Centralized database. Sync automatically separates Chainage vs Area (e.g. Wall, Raft).
             </p>
          </div>
          <div className="flex gap-2">
@@ -371,7 +391,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                 className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-md"
             >
                 <i className={`fas fa-sync ${isSyncing ? 'fa-spin' : ''}`}></i> 
-                {isSyncing ? 'Scanning...' : 'Sync & Split Details'}
+                {isSyncing ? 'Scanning...' : 'Sync & Update'}
             </button>
             <div className="flex border border-slate-200 rounded-lg overflow-hidden">
                 <button 
@@ -483,7 +503,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
         </div>
       )}
 
-      {/* --- TAB: DETAILED ANALYSIS --- */}
+      {/* ... Analysis Tab ... */}
       {activeSubTab === 'analysis' && (
         <div className="flex flex-col flex-1 space-y-4">
              {/* 3-Level Filter */}

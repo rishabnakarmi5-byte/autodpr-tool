@@ -1,7 +1,17 @@
-import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, onSnapshot, query, orderBy, limit, Unsubscribe, updateDoc, arrayUnion } from "firebase/firestore";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
+import { initializeApp as _initializeApp } from "firebase/app";
+import * as _app from "firebase/app";
+import * as _firestore from "firebase/firestore";
+import * as _auth from "firebase/auth";
 import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry } from "../types";
+
+// Workaround for potential type definition mismatches
+const { initializeApp } = _app as any;
+const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion } = _firestore as any;
+const { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } = _auth as any;
+
+// Define loose types for internal use to avoid import errors
+type User = any;
+type Unsubscribe = any;
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -83,13 +93,13 @@ export const subscribeToReports = (onUpdate: (reports: DailyReport[]) => void): 
   
   const q = query(collection(db, REPORT_COLLECTION), orderBy("date", "desc"));
   
-  const unsubscribe = onSnapshot(q, (snapshot) => {
+  const unsubscribe = onSnapshot(q, (snapshot: any) => {
     const reports: DailyReport[] = [];
-    snapshot.forEach((doc) => {
+    snapshot.forEach((doc: any) => {
       reports.push(doc.data() as DailyReport);
     });
     onUpdate(reports);
-  }, (error) => {
+  }, (error: any) => {
     console.error("Error subscribing to reports:", error);
   });
 
@@ -116,13 +126,13 @@ export const subscribeToQuantities = (onUpdate: (quantities: QuantityEntry[]) =>
   // Order by date descending
   const q = query(collection(db, QUANTITY_COLLECTION), orderBy("date", "desc"));
   
-  const unsubscribe = onSnapshot(q, (snapshot) => {
+  const unsubscribe = onSnapshot(q, (snapshot: any) => {
     const items: QuantityEntry[] = [];
-    snapshot.forEach((doc) => {
+    snapshot.forEach((doc: any) => {
       items.push(doc.data() as QuantityEntry);
     });
     onUpdate(items);
-  }, (error) => {
+  }, (error: any) => {
     console.error("Error subscribing to quantities:", error);
   });
 
@@ -268,13 +278,13 @@ export const subscribeToTrash = (onUpdate: (items: TrashItem[]) => void): Unsubs
   
   const q = query(collection(db, TRASH_COLLECTION), orderBy("deletedAt", "desc"));
   
-  const unsubscribe = onSnapshot(q, (snapshot) => {
+  const unsubscribe = onSnapshot(q, (snapshot: any) => {
     const items: TrashItem[] = [];
-    snapshot.forEach((doc) => {
+    snapshot.forEach((doc: any) => {
       items.push(doc.data() as TrashItem);
     });
     onUpdate(items);
-  }, (error) => {
+  }, (error: any) => {
     console.error("Error subscribing to trash:", error);
   });
 
@@ -300,7 +310,7 @@ export const restoreTrashItem = async (trashItem: TrashItem): Promise<void> => {
 
       if (reportSnap.exists()) {
         const reportData = reportSnap.data() as DailyReport;
-        if (!reportData.entries.some(e => e.id === item.id)) {
+        if (!reportData.entries.some((e: any) => e.id === item.id)) {
            await updateDoc(reportRef, {
              entries: arrayUnion(item)
            });
@@ -354,13 +364,13 @@ export const subscribeToLogs = (onUpdate: (logs: LogEntry[]) => void): Unsubscri
   // Get last 100 logs
   const q = query(collection(db, LOG_COLLECTION), orderBy("timestamp", "desc"), limit(100));
   
-  const unsubscribe = onSnapshot(q, (snapshot) => {
+  const unsubscribe = onSnapshot(q, (snapshot: any) => {
     const logs: LogEntry[] = [];
-    snapshot.forEach((doc) => {
+    snapshot.forEach((doc: any) => {
       logs.push({ ...doc.data(), id: doc.id } as LogEntry);
     });
     onUpdate(logs);
-  }, (error) => {
+  }, (error: any) => {
     console.error("Error subscribing to logs:", error);
   });
 

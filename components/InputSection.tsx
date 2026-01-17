@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { parseConstructionData } from '../services/geminiService';
 import { DPRItem } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
-import { User } from 'firebase/auth';
 
 interface InputSectionProps {
   currentDate: string;
@@ -10,7 +9,7 @@ interface InputSectionProps {
   onItemsAdded: (items: DPRItem[], rawText: string) => void;
   onViewReport: () => void;
   entryCount: number;
-  user: User | null;
+  user: any;
 }
 
 export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateChange, onItemsAdded, onViewReport, entryCount, user }) => {
@@ -18,7 +17,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const [instructions, setInstructions] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  
+  // Modal State: 0 = closed, 1 = success, 2 = announcement
+  const [modalStep, setModalStep] = useState<number>(0);
   
   const dateObj = new Date(currentDate);
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -39,7 +40,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       onItemsAdded(newItems, rawText);
       setRawText('');
       setInstructions('');
-      setShowSuccessModal(true); 
+      setModalStep(1); // Start success flow
       
     } catch (err: any) {
       console.error(err);
@@ -49,8 +50,12 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     }
   };
 
-  const handleOkay = () => {
-    setShowSuccessModal(false);
+  const handleNextModal = () => {
+    setModalStep(2);
+  };
+
+  const handleCloseAll = () => {
+    setModalStep(0);
     onViewReport();
   };
 
@@ -178,8 +183,8 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         </div>
       </div>
 
-      {/* SUCCESS POPUP MODAL */}
-      {showSuccessModal && (
+      {/* STEP 1: SUCCESS MODAL */}
+      {modalStep === 1 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center border border-slate-200 relative">
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white shadow-lg">
@@ -205,10 +210,41 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
               </div>
 
               <button 
-                  onClick={handleOkay}
+                  onClick={handleNextModal}
                   className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-black transition-colors shadow-lg shadow-slate-300/50 flex items-center justify-center"
               >
-                  Okay
+                  Next
+              </button>
+           </div>
+        </div>
+      )}
+
+      {/* STEP 2: ANNOUNCEMENT MODAL */}
+      {modalStep === 2 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
+           <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl shadow-2xl max-w-md w-full p-8 text-center border border-white/20 relative text-white">
+              
+              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-6 backdrop-blur-md">
+                 <i className="fas fa-bullhorn text-yellow-300 text-3xl animate-bounce"></i>
+              </div>
+              
+              <h3 className="text-2xl font-bold mb-2">Big update on Magh 3!</h3>
+              
+              <div className="bg-white/10 backdrop-blur-md rounded-xl p-5 mb-8 text-left border border-white/10">
+                 <p className="text-indigo-100 mb-4 leading-relaxed">
+                   Check out the <strong className="text-white border-b border-white/50">Quantities Page</strong> after you have checked your report.
+                 </p>
+                 <p className="text-indigo-100 leading-relaxed text-sm">
+                   <i className="fas fa-hand-point-right mr-2 text-yellow-300"></i>
+                   Please spend only <strong className="text-white">2-3 minutes</strong> of your time to correct the missing location/area details in the quantity tab.
+                 </p>
+              </div>
+
+              <button 
+                  onClick={handleCloseAll}
+                  className="w-full bg-white text-indigo-700 font-bold py-3 rounded-xl hover:bg-indigo-50 transition-colors shadow-lg flex items-center justify-center"
+              >
+                  Got it, Check Report
               </button>
            </div>
         </div>

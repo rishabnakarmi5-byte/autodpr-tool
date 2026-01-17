@@ -106,7 +106,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     return 'Other';
   };
   
-  const extractSplitDetails = (text: string): { element: string, loc: string } => {
+  const extractSplitDetails = (text: string, locationContext: string = ""): { element: string, loc: string } => {
     const elements: string[] = [];
     const locs: string[] = [];
     STRUCTURAL_ELEMENTS.forEach(p => {
@@ -114,6 +114,18 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         if (!elements.includes(p.label)) elements.push(p.label);
       }
     });
+
+    // Contextual Inference
+    const lowerText = text.toLowerCase();
+    const lowerLoc = locationContext.toLowerCase();
+    
+    if (lowerLoc.includes('tailrace') && lowerText.includes('lift')) {
+        if (!elements.includes('Wall')) elements.push('Wall');
+    }
+    if (lowerLoc.includes('pressure tunnel') && lowerText.includes('lift')) {
+         if (!elements.includes('Infill')) elements.push('Infill');
+    }
+
     const chMatch = text.match(CHAINAGE_PATTERN);
     if (chMatch) locs.push(chMatch[0].trim());
     const elMatch = text.match(ELEVATION_PATTERN);
@@ -131,7 +143,9 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
      
      if(match) {
          if(window.confirm(`Add this quantity to collection?\n\n${match[0]}`)) {
-             const details = extractSplitDetails(item.activityDescription);
+             const fullLocationContext = `${item.location} ${item.chainageOrArea}`;
+             const details = extractSplitDetails(item.activityDescription, fullLocationContext);
+             
              const newQty: QuantityEntry = {
                 id: crypto.randomUUID(),
                 date: report.date,
@@ -183,8 +197,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
       _entries.splice(dragIndex, 1);
       _entries.splice(dragOverIndex, 0, draggedItemContent);
       setEntries(_entries);
-      // Note: Backend re-ordering requires schema change or full array update.
-      // For now, this is visual for the current session/print.
     }
     dragItem.current = null;
     dragOverItem.current = null;
@@ -193,7 +205,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   // --- Location Selector Logic ---
   const openLocationEditor = (id: string, currentLocation: string) => {
     setEditingLocationId(id);
-    // Try to split "Main - Sub" to pre-select
     const parts = currentLocation.split(' - ');
     if (parts.length > 0 && LOCATION_HIERARCHY[parts[0]]) {
       setSelectedMainLocation(parts[0]);

@@ -9,12 +9,11 @@ import { RecycleBin } from './components/RecycleBin';
 import { QuantityView } from './components/QuantityView';
 import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup } from './services/firebaseService';
 import { DailyReport, DPRItem, TabView, LogEntry, TrashItem } from './types';
-import { User } from "firebase/auth";
 import { getLocationPriority } from './utils/constants';
 
 const App = () => {
   // --- STATE ---
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<any | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   
   const [activeTab, setActiveTab] = useState<TabView>(() => {
