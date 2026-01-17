@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Layout } from './components/Layout';
@@ -28,6 +27,9 @@ const App = () => {
   const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
   const [currentEntries, setCurrentEntries] = useState<DPRItem[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Undo Stack State
+  const [undoStack, setUndoStack] = useState<DPRItem[][]>([]);
 
   // --- PERSISTENCE & SYNC ---
 
@@ -92,6 +94,11 @@ const App = () => {
       }
     }
   }, [currentDate, reports]);
+  
+  // Clear Undo stack when changing dates/reports
+  useEffect(() => {
+      setUndoStack([]);
+  }, [currentDate, currentReportId]);
 
 
   // --- HANDLERS ---
@@ -155,18 +162,32 @@ const App = () => {
     }
   };
 
+  // --- UNDO SYSTEM ---
+  const captureUndoState = (entries: DPRItem[]) => {
+      // Keep last 20 states
+      setUndoStack(prev => [...prev.slice(-19), entries]);
+  };
+
+  const handleUndo = async () => {
+      if (undoStack.length === 0) return;
+      
+      const previousState = undoStack[undoStack.length - 1];
+      const newStack = undoStack.slice(0, -1);
+      
+      setUndoStack(newStack);
+      setCurrentEntries(previousState);
+      await saveCurrentState(previousState, currentDate, currentReportId);
+      
+      logActivity(getUserName(), "Undo", "Reverted report to previous state", currentDate);
+  };
+
   const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
-    // ROBUSTNESS FIX:
-    // Instead of trusting `currentEntries` or `currentReportId` which might be stale if other users are updating,
-    // we find the report ID and entries from the LATEST `reports` state (synced via listener) for the `currentDate`.
-    
     const existingReportOnServer = reports.find(r => r.date === currentDate);
-    
-    // Determine the ID to use: Server's ID if exists, otherwise existing local, otherwise new.
     const effectiveReportId = existingReportOnServer ? existingReportOnServer.id : (currentReportId || crypto.randomUUID());
-    
-    // Determine the entries to merge with: Server's entries if exists.
     const baseEntries = existingReportOnServer ? existingReportOnServer.entries : currentEntries;
+
+    // Capture state before adding
+    captureUndoState(baseEntries);
 
     // 1. Merge items
     let updatedEntries = [...baseEntries, ...newItems];
@@ -189,6 +210,11 @@ const App = () => {
   };
 
   const handleUpdateItem = (id: string, field: keyof DPRItem, value: string) => {
+    // Note: We don't capture undo on every keystroke/blur for individual edits to avoid spamming the stack, 
+    // but you could add it here if desired. For now, major actions like Normalize/Delete use it.
+    // Uncomment next line to enable granular undo:
+    // captureUndoState(currentEntries); 
+
     const updatedEntries = currentEntries.map(item => 
       item.id === id ? { ...item, [field]: value } : item
     );
@@ -199,7 +225,17 @@ const App = () => {
     logActivity(getUserName(), "Updated Item", `Changed ${field}`, currentDate);
   };
 
+  const handleUpdateAllEntries = (newEntries: DPRItem[]) => {
+    captureUndoState(currentEntries); // Capture before bulk update (Normalization)
+
+    setCurrentEntries(newEntries);
+    saveCurrentState(newEntries, currentDate, currentReportId);
+    logActivity(getUserName(), "Normalized Report", `Bulk updated ${newEntries.length} items to standard hierarchy`, currentDate);
+  };
+
   const handleDeleteItem = async (id: string) => {
+    captureUndoState(currentEntries); // Capture before delete
+
     const item = currentEntries.find(i => i.id === id);
     if (!item || !currentReportId) return;
 
@@ -305,11 +341,14 @@ const App = () => {
             report={currentReport}
             onDeleteItem={handleDeleteItem}
             onUpdateItem={handleUpdateItem}
+            onUpdateAllEntries={handleUpdateAllEntries}
+            onUndo={handleUndo}
+            canUndo={undoStack.length > 0}
           />
         )}
 
         {activeTab === TabView.QUANTITY && (
-          <QuantityView reports={reports} />
+          <QuantityView reports={reports} user={user} />
         )}
 
         {activeTab === TabView.HISTORY && (

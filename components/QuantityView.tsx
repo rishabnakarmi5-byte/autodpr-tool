@@ -15,6 +15,9 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   const [quantities, setQuantities] = useState<QuantityEntry[]>([]);
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('ledger');
   
+  // Undo State
+  const [undoSnapshot, setUndoSnapshot] = useState<QuantityEntry[] | null>(null);
+
   // Filters (Ledger)
   const [filterLocation, setFilterLocation] = useState<string>('All');
   const [startDate, setStartDate] = useState<string>(
@@ -87,6 +90,9 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   // --- HANDLER: Sync ---
 
   const handleSyncFromReports = async () => {
+    // Capture Snapshot before Sync
+    setUndoSnapshot([...quantities]);
+    
     setIsSyncing(true);
     let addedCount = 0;
     let updatedCount = 0;
@@ -189,6 +195,37 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
       alert("Sync failed. Check console.");
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleUndoSync = async () => {
+    if (!undoSnapshot) return;
+    if (!window.confirm("Are you sure you want to undo the last sync? This will revert changes made to quantities.")) return;
+
+    setIsSyncing(true);
+    try {
+        const snapshotIds = new Set(undoSnapshot.map(q => q.id));
+        
+        // 1. Delete items added during sync (Present in Current but Missing in Snapshot)
+        const addedItems = quantities.filter(q => !snapshotIds.has(q.id));
+        for (const item of addedItems) {
+            await deleteQuantity(item, user?.displayName || 'Undo System');
+        }
+
+        // 2. Restore items from Snapshot (Overwrite current state to revert updates)
+        for (const oldItem of undoSnapshot) {
+             // We use addQuantity (setDoc) to force overwrite the document to its old state
+             await addQuantity(oldItem);
+        }
+
+        setUndoSnapshot(null); // Clear undo stack after use
+        alert("Undo successful. Quantities reverted to previous state.");
+
+    } catch (e) {
+        console.error("Undo failed", e);
+        alert("Undo failed partially. Please check logs.");
+    } finally {
+        setIsSyncing(false);
     }
   };
 
@@ -361,6 +398,17 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
             </p>
          </div>
          <div className="flex gap-2">
+            
+            {undoSnapshot && (
+                <button
+                   onClick={handleUndoSync}
+                   disabled={isSyncing}
+                   className="px-4 py-2 bg-slate-800 text-white text-xs font-bold rounded-lg hover:bg-black transition-colors flex items-center gap-2 shadow-md animate-fade-in"
+                >
+                    <i className="fas fa-undo"></i> Undo Sync
+                </button>
+            )}
+
             <button 
                 onClick={handleSyncFromReports}
                 disabled={isSyncing}
