@@ -135,77 +135,138 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
 
   // --- Normalization / Sync Logic ---
   const handleNormalize = () => {
-    if(!window.confirm("This will attempt to map existing location names to the new strict standards. Continue?")) return;
+    if(!window.confirm("This will rigorously enforce the new Location/Component standards. It infers missing components from Chainage/Description fields. Continue?")) return;
 
     const validLocations = Object.keys(LOCATION_HIERARCHY);
+    
+    // Create a reverse map for fast component -> location lookup
+    // Normalizes everything to lowercase for loose matching
+    const componentMap = new Map<string, { parent: string, exact: string }>();
+    validLocations.forEach(loc => {
+        LOCATION_HIERARCHY[loc].forEach(comp => {
+            componentMap.set(comp.toLowerCase(), { parent: loc, exact: comp });
+        });
+    });
+
+    // Helper: Find a known component inside a text string
+    const findKnownComponent = (text: string | undefined): { parent: string, exact: string } | null => {
+        if (!text) return null;
+        const lower = text.toLowerCase();
+        // Check exact match first
+        if (componentMap.has(lower)) return componentMap.get(lower)!;
+        
+        // Check inclusion (longer strings first to avoid partial matches like "Key" inside "Monkey")
+        const allComps = Array.from(componentMap.keys()).sort((a, b) => b.length - a.length);
+        for (const c of allComps) {
+            // Use regex for word boundary if possible, or simple include for complex names
+            if (lower.includes(c)) return componentMap.get(c)!;
+        }
+        return null;
+    };
+
     let changeCount = 0;
 
     const newEntries = entries.map(item => {
         let newLocation = item.location;
         let newComponent = item.component || "";
-        let changed = false;
+        let newChainage = item.chainageOrArea || "";
+        let hasChanged = false;
 
-        // 1. Specific Fixes for "HRT from Inlet", "HRT from Adit" which were previously locations
-        if (item.location.includes("HRT from Inlet") || item.location.includes("HRT from Adit")) {
-            newLocation = "Headrace Tunnel (HRT)";
-            newComponent = item.location.includes("Inlet") ? "HRT from Inlet" : "HRT from Adit";
-            changed = true;
+        // 1. INFERENCE STRATEGY
+        // Try to identify the strict component from ANY field if the current one is missing or invalid.
+        
+        let inferred: { parent: string, exact: string } | null = null;
+
+        // A. Is the Location actually a Component? (e.g. Loc: "Barrage")
+        inferred = findKnownComponent(item.location);
+        
+        // B. If not, check the Component field itself (maybe casing is wrong, or it's valid)
+        if (!inferred) inferred = findKnownComponent(item.component);
+
+        // C. If not, check Chainage/Area (Crucial: "Barrage" in chainage field)
+        if (!inferred) {
+             const fromChainage = findKnownComponent(item.chainageOrArea);
+             if (fromChainage) {
+                 inferred = fromChainage;
+                 // If the chainage field was JUST the component name, clear it.
+                 // e.g. Chainage: "Barrage" -> Component: "Barrage", Chainage: ""
+                 if (item.chainageOrArea.trim().toLowerCase() === fromChainage.exact.toLowerCase()) {
+                     newChainage = "";
+                     hasChanged = true;
+                 }
+             }
         }
 
-        // 2. Try to fix Location generally
-        else if (!validLocations.includes(item.location)) {
-            // Find closest match (simple inclusion check)
-            const match = validLocations.find(k => 
-                k.toLowerCase().includes(item.location.toLowerCase()) || 
-                item.location.toLowerCase().includes(k.toLowerCase()) ||
-                (item.location === "HRT" && k.includes("Headrace Tunnel")) ||
-                (item.location === "TRT" && k.includes("Powerhouse")) // TRT is under Powerhouse now
-            );
-            if (match) {
-                newLocation = match;
-                changed = true;
-                
-                // If it was TRT, set component to Tailrace Tunnel if empty
-                if(item.location === "TRT" && !newComponent) {
-                    newComponent = "Tailrace Tunnel (TRT)";
+        // D. If still nothing, check Description (Last resort)
+        if (!inferred && (!newComponent || !validLocations.includes(newLocation))) {
+            inferred = findKnownComponent(item.activityDescription);
+        }
+
+
+        // 2. APPLY INFERENCE
+        if (inferred) {
+            if (newLocation !== inferred.parent) {
+                newLocation = inferred.parent;
+                hasChanged = true;
+            }
+            if (newComponent !== inferred.exact) {
+                newComponent = inferred.exact;
+                hasChanged = true;
+            }
+        } 
+        else {
+            // 3. LEGACY MAPPING (Fallbacks)
+            // Handle "HRT" -> "Headrace Tunnel (HRT)"
+            if (newLocation === "HRT" || newLocation.includes("Headrace")) {
+                if (newLocation !== "Headrace Tunnel (HRT)") {
+                    newLocation = "Headrace Tunnel (HRT)";
+                    hasChanged = true;
                 }
+            }
+            else if (newLocation === "TRT" || newLocation.includes("Tailrace")) {
+                 newLocation = "Powerhouse";
+                 if (!newComponent) newComponent = "Tailrace Tunnel (TRT)";
+                 hasChanged = true;
             }
         }
 
-        // 3. Try to fix Component if Location is valid
-        if (validLocations.includes(newLocation)) {
-            const validComponents = LOCATION_HIERARCHY[newLocation];
-            // If component is missing or invalid
-            if (!newComponent || !validComponents.includes(newComponent)) {
-                // Try fuzzy match
-                const compMatch = validComponents.find(c => 
-                    (newComponent || "").toLowerCase().includes(c.toLowerCase()) || 
-                    c.toLowerCase().includes((newComponent || "").toLowerCase())
-                );
-                
-                if (compMatch) {
-                    newComponent = compMatch;
-                    changed = true;
-                }
+        // 4. STRICT VALIDATION
+        // If after all inference, the Location is NOT in the valid keys, mark as Unclassified.
+        if (!validLocations.includes(newLocation)) {
+            const unclassifiedLabel = "Unclassified / Needs Fix";
+            if (newLocation !== unclassifiedLabel) {
+                newLocation = unclassifiedLabel;
+                hasChanged = true;
             }
+        } else {
+             // Location is valid, check if component belongs to it
+             const validComps = LOCATION_HIERARCHY[newLocation];
+             if (newComponent && !validComps.includes(newComponent)) {
+                 // Component exists but doesn't belong to this location? 
+                 // It might be a valid component for another location, but we already tried inference.
+                 // If we are here, it matches NO valid component. Keep it but user must fix, or clear it?
+                 // Let's keep it but maybe flag? For now, we leave it as is, usually inference Step 1 catches mismatched parents.
+             }
         }
 
-        if (changed) {
+        if (hasChanged) {
             changeCount++;
-            // Trigger update immediately (for persistence)
-            if (newLocation !== item.location) onUpdateItem(item.id, 'location', newLocation);
-            if (newComponent !== item.component) onUpdateItem(item.id, 'component', newComponent || '');
-            
-            return { ...item, location: newLocation, component: newComponent };
+            // Trigger persistence updates
+            if (item.location !== newLocation) onUpdateItem(item.id, 'location', newLocation);
+            if (item.component !== newComponent) onUpdateItem(item.id, 'component', newComponent);
+            if (item.chainageOrArea !== newChainage) onUpdateItem(item.id, 'chainageOrArea', newChainage);
+
+            return { ...item, location: newLocation, component: newComponent, chainageOrArea: newChainage };
         }
+
         return item;
     });
 
     if(changeCount > 0) {
         setEntries(newEntries);
-        alert(`Updated ${changeCount} entries to new standards.`);
+        alert(`Normalized ${changeCount} entries.\n\nItems that could not be matched were marked as 'Unclassified'.`);
     } else {
-        alert("No obvious standard deviations found. Manually check for 'Unclassified' items.");
+        alert("Report is already strictly synchronized.");
     }
   };
 
@@ -294,7 +355,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
           <button 
              onClick={handleNormalize}
              className="px-4 py-2 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-yellow-100 transition-colors"
-             title="Attempts to fix old names to new standards"
+             title="Strictly enforces hierarchy and infers missing components"
           >
              <i className="fas fa-magic"></i> Normalize & Sync
           </button>
@@ -422,7 +483,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                       </div>
                     ) : (
                       <div className="relative w-full h-full" onClick={() => openLocationEditor(item.id)}>
-                         <div className="w-full h-full min-h-[30px] whitespace-pre-wrap cursor-pointer font-bold" style={{ fontSize: `${fontSize}px` }}>
+                         <div className={`w-full h-full min-h-[30px] whitespace-pre-wrap cursor-pointer font-bold ${item.location === 'Unclassified / Needs Fix' ? 'text-red-500' : ''}`} style={{ fontSize: `${fontSize}px` }}>
                             {item.location}
                         </div>
                         <div className="no-print absolute top-0 right-0 text-gray-300 text-[10px]"><i className="fas fa-chevron-down"></i></div>
