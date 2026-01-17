@@ -45,7 +45,8 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   }, []);
 
   const extractQuantityData = (
-    location: string, 
+    location: string,
+    component: string | undefined,
     chainageOrArea: string, 
     description: string
   ): { val: number, unit: string, raw: string, type: string, structure: string, element: string, loc: string } => {
@@ -54,7 +55,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     const type = identifyItemType(description);
     
     // 2. Extract Split Details using Unified Logic
-    const details = parseQuantityDetails(location, chainageOrArea, description);
+    const details = parseQuantityDetails(location, component, chainageOrArea, description);
 
     // 3. Extract Number and Unit
     const regex = /(\d+(\.\d+)?)\s*(m3|cum|sqm|sq\.m|m2|m|mtr|nos|t|ton|kg)/i;
@@ -97,7 +98,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
       for (const report of reports) {
         for (const entry of report.entries) {
           if (!existingRefIds.has(entry.id)) {
-            const qtyData = extractQuantityData(entry.location, entry.chainageOrArea, entry.activityDescription);
+            const qtyData = extractQuantityData(entry.location, entry.component, entry.chainageOrArea, entry.activityDescription);
             
             if (qtyData.val > 0) {
               const newQty: QuantityEntry = {
@@ -129,13 +130,12 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
         let needsUpdate = false;
         let updates: Partial<QuantityEntry> = {};
 
-        // Use original structure field if available, but we might want to re-parse component logic if it was generic
-        // However, we must rely on what we can re-derive. 
-        // We don't have the original `chainageOrArea` input easily unless we assume `qty.structure` is it, 
-        // OR we check the report if we have it loaded.
-        // For simplicity, we re-parse using current fields as context.
+        // Find source report entry if possible to check if component was added later
+        const sourceReport = reports.find(r => r.id === qty.reportId);
+        const sourceEntry = sourceReport?.entries.find(e => e.id === qty.originalReportItemId);
+        const sourceComponent = sourceEntry?.component;
         
-        const details = parseQuantityDetails(qty.location, qty.structure, qty.description);
+        const details = parseQuantityDetails(qty.location, sourceComponent, qty.structure, qty.description);
 
         if (qty.detailElement !== details.detailElement) {
            updates.detailElement = details.detailElement;
@@ -147,11 +147,12 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
            needsUpdate = true;
         }
 
-        // If structure was updated by inference (e.g. Tailrace Lift -> Wall)
-        if (qty.structure !== details.structure && details.structure !== qty.structure) {
+        // If structure was updated by inference (e.g. Tailrace Lift -> Wall) or explicit source component found
+        if (details.structure !== qty.structure) {
             // Be careful not to overwrite manual edits. 
-            // Only update if current structure looks like raw chainage text we parsed
-            if (qty.structure.toLowerCase().includes('ch ') || qty.structure.toLowerCase().includes('chainage')) {
+            // Only update if current structure looks like raw chainage text OR if we found a new explicit component in the report
+            const isDefaultish = qty.structure.toLowerCase().includes('ch ') || qty.structure.toLowerCase().includes('chainage') || qty.structure === qty.location;
+            if (isDefaultish || sourceComponent) {
                 updates.structure = details.structure;
                 needsUpdate = true;
             }

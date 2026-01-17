@@ -2,6 +2,7 @@
 export interface DPRItem {
   id: string;
   location: string;
+  component?: string; // Sub-location (e.g. Barrage, Powerhouse Main Building)
   chainageOrArea: string;
   activityDescription: string;
   plannedNextActivity: string;

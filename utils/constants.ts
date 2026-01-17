@@ -30,17 +30,21 @@ export const LOCATION_HIERARCHY: Record<string, string[]> = {
     "Tailrace Pool", 
     "Tailrace Outlet", 
     "Tailrace Flood Walls"
+  ],
+  "Bifurcation": [
+      "Bifurcation"
   ]
 };
 
 // Defined sort order for the report
 export const LOCATION_SORT_ORDER = [
   "Headworks",
+  "HRT",
   "HRT from Inlet",
   "HRT from Adit",
   "Pressure Tunnels",
+  "Powerhouse",
   "Powerhouse Main Building",
-  "Powerhouse", 
   "Bifurcation",
   "Tailrace Tunnel"
 ];
@@ -140,23 +144,37 @@ export const extractChainageAndFormat = (text: string): string | null => {
 // Unified extraction logic used by both QuantityView and ReportTable
 export const parseQuantityDetails = (
   location: string,
+  componentInput: string | undefined,
   chainageOrAreaInput: string,
   description: string
 ) => {
   const elements = new Set<string>();
   let chainageStr = null;
-  let component = chainageOrAreaInput; // Default component is the report's structure column
-
-  // 1. Check if Chainage/Area Input is primarily Chainage
+  
+  // 1. Structure/Component Logic
+  // If provided explicit component (from report), use it.
+  // Otherwise default to chainageOrAreaInput if it's not purely a chainage string, or fallback to location.
+  let component = componentInput || "";
+  
+  // Check if Chainage/Area Input is primarily Chainage
   const chainageFromInput = extractChainageAndFormat(chainageOrAreaInput);
-  if (chainageFromInput) {
-    chainageStr = chainageFromInput;
-    // If the input was just chainage (e.g. "Ch 38-59"), the Component name is missing.
-    // We infer Component from Location or Context.
-    component = location; // Fallback to location (e.g. Tailrace Tunnel)
+  
+  if (!component) {
+      if (chainageFromInput) {
+        // chainageOrAreaInput was just a number "Ch 100". Component is missing.
+        component = location; 
+      } else {
+        // chainageOrAreaInput was likely a name "Barrage".
+        component = chainageOrAreaInput; 
+      }
   }
 
-  // 2. Scan for Elements in Input & Description
+  // 2. Chainage Logic
+  if (chainageFromInput) {
+      chainageStr = chainageFromInput;
+  }
+
+  // 3. Scan for Elements in Input & Description
   const combinedText = `${chainageOrAreaInput} ${description}`;
   STRUCTURAL_ELEMENTS.forEach(p => {
     if (p.regex.test(combinedText)) {
@@ -164,12 +182,12 @@ export const parseQuantityDetails = (
     }
   });
 
-  // 3. Chainage from Description (if not found in input)
+  // 4. Chainage from Description (if not found in input)
   if (!chainageStr) {
     chainageStr = extractChainageAndFormat(description);
   }
 
-  // 4. Elevation
+  // 5. Elevation
   const elMatch = combinedText.match(ELEVATION_PATTERN);
   if (elMatch) {
     const elStr = elMatch[0].trim();
@@ -177,25 +195,20 @@ export const parseQuantityDetails = (
     chainageStr = chainageStr ? `${chainageStr}, ${elStr}` : elStr;
   }
 
-  // 5. Contextual Rules for "Component" vs "Area"
+  // 6. Contextual Rules for "Component" vs "Area"
   const lowerLoc = location.toLowerCase();
   const lowerDesc = combinedText.toLowerCase();
 
   // Rule: Tailrace + Lift -> Component = "Wall" or "Tailrace Tunnel" with Area "Wall"?
-  // User request: "component would be wall, area would be Wall 1st lift"
   if (lowerLoc.includes('tailrace') && lowerDesc.includes('lift')) {
       if (!elements.has('Wall')) elements.add('Wall');
-      component = "Wall"; // Override component to Wall
+      // If component is generic, we might want to ensure it says Tailrace Tunnel or Wall
+      if (component === location) component = "Tailrace Tunnel"; 
   }
 
   if (lowerLoc.includes('pressure tunnel') && lowerDesc.includes('lift')) {
       if (!elements.has('Infill')) elements.add('Infill');
-      // Keep component as Pressure Tunnel or set to Infill?
-      // Usually Pressure Tunnel Infill is the main activity
   }
-  
-  // If we found specific elements like "Barrage" in the text, and Component is generic, refine it.
-  // But typically `chainageOrAreaInput` has the component name (e.g. "Barrage").
   
   // Clean up Elements string
   const detailElement = Array.from(elements).join(', ');

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DailyReport, DPRItem, QuantityEntry } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
-import { LOCATION_HIERARCHY, ITEM_PATTERNS, identifyItemType, parseQuantityDetails } from '../utils/constants';
+import { LOCATION_HIERARCHY, identifyItemType, parseQuantityDetails } from '../utils/constants';
 import { addQuantity } from '../services/firebaseService';
 
 interface ReportTableProps {
@@ -21,9 +21,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
 
-  // Location Editor State
-  const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
-  const [selectedMainLocation, setSelectedMainLocation] = useState<string>('');
+  // Component Editor State
+  const [editingComponentId, setEditingComponentId] = useState<string | null>(null);
   
   useEffect(() => {
     setEntries(report.entries);
@@ -106,7 +105,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
      if(match) {
          if(window.confirm(`Add this quantity to collection?\n\n${match[0]}`)) {
              
-             const details = parseQuantityDetails(item.location, item.chainageOrArea, item.activityDescription);
+             // Unified parsing using explicit component field
+             const details = parseQuantityDetails(item.location, item.component, item.chainageOrArea, item.activityDescription);
              
              const newQty: QuantityEntry = {
                 id: crypto.randomUUID(),
@@ -164,24 +164,15 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     dragOverItem.current = null;
   };
 
-  // --- Location Selector Logic ---
-  const openLocationEditor = (id: string, currentLocation: string) => {
-    setEditingLocationId(id);
-    const parts = currentLocation.split(' - ');
-    if (parts.length > 0 && LOCATION_HIERARCHY[parts[0]]) {
-      setSelectedMainLocation(parts[0]);
-    } else {
-      setSelectedMainLocation(Object.keys(LOCATION_HIERARCHY)[0]);
-    }
+  // --- Component Selector Logic ---
+  const openComponentEditor = (id: string) => {
+    setEditingComponentId(id);
   };
 
-  const applyLocation = (main: string, sub: string) => {
-    if (editingLocationId) {
-       const newVal = sub ? `${main} - ${sub}` : main;
-       handleLocalChange(editingLocationId, 'location', newVal);
-       onUpdateItem(editingLocationId, 'location', newVal);
-       setEditingLocationId(null);
-    }
+  const applyComponent = (id: string, value: string) => {
+       handleLocalChange(id, 'component', value);
+       onUpdateItem(id, 'component', value);
+       setEditingComponentId(null);
   };
 
   return (
@@ -192,7 +183,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         <div>
            <h2 className="text-xl font-bold text-slate-800">Final Report</h2>
            <p className="text-sm text-slate-500 mt-1">
-             Drag rows to reorder. Click Location to select structure.
+             Drag rows to reorder. Click Component column to select structure.
            </p>
         </div>
 
@@ -275,9 +266,10 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
           <div className="border-2 border-black">
             <div className="grid grid-cols-12 border-b-2 border-black bg-gray-200 divide-x-2 divide-black font-bold text-center text-xs uppercase tracking-wide">
               <div className="col-span-2 p-3 flex items-center justify-center">Location</div>
+              <div className="col-span-2 p-3 flex items-center justify-center">Component</div>
               <div className="col-span-2 p-3 flex items-center justify-center">Chainage / Area</div>
-              <div className="col-span-5 p-3 flex items-center justify-center">Activity Description</div>
-              <div className="col-span-3 p-3 flex items-center justify-center">Planned Next Activity</div>
+              <div className="col-span-4 p-3 flex items-center justify-center">Activity Description</div>
+              <div className="col-span-2 p-3 flex items-center justify-center">Planned Next Activity</div>
             </div>
 
             {entries.length === 0 ? (
@@ -295,7 +287,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                     ${isDragMode ? 'cursor-move' : ''}
                   `}
                 >
-                  {/* Location (Custom Editor) */}
+                  {/* Location (Simple Text) */}
                   <div className="col-span-2 p-2 relative flex items-start">
                     {/* Drag Handle (Visual Only) */}
                     {isDragMode && (
@@ -303,43 +295,50 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                             <i className="fas fa-grip-vertical"></i>
                         </div>
                     )}
+                    <textarea
+                        value={item.location}
+                        onChange={(e) => handleLocalChange(item.id, 'location', e.target.value)}
+                        onBlur={(e) => handleBlur(item.id, 'location', e.target.value)}
+                        className="w-full h-full bg-transparent resize-none outline-none font-bold"
+                        style={{ fontSize: `${fontSize}px` }}
+                        rows={Math.max(2, Math.ceil(item.location.length / 12))}
+                    />
+                  </div>
 
-                    {editingLocationId === item.id ? (
-                      <div className="absolute top-0 left-0 z-10 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-64">
-                         <div className="space-y-2">
-                           <select 
-                             className="w-full p-1 border rounded text-xs"
-                             value={selectedMainLocation}
-                             onChange={(e) => setSelectedMainLocation(e.target.value)}
-                           >
-                              {Object.keys(LOCATION_HIERARCHY).map(loc => (
-                                <option key={loc} value={loc}>{loc}</option>
-                              ))}
-                           </select>
-                           <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
-                              {LOCATION_HIERARCHY[selectedMainLocation]?.map(sub => (
-                                <button 
-                                  key={sub}
-                                  onClick={() => applyLocation(selectedMainLocation, sub)}
-                                  className="text-left text-xs p-1 hover:bg-indigo-50 rounded"
-                                >
-                                  {sub}
-                                </button>
-                              ))}
-                           </div>
-                           <button onClick={() => setEditingLocationId(null)} className="text-[10px] text-red-500 underline w-full text-right">Cancel</button>
+                  {/* Component (Dropdown Editor) */}
+                  <div className="col-span-2 p-2 relative">
+                    {editingComponentId === item.id ? (
+                      <div className="absolute top-0 left-0 z-20 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48">
+                         <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                            <button 
+                                onClick={() => applyComponent(item.id, '')}
+                                className="text-left text-xs p-1 hover:bg-slate-100 rounded italic text-slate-400"
+                            >
+                                (None)
+                            </button>
+                            {/* Dynamically filter components based on the row's location */}
+                            {(LOCATION_HIERARCHY[item.location] || []).map(sub => (
+                              <button 
+                                key={sub}
+                                onClick={() => applyComponent(item.id, sub)}
+                                className="text-left text-xs p-1 hover:bg-indigo-50 rounded"
+                              >
+                                {sub}
+                              </button>
+                            ))}
+                            {/* If location doesn't match standard keys, show all or default? */}
+                            {(!LOCATION_HIERARCHY[item.location]) && Object.values(LOCATION_HIERARCHY).flat().map(sub => (
+                                <button key={sub} onClick={() => applyComponent(item.id, sub)} className="text-left text-xs p-1 hover:bg-indigo-50 rounded">{sub}</button>
+                            ))}
                          </div>
+                         <button onClick={() => setEditingComponentId(null)} className="text-[10px] text-red-500 underline w-full text-right mt-1">Cancel</button>
                       </div>
                     ) : (
-                      <div className="relative w-full h-full" onClick={() => openLocationEditor(item.id, item.location)}>
-                        <textarea
-                          value={item.location}
-                          readOnly
-                          className="w-full h-full bg-transparent resize-none outline-none cursor-pointer"
-                          style={{ fontSize: `${fontSize}px` }}
-                          rows={Math.max(2, Math.ceil(item.location.length / 15))}
-                        />
-                        <div className="no-print absolute top-0 right-0 text-gray-300 text-[10px]"><i className="fas fa-pen"></i></div>
+                      <div className="relative w-full h-full" onClick={() => openComponentEditor(item.id)}>
+                        <div className="w-full h-full min-h-[30px] whitespace-pre-wrap cursor-pointer" style={{ fontSize: `${fontSize}px` }}>
+                            {item.component || <span className="text-slate-300 no-print italic text-[10px]">Select...</span>}
+                        </div>
+                        <div className="no-print absolute top-0 right-0 text-gray-300 text-[10px]"><i className="fas fa-chevron-down"></i></div>
                       </div>
                     )}
                   </div>
@@ -357,26 +356,26 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   </div>
 
                   {/* Desc */}
-                  <div className="col-span-5 p-2 relative">
+                  <div className="col-span-4 p-2 relative">
                      <textarea
                       value={item.activityDescription}
                       onChange={(e) => handleLocalChange(item.id, 'activityDescription', e.target.value)}
                       onBlur={(e) => handleBlur(item.id, 'activityDescription', e.target.value)}
                       className="w-full h-full bg-transparent resize-none outline-none whitespace-pre-wrap"
                       style={{ fontSize: `${fontSize}px` }}
-                      rows={Math.max(3, Math.ceil(item.activityDescription.length / 40))}
+                      rows={Math.max(3, Math.ceil(item.activityDescription.length / 30))}
                     />
                   </div>
 
                   {/* Next + Actions */}
-                  <div className="col-span-3 p-2 relative group-hover:bg-blue-50/10">
+                  <div className="col-span-2 p-2 relative group-hover:bg-blue-50/10">
                      <textarea
                       value={item.plannedNextActivity}
                       onChange={(e) => handleLocalChange(item.id, 'plannedNextActivity', e.target.value)}
                       onBlur={(e) => handleBlur(item.id, 'plannedNextActivity', e.target.value)}
                       className="w-full h-full bg-transparent resize-none outline-none"
                       style={{ fontSize: `${fontSize}px` }}
-                      rows={Math.max(2, Math.ceil(item.plannedNextActivity.length / 20))}
+                      rows={Math.max(2, Math.ceil(item.plannedNextActivity.length / 15))}
                     />
                     
                     {/* Floating Actions */}

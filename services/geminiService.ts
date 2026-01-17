@@ -19,24 +19,29 @@ export const parseConstructionData = async (
 
     ${instructionBlock}
 
-    CRITICAL CATEGORIZATION RULES (Map text to these specific 'location' values):
-    1. HEADWORKS: If text contains "barrage", "stilling basin", "apron", "key", "settling basin", "desander", "headpond", "syphon" -> location: "Headworks".
+    CRITICAL CATEGORIZATION RULES:
+    You must extract 'location' (Main Area), 'component' (Sub Area), and 'chainageOrArea' (Specific Detail).
+
+    1. HEADWORKS:
+       - Text: "Barrage raft concreting" -> location: "Headworks", component: "Barrage", chainageOrArea: "Raft".
+       - Text: "Apron C15" -> location: "Headworks", component: "Apron".
     2. HRT (HEADRACE TUNNEL): 
-       - Work from Inlet side -> location: "HRT from Inlet".
-       - Work from Adit side -> location: "HRT from Adit".
+       - Work from Inlet side -> location: "HRT", component: "HRT from Inlet".
+       - Work from Adit side -> location: "HRT", component: "HRT from Adit".
     3. PRESSURE TUNNELS: 
-       - "Vertical shaft", "concrete infill", "C10" -> location: "Pressure Tunnels", chainageOrArea: "Vertical Shaft".
+       - "Vertical shaft" -> location: "Pressure Tunnels", component: "Vertical Shaft".
+       - "Lower Pressure Tunnel" -> location: "Pressure Tunnels", component: "Lower Pressure Tunnel".
     4. POWERHOUSE:
-       - "Main building", "Machine Hall" -> location: "Powerhouse Main Building".
-       - "Transformer", "Cavern" -> location: "Powerhouse".
+       - "Main building", "Machine Hall" -> location: "Powerhouse", component: "Powerhouse Main Building".
+       - "Tailrace Tunnel", "TRT" -> location: "Powerhouse", component: "Tailrace Tunnel".
+       - "Tailrace Outlet" -> location: "Powerhouse", component: "Tailrace Outlet".
     5. BIFURCATION:
-       - "Bifurcation" -> location: "Bifurcation".
-    6. TAILRACE:
-       - "Tailrace", "TRT" -> location: "Tailrace Tunnel".
+       - "Bifurcation" -> location: "Bifurcation", component: "Bifurcation".
 
     The output format must be a list of items with the following fields:
-    - location: The major site location based on the rules above (or original if not matched).
-    - chainageOrArea: The specific sub-area or chainage mentioned (e.g., "Tailrace Invert", "Apron", "Ch 100-200").
+    - location: The major site location (e.g. Headworks, Powerhouse).
+    - component: The specific structure or sub-location (e.g. Barrage, Tailrace Tunnel, Vertical Shaft).
+    - chainageOrArea: The specific detail, lift, or chainage (e.g. "Raft", "Wall 1st Lift", "Ch 0+100").
     - activityDescription: What work was done today (include quantities like m3, T, msq).
     - plannedNextActivity: What is planned for tomorrow/next day.
 
@@ -61,6 +66,7 @@ export const parseConstructionData = async (
             type: Type.OBJECT,
             properties: {
               location: { type: Type.STRING },
+              component: { type: Type.STRING },
               chainageOrArea: { type: Type.STRING },
               activityDescription: { type: Type.STRING },
               plannedNextActivity: { type: Type.STRING },
