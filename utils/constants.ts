@@ -56,7 +56,6 @@ export const getLocationPriority = (location: string): number => {
 
 // Regex patterns to identify item types from description text.
 // ORDER MATTERS: Specific items checked before generic ones.
-// We use (?!.*plum) to ensure we don't match "C25" inside "C25 with Plum".
 export const ITEM_PATTERNS = [
   // 1. Special Concrete Types
   { name: "Plum Concrete", pattern: /\b(plum)\b/i, defaultUnit: 'm3' },
@@ -89,3 +88,32 @@ export const ITEM_PATTERNS = [
   { name: "Rock Bolt", pattern: /\b(rock bolt|bolt|anchor)\b/i, defaultUnit: 'nos' },
   { name: "Gabion", pattern: /\b(gabion)\b/i, defaultUnit: 'm3' },
 ];
+
+// Patterns to extract "Specific Location" (Chainage / Area / Element)
+export const EXTRACTION_PATTERNS = [
+  // Structural Elements
+  { regex: /\b(raft|foundation|footing)\b/i, label: "Raft" },
+  { regex: /\b(wall|walls|side wall)\b/i, label: "Wall" },
+  { regex: /\b(invert|floor|bed)\b/i, label: "Invert" },
+  { regex: /\b(arch|crown|roof)\b/i, label: "Arch" },
+  { regex: /\b(key)\b/i, label: "Key" },
+  { regex: /\b(slab|deck)\b/i, label: "Slab" },
+  { regex: /\b(face)\b/i, label: "Face" },
+  { regex: /\b(portal)\b/i, label: "Portal" },
+  { regex: /\b(plug)\b/i, label: "Plug" },
+  { regex: /\b(pier)\b/i, label: "Pier" },
+  { regex: /\b(abutment)\b/i, label: "Abutment" },
+  { regex: /\b(glacis)\b/i, label: "Glacis" },
+  { regex: /\b(apron)\b/i, label: "Apron" },
+
+  // Lifts and Sides
+  { regex: /\b(first|1st)\s+lift\b/i, label: "1st Lift" },
+  { regex: /\b(second|2nd)\s+lift\b/i, label: "2nd Lift" },
+  { regex: /\b(third|3rd)\s+lift\b/i, label: "3rd Lift" },
+  { regex: /\b(u\/s|upstream)\b/i, label: "U/S" },
+  { regex: /\b(d\/s|downstream)\b/i, label: "D/S" },
+  { regex: /\b(left\s+bank)\b/i, label: "LB" },
+  { regex: /\b(right\s+bank)\b/i, label: "RB" },
+];
+
+export const CHAINAGE_REGEX = /(?:ch\.?|chainage)\s*([\d\+\-\.]+)/i;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DailyReport, DPRItem, QuantityEntry } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
-import { LOCATION_HIERARCHY, ITEM_PATTERNS } from '../utils/constants';
+import { LOCATION_HIERARCHY, ITEM_PATTERNS, EXTRACTION_PATTERNS, CHAINAGE_REGEX } from '../utils/constants';
 import { addQuantity } from '../services/firebaseService';
 
 interface ReportTableProps {
@@ -106,6 +106,18 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     return 'Other';
   };
   
+  const extractSpecificLocation = (text: string): string => {
+    const found: string[] = [];
+    const chMatch = text.match(CHAINAGE_REGEX);
+    if (chMatch) found.push(chMatch[0]);
+    EXTRACTION_PATTERNS.forEach(p => {
+      if (p.regex.test(text)) {
+        if (!found.includes(p.label)) found.push(p.label);
+      }
+    });
+    return found.join(', ');
+  };
+
   const handleSendToQuantity = async (item: DPRItem) => {
      const regex = /(\d+(\.\d+)?)\s*(m3|cum|sqm|sq\.m|m|mtr|nos|t|ton)/i;
      const match = item.activityDescription.match(regex);
@@ -117,6 +129,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                 date: report.date,
                 location: item.location,
                 structure: item.chainageOrArea,
+                specificLocation: extractSpecificLocation(item.activityDescription),
                 itemType: identifyItemType(item.activityDescription),
                 description: item.activityDescription,
                 quantityValue: parseFloat(match[1]),

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { DailyReport, QuantityEntry, DPRItem } from '../types';
-import { LOCATION_HIERARCHY, ITEM_PATTERNS } from '../utils/constants';
+import { LOCATION_HIERARCHY, ITEM_PATTERNS, EXTRACTION_PATTERNS, CHAINAGE_REGEX } from '../utils/constants';
 import { subscribeToQuantities, addQuantity, updateQuantity, deleteQuantity } from '../services/firebaseService';
 import { User } from 'firebase/auth';
 
@@ -27,7 +27,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
 
   // Filters (Detailed Analysis)
   const [analysisLocation, setAnalysisLocation] = useState<string>('All');
-  const [analysisStructure, setAnalysisStructure] = useState<string>('All');
+  const [analysisComponent, setAnalysisComponent] = useState<string>('All');
   const [analysisItemType, setAnalysisItemType] = useState<string>('All');
 
   // Loading/Exporting
@@ -45,7 +45,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     return () => unsubscribe();
   }, []);
 
-  // --- LOGIC: Item Identification & Unit Conversion ---
+  // --- LOGIC: Item & Detail Identification ---
 
   const identifyItem = (text: string): string => {
     for (const item of ITEM_PATTERNS) {
@@ -56,13 +56,34 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     return "Other";
   };
 
-  const extractQuantityData = (text: string): { val: number, unit: string, raw: string, type: string } => {
-    // 1. Identify Type first
-    const type = identifyItem(text);
+  const extractSpecificLocation = (text: string): string => {
+    const found: string[] = [];
+    
+    // Check for Chainage
+    const chMatch = text.match(CHAINAGE_REGEX);
+    if (chMatch) {
+      found.push(chMatch[0]); // e.g. "Ch 10-20"
+    }
 
-    // 2. Extract Number and Unit
-    // Matches number followed optionally by unit
-    // We look for kg specifically for rebar conversion
+    // Check for Elements/Lifts
+    EXTRACTION_PATTERNS.forEach(p => {
+      if (p.regex.test(text)) {
+        if (!found.includes(p.label)) {
+           found.push(p.label);
+        }
+      }
+    });
+
+    return found.join(', ');
+  };
+
+  const extractQuantityData = (text: string): { val: number, unit: string, raw: string, type: string, detail: string } => {
+    // 1. Identify Type
+    const type = identifyItem(text);
+    // 2. Extract Detail (Specific Location)
+    const detail = extractSpecificLocation(text);
+
+    // 3. Extract Number and Unit
     const regex = /(\d+(\.\d+)?)\s*(m3|cum|sqm|sq\.m|m2|m|mtr|nos|t|ton|kg)/i;
     const match = text.match(regex);
     
@@ -71,7 +92,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
       let unit = match[3].toLowerCase();
       const raw = match[0];
 
-      // Unit Standardization & Conversion
+      // Unit Standardization
       if (unit === 'cum') unit = 'm3';
       if (unit === 'sqm' || unit === 'sq.m') unit = 'm2';
       if (unit === 'mtr') unit = 'm';
@@ -83,10 +104,10 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
         unit = 'Ton';
       }
 
-      return { val, unit, raw, type };
+      return { val, unit, raw, type, detail };
     }
 
-    return { val: 0, unit: '-', raw: '-', type };
+    return { val: 0, unit: '-', raw: '-', type, detail };
   };
 
   // --- HANDLER: Sync ---
@@ -96,7 +117,6 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     let addedCount = 0;
     let updatedCount = 0;
 
-    // Create a Set of existing Report Item IDs already in Quantities to prevent dupes
     const existingRefIds = new Set(quantities.map(q => q.originalReportItemId).filter(Boolean));
 
     try {
@@ -110,8 +130,9 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
               const newQty: QuantityEntry = {
                 id: crypto.randomUUID(),
                 date: report.date,
-                location: entry.location,
-                structure: entry.chainageOrArea,
+                location: entry.location, // Main Location
+                structure: entry.chainageOrArea, // Component (e.g. Barrage)
+                specificLocation: qtyData.detail, // Chainage / Area (e.g. Raft)
                 itemType: qtyData.type,
                 description: entry.activityDescription,
                 quantityValue: qtyData.val,
@@ -129,24 +150,42 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
         }
       }
 
-      // 2. REPAIR EXISTING ITEMS (Fix 'Other' types if we now have a better match)
+      // 2. REPAIR/UPDATE EXISTING ITEMS (Populate new field or fix categories)
       for (const qty of quantities) {
+        let needsUpdate = false;
+        let updates: Partial<QuantityEntry> = {};
+
+        // Fix Item Type
         if (!qty.itemType || qty.itemType === 'Other') {
            const newType = identifyItem(qty.description);
            if (newType !== 'Other') {
+             updates.itemType = newType;
+             needsUpdate = true;
+           }
+        }
+
+        // Fix Specific Location (if empty)
+        if (!qty.specificLocation) {
+           const newDetail = extractSpecificLocation(qty.description);
+           if (newDetail) {
+             updates.specificLocation = newDetail;
+             needsUpdate = true;
+           }
+        }
+
+        if (needsUpdate) {
              await updateQuantity(
-               { ...qty, itemType: newType }, 
+               { ...qty, ...updates }, 
                qty, 
-               user?.displayName || 'System Categorizer'
+               user?.displayName || 'System Updater'
              );
              updatedCount++;
-           }
         }
       }
 
       let msg = "";
       if (addedCount > 0) msg += `Added ${addedCount} new items. `;
-      if (updatedCount > 0) msg += `Updated ${updatedCount} items with better categorization. `;
+      if (updatedCount > 0) msg += `Updated ${updatedCount} items with details. `;
       if (!msg) msg = "Everything is up to date.";
       
       alert(msg);
@@ -178,7 +217,6 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     if (!originalItem) return;
 
     try {
-      // Keep track of what changed
       const updatedItem: QuantityEntry = {
         ...originalItem,
         ...editForm,
@@ -195,7 +233,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   };
 
   const handleDeleteClick = async (item: QuantityEntry) => {
-    if (window.confirm(`Are you sure you want to delete this quantity record?\n\n${item.itemType} at ${item.location}\n${item.quantityValue}${item.quantityUnit}\n\nThis will move it to the Recycle Bin.`)) {
+    if (window.confirm(`Delete ${item.itemType} at ${item.location} - ${item.structure}?`)) {
       try {
         await deleteQuantity(item, user?.displayName || 'Unknown');
       } catch (e) {
@@ -218,7 +256,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   }, [quantities, startDate, endDate, filterLocation]);
 
   // --- MEMO: Analysis Filter Options ---
-  const analysisStructures = useMemo(() => {
+  const analysisComponents = useMemo(() => {
     if (analysisLocation === 'All') return [];
     return Array.from(new Set(quantities.filter(q => q.location.includes(analysisLocation)).map(q => q.structure))).sort();
   }, [quantities, analysisLocation]);
@@ -226,19 +264,19 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   const analysisItems = useMemo(() => {
       let filtered = quantities;
       if (analysisLocation !== 'All') filtered = filtered.filter(q => q.location.includes(analysisLocation));
-      if (analysisStructure !== 'All') filtered = filtered.filter(q => q.structure === analysisStructure);
+      if (analysisComponent !== 'All') filtered = filtered.filter(q => q.structure === analysisComponent);
       return Array.from(new Set(filtered.map(q => q.itemType || 'Other'))).sort();
-  }, [quantities, analysisLocation, analysisStructure]);
+  }, [quantities, analysisLocation, analysisComponent]);
 
   // --- MEMO: Analysis Filtered Data ---
   const analysisData = useMemo(() => {
       return quantities.filter(q => {
           if (analysisLocation !== 'All' && !q.location.includes(analysisLocation)) return false;
-          if (analysisStructure !== 'All' && q.structure !== analysisStructure) return false;
+          if (analysisComponent !== 'All' && q.structure !== analysisComponent) return false;
           if (analysisItemType !== 'All' && (q.itemType || 'Other') !== analysisItemType) return false;
           return true;
       });
-  }, [quantities, analysisLocation, analysisStructure, analysisItemType]);
+  }, [quantities, analysisLocation, analysisComponent, analysisItemType]);
 
   const analysisTotal = useMemo(() => {
       return analysisData.reduce((sum, item) => sum + item.quantityValue, 0);
@@ -250,18 +288,18 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   // --- Export ---
   
   const handleExportCSV = () => {
-    // Reuse existing filtered items based on current tab
     const dataToExport = activeSubTab === 'ledger' ? filteredLedgerItems : analysisData;
     const filename = activeSubTab === 'ledger' ? 'Quantity_Ledger' : 'Quantity_Analysis';
 
-    const headers = ['Date', 'Location', 'Structure', 'Item Type', 'Description', 'Qty', 'Unit'];
+    const headers = ['Date', 'Location', 'Component', 'Chainage/Area', 'Item Type', 'Description', 'Qty', 'Unit'];
     const csvRows = [headers.join(',')];
 
     dataToExport.forEach(item => {
       const row = [
         item.date,
         `"${item.location.replace(/"/g, '""')}"`,
-        `"${item.structure.replace(/"/g, '""')}"`,
+        `"${item.structure.replace(/"/g, '""')}"`, // Component
+        `"${(item.specificLocation || '').replace(/"/g, '""')}"`, // Chainage/Area
         `"${item.itemType || 'Other'}"`,
         `"${item.description.replace(/"/g, '""')}"`,
         item.quantityValue,
@@ -305,7 +343,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
          <div>
             <h2 className="text-2xl font-bold text-slate-800">Quantity Collection</h2>
             <p className="text-sm text-slate-500 mt-1">
-                Centralized database of all project quantities.
+                Centralized database. Sync extracts Components and Chainage/Areas automatically.
             </p>
          </div>
          <div className="flex gap-2">
@@ -315,7 +353,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                 className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-md"
             >
                 <i className={`fas fa-sync ${isSyncing ? 'fa-spin' : ''}`}></i> 
-                {isSyncing ? 'Scanning...' : 'Sync & Recategorize'}
+                {isSyncing ? 'Processing...' : 'Sync & Extract Details'}
             </button>
             <div className="flex border border-slate-200 rounded-lg overflow-hidden">
                 <button 
@@ -363,12 +401,13 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                  <thead className="bg-slate-100 sticky top-0 z-10">
                    <tr>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase w-24 border-b">Date</th>
-                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-32 border-b">Location</th>
-                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-32 border-b">Structure</th>
-                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-24 border-b">Item</th>
+                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-28 border-b">Location</th>
+                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-28 border-b">Component</th>
+                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase w-28 border-b">Chainage / Area</th>
+                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-20 border-b">Item</th>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase border-b">Description</th>
-                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase text-right w-20 border-b">Qty</th>
-                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase w-16 border-b">Unit</th>
+                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase text-right w-16 border-b">Qty</th>
+                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase w-12 border-b">Unit</th>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase w-20 text-center no-export border-b">Actions</th>
                    </tr>
                  </thead>
@@ -380,6 +419,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                            <td className="p-2"><input className="input-edit" type="date" value={editForm.date} onChange={e => setEditForm({...editForm, date: e.target.value})} /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.location} onChange={e => setEditForm({...editForm, location: e.target.value})} /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.structure} onChange={e => setEditForm({...editForm, structure: e.target.value})} /></td>
+                           <td className="p-2"><input className="input-edit border-indigo-400" value={editForm.specificLocation || ''} onChange={e => setEditForm({...editForm, specificLocation: e.target.value})} placeholder="e.g. Raft" /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.itemType} onChange={e => setEditForm({...editForm, itemType: e.target.value})} /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.description} onChange={e => setEditForm({...editForm, description: e.target.value})} /></td>
                            <td className="p-2 text-right"><input className="input-edit text-right" type="number" value={editForm.quantityValue} onChange={e => setEditForm({...editForm, quantityValue: parseFloat(e.target.value)})} /></td>
@@ -394,6 +434,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                            <td className="p-3 text-slate-500 whitespace-nowrap">{item.date}</td>
                            <td className="p-3 font-medium text-slate-800 text-xs">{item.location}</td>
                            <td className="p-3 text-slate-600 text-xs">{item.structure}</td>
+                           <td className="p-3 text-indigo-700 text-xs font-medium bg-indigo-50/50">{item.specificLocation}</td>
                            <td className="p-3 text-slate-600 text-xs">
                               <span className={`px-2 py-0.5 rounded border ${
                                 item.itemType && item.itemType !== 'Other' 
@@ -433,7 +474,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                       value={analysisLocation} 
                       onChange={e => {
                           setAnalysisLocation(e.target.value);
-                          setAnalysisStructure('All'); // Reset
+                          setAnalysisComponent('All'); // Reset
                           setAnalysisItemType('All'); // Reset
                       }} 
                       className="p-3 border border-indigo-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm"
@@ -444,18 +485,18 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                 </div>
 
                 <div className="flex flex-col gap-2">
-                   <label className="text-xs font-bold text-indigo-800 uppercase tracking-wider">2. Select Structure</label>
+                   <label className="text-xs font-bold text-indigo-800 uppercase tracking-wider">2. Select Component</label>
                    <select 
-                      value={analysisStructure} 
+                      value={analysisComponent} 
                       onChange={e => {
-                          setAnalysisStructure(e.target.value);
+                          setAnalysisComponent(e.target.value);
                           setAnalysisItemType('All'); // Reset
                       }}
                       disabled={analysisLocation === 'All'}
                       className="p-3 border border-indigo-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm disabled:opacity-50"
                    >
-                     <option value="All">All Structures</option>
-                     {analysisStructures.map(s => <option key={s} value={s}>{s}</option>)}
+                     <option value="All">All Components</option>
+                     {analysisComponents.map(s => <option key={s} value={s}>{s}</option>)}
                    </select>
                 </div>
 
@@ -492,7 +533,8 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                <table className="w-full text-left border-collapse">
                  <thead className="bg-slate-100 sticky top-0 z-10">
                    <tr>
-                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-32 border-b">Structure</th>
+                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-32 border-b">Component</th>
+                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase w-32 border-b">Chainage/Area</th>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase w-32 border-b">Item Type</th>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase border-b">Detail / Description</th>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase w-24 border-b">Date</th>
@@ -503,6 +545,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                    {analysisData.map((item) => (
                      <tr key={item.id} className="hover:bg-indigo-50/30">
                        <td className="p-3 text-slate-700 text-xs font-medium">{item.structure}</td>
+                       <td className="p-3 text-indigo-700 text-xs font-medium">{item.specificLocation}</td>
                        <td className="p-3 text-slate-600 text-xs"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded">{item.itemType || 'Other'}</span></td>
                        <td className="p-3 text-slate-500 text-xs">{item.description}</td>
                        <td className="p-3 text-slate-400 text-xs">{item.date}</td>

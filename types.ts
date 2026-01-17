@@ -50,7 +50,8 @@ export interface QuantityEntry {
   id: string;
   date: string;
   location: string;
-  structure: string; // Chainage or sub-area
+  structure: string; // Component (e.g., Barrage, Weir)
+  specificLocation?: string; // Chainage / Area (e.g., Raft, Wall, Ch 10-20)
   itemType: string; // E.g., "C25 Concrete", "Rebar", "Formwork"
   description: string;
   quantityValue: number; // Parsed number
