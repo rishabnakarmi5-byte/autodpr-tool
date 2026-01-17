@@ -94,19 +94,18 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   const handleSyncFromReports = async () => {
     setIsSyncing(true);
     let addedCount = 0;
+    let updatedCount = 0;
 
     // Create a Set of existing Report Item IDs already in Quantities to prevent dupes
     const existingRefIds = new Set(quantities.map(q => q.originalReportItemId).filter(Boolean));
 
     try {
-      // Iterate all reports
+      // 1. SCAN FOR NEW ITEMS
       for (const report of reports) {
         for (const entry of report.entries) {
-          // If we haven't synced this item yet
           if (!existingRefIds.has(entry.id)) {
             const qtyData = extractQuantityData(entry.activityDescription);
             
-            // Only add if we found a valid quantity (value > 0)
             if (qtyData.val > 0) {
               const newQty: QuantityEntry = {
                 id: crypto.randomUUID(),
@@ -129,11 +128,29 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
           }
         }
       }
-      if (addedCount > 0) {
-        alert(`Successfully synced ${addedCount} new quantity entries from reports.`);
-      } else {
-        alert("No new quantities found in reports.");
+
+      // 2. REPAIR EXISTING ITEMS (Fix 'Other' types if we now have a better match)
+      for (const qty of quantities) {
+        if (!qty.itemType || qty.itemType === 'Other') {
+           const newType = identifyItem(qty.description);
+           if (newType !== 'Other') {
+             await updateQuantity(
+               { ...qty, itemType: newType }, 
+               qty, 
+               user?.displayName || 'System Categorizer'
+             );
+             updatedCount++;
+           }
+        }
       }
+
+      let msg = "";
+      if (addedCount > 0) msg += `Added ${addedCount} new items. `;
+      if (updatedCount > 0) msg += `Updated ${updatedCount} items with better categorization. `;
+      if (!msg) msg = "Everything is up to date.";
+      
+      alert(msg);
+
     } catch (e) {
       console.error(e);
       alert("Sync failed. Check console.");
@@ -201,7 +218,6 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   }, [quantities, startDate, endDate, filterLocation]);
 
   // --- MEMO: Analysis Filter Options ---
-  // Get unique structures based on selected location
   const analysisStructures = useMemo(() => {
     if (analysisLocation === 'All') return [];
     return Array.from(new Set(quantities.filter(q => q.location.includes(analysisLocation)).map(q => q.structure))).sort();
@@ -299,7 +315,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                 className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-md"
             >
                 <i className={`fas fa-sync ${isSyncing ? 'fa-spin' : ''}`}></i> 
-                {isSyncing ? 'Scanning...' : 'Sync from Reports'}
+                {isSyncing ? 'Scanning...' : 'Sync & Recategorize'}
             </button>
             <div className="flex border border-slate-200 rounded-lg overflow-hidden">
                 <button 
@@ -378,7 +394,15 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                            <td className="p-3 text-slate-500 whitespace-nowrap">{item.date}</td>
                            <td className="p-3 font-medium text-slate-800 text-xs">{item.location}</td>
                            <td className="p-3 text-slate-600 text-xs">{item.structure}</td>
-                           <td className="p-3 text-slate-600 text-xs"><span className="bg-slate-100 px-2 py-0.5 rounded">{item.itemType || 'Other'}</span></td>
+                           <td className="p-3 text-slate-600 text-xs">
+                              <span className={`px-2 py-0.5 rounded border ${
+                                item.itemType && item.itemType !== 'Other' 
+                                  ? 'bg-indigo-50 text-indigo-700 border-indigo-100' 
+                                  : 'bg-slate-100 text-slate-500 border-slate-200'
+                              }`}>
+                                {item.itemType || 'Other'}
+                              </span>
+                           </td>
                            <td className="p-3 text-slate-700 text-xs">{item.description}</td>
                            <td className="p-3 text-right font-mono font-bold text-indigo-600 bg-slate-50/50">{item.quantityValue}</td>
                            <td className="p-3 text-slate-500">{item.quantityUnit}</td>
