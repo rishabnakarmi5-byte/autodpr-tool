@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DailyReport, QuantityEntry, DPRItem } from '../types';
-import { LOCATION_HIERARCHY, ITEM_PATTERNS, STRUCTURAL_ELEMENTS, CHAINAGE_PATTERN, ELEVATION_PATTERN } from '../utils/constants';
+import { DailyReport, QuantityEntry } from '../types';
+import { LOCATION_HIERARCHY, identifyItemType, parseQuantityDetails } from '../utils/constants';
 import { subscribeToQuantities, addQuantity, updateQuantity, deleteQuantity } from '../services/firebaseService';
 
 interface QuantityViewProps {
@@ -44,74 +44,21 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     return () => unsubscribe();
   }, []);
 
-  // --- LOGIC: Item & Detail Identification ---
-
-  const identifyItem = (text: string): string => {
-    for (const item of ITEM_PATTERNS) {
-      if (item.pattern.test(text)) {
-        return item.name;
-      }
-    }
-    return "Other";
-  };
-
-  // Improved Extraction with Context (Location)
-  const extractSplitDetails = (text: string, locationContext: string = ""): { element: string, loc: string } => {
-    const elements: string[] = [];
-    const locs: string[] = [];
-
-    // 1. Extract Elements (Area) using patterns
-    STRUCTURAL_ELEMENTS.forEach(p => {
-      if (p.regex.test(text)) {
-        if (!elements.includes(p.label)) {
-           elements.push(p.label);
-        }
-      }
-    });
-
-    // 2. Contextual Inference based on Location Rules
-    const lowerText = text.toLowerCase();
-    const lowerLoc = locationContext.toLowerCase();
-
-    // Rule: Tailrace Tunnel + Lift (1st/2nd) -> Implies "Wall" work
-    if (lowerLoc.includes('tailrace') && lowerText.includes('lift')) {
-        if (!elements.includes('Wall')) elements.push('Wall');
-    }
+  const extractQuantityData = (
+    location: string, 
+    chainageOrArea: string, 
+    description: string
+  ): { val: number, unit: string, raw: string, type: string, structure: string, element: string, loc: string } => {
     
-    // Rule: Pressure Tunnel + Lift (1st/2nd) -> Implies "Infill" concrete (treated as Area/Element here for clarity)
-    if (lowerLoc.includes('pressure tunnel') && lowerText.includes('lift')) {
-         if (!elements.includes('Infill')) elements.push('Infill');
-    }
-
-    // 3. Extract Chainage
-    const chMatch = text.match(CHAINAGE_PATTERN);
-    if (chMatch) {
-       // Match full string like "Ch 10-20"
-       locs.push(chMatch[0].trim());
-    }
-
-    // 4. Extract Elevation
-    const elMatch = text.match(ELEVATION_PATTERN);
-    if (elMatch) {
-       locs.push(elMatch[0].trim());
-    }
-
-    return {
-      element: elements.join(', '),
-      loc: locs.join(', ')
-    };
-  };
-
-  const extractQuantityData = (text: string, locationContext: string): { val: number, unit: string, raw: string, type: string, element: string, loc: string } => {
     // 1. Identify Type
-    const type = identifyItem(text);
+    const type = identifyItemType(description);
     
-    // 2. Extract Split Details (Passing context now)
-    const { element, loc } = extractSplitDetails(text, locationContext);
+    // 2. Extract Split Details using Unified Logic
+    const details = parseQuantityDetails(location, chainageOrArea, description);
 
     // 3. Extract Number and Unit
     const regex = /(\d+(\.\d+)?)\s*(m3|cum|sqm|sq\.m|m2|m|mtr|nos|t|ton|kg)/i;
-    const match = text.match(regex);
+    const match = description.match(regex);
     
     if (match) {
       let val = parseFloat(match[1]);
@@ -130,10 +77,10 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
         unit = 'Ton';
       }
 
-      return { val, unit, raw, type, element, loc };
+      return { val, unit, raw, type, structure: details.structure, element: details.detailElement, loc: details.detailLocation };
     }
 
-    return { val: 0, unit: '-', raw: '-', type, element, loc };
+    return { val: 0, unit: '-', raw: '-', type, structure: details.structure, element: details.detailElement, loc: details.detailLocation };
   };
 
   // --- HANDLER: Sync ---
@@ -150,18 +97,16 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
       for (const report of reports) {
         for (const entry of report.entries) {
           if (!existingRefIds.has(entry.id)) {
-            // Pass Full Location Context (Location + Component)
-            const fullLocationContext = `${entry.location} ${entry.chainageOrArea}`;
-            const qtyData = extractQuantityData(entry.activityDescription, fullLocationContext);
+            const qtyData = extractQuantityData(entry.location, entry.chainageOrArea, entry.activityDescription);
             
             if (qtyData.val > 0) {
               const newQty: QuantityEntry = {
                 id: crypto.randomUUID(),
                 date: report.date,
                 location: entry.location, // Main Location
-                structure: entry.chainageOrArea, // Component (e.g. Barrage)
+                structure: qtyData.structure, // Component (inferred or explicit)
                 detailElement: qtyData.element, // Area (e.g. Raft, Wall)
-                detailLocation: qtyData.loc, // Chainage/EL (e.g. Ch 10)
+                detailLocation: qtyData.loc, // Chainage/EL formatted
                 itemType: qtyData.type,
                 description: entry.activityDescription,
                 quantityValue: qtyData.val,
@@ -180,30 +125,41 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
       }
 
       // 2. REPAIR/UPDATE EXISTING ITEMS 
-      // This step re-runs extraction to improve data based on new rules (Tailrace->Wall)
       for (const qty of quantities) {
         let needsUpdate = false;
         let updates: Partial<QuantityEntry> = {};
 
-        // Recalculate details from description using stored location context
-        const fullLocationContext = `${qty.location} ${qty.structure}`;
-        const { element, loc } = extractSplitDetails(qty.description, fullLocationContext);
+        // Use original structure field if available, but we might want to re-parse component logic if it was generic
+        // However, we must rely on what we can re-derive. 
+        // We don't have the original `chainageOrArea` input easily unless we assume `qty.structure` is it, 
+        // OR we check the report if we have it loaded.
+        // For simplicity, we re-parse using current fields as context.
+        
+        const details = parseQuantityDetails(qty.location, qty.structure, qty.description);
 
-        // Update Area/Element if improved (e.g., added "Wall" inferred from Lift)
-        if (qty.detailElement !== element) {
-           updates.detailElement = element;
+        if (qty.detailElement !== details.detailElement) {
+           updates.detailElement = details.detailElement;
            needsUpdate = true;
         }
         
-        // Update Chainage if improved
-        if (qty.detailLocation !== loc) {
-           updates.detailLocation = loc;
+        if (qty.detailLocation !== details.detailLocation) {
+           updates.detailLocation = details.detailLocation;
            needsUpdate = true;
+        }
+
+        // If structure was updated by inference (e.g. Tailrace Lift -> Wall)
+        if (qty.structure !== details.structure && details.structure !== qty.structure) {
+            // Be careful not to overwrite manual edits. 
+            // Only update if current structure looks like raw chainage text we parsed
+            if (qty.structure.toLowerCase().includes('ch ') || qty.structure.toLowerCase().includes('chainage')) {
+                updates.structure = details.structure;
+                needsUpdate = true;
+            }
         }
 
         // Recalculate Item Type if needed
         if (!qty.itemType || qty.itemType === 'Other') {
-           const newType = identifyItem(qty.description);
+           const newType = identifyItemType(qty.description);
            if (newType !== 'Other') {
              updates.itemType = newType;
              needsUpdate = true;
@@ -222,7 +178,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
 
       let msg = "";
       if (addedCount > 0) msg += `Added ${addedCount} new items. `;
-      if (updatedCount > 0) msg += `Updated ${updatedCount} items with smarter details (Area vs Chainage). `;
+      if (updatedCount > 0) msg += `Updated ${updatedCount} items with smarter details (Chainage formatting & Component inference). `;
       if (!msg) msg = "Everything is up to date.";
       
       alert(msg);
@@ -459,7 +415,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                            <td className="p-2"><input className="input-edit" value={editForm.location} onChange={e => setEditForm({...editForm, location: e.target.value})} /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.structure} onChange={e => setEditForm({...editForm, structure: e.target.value})} /></td>
                            <td className="p-2"><input className="input-edit border-indigo-400" value={editForm.detailElement || ''} onChange={e => setEditForm({...editForm, detailElement: e.target.value})} placeholder="Raft, Wall" /></td>
-                           <td className="p-2"><input className="input-edit border-indigo-400" value={editForm.detailLocation || ''} onChange={e => setEditForm({...editForm, detailLocation: e.target.value})} placeholder="Ch 100" /></td>
+                           <td className="p-2"><input className="input-edit border-indigo-400" value={editForm.detailLocation || ''} onChange={e => setEditForm({...editForm, detailLocation: e.target.value})} placeholder="0+038" /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.itemType} onChange={e => setEditForm({...editForm, itemType: e.target.value})} /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.description} onChange={e => setEditForm({...editForm, description: e.target.value})} /></td>
                            <td className="p-2 text-right"><input className="input-edit text-right" type="number" value={editForm.quantityValue} onChange={e => setEditForm({...editForm, quantityValue: parseFloat(e.target.value)})} /></td>

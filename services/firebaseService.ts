@@ -1,4 +1,3 @@
-import { initializeApp as _initializeApp } from "firebase/app";
 import * as _app from "firebase/app";
 import * as _firestore from "firebase/firestore";
 import * as _auth from "firebase/auth";

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DailyReport, DPRItem, QuantityEntry } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
-import { LOCATION_HIERARCHY, ITEM_PATTERNS, STRUCTURAL_ELEMENTS, CHAINAGE_PATTERN, ELEVATION_PATTERN } from '../utils/constants';
+import { LOCATION_HIERARCHY, ITEM_PATTERNS, identifyItemType, parseQuantityDetails } from '../utils/constants';
 import { addQuantity } from '../services/firebaseService';
 
 interface ReportTableProps {
@@ -99,60 +99,22 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     }
   };
 
-  const identifyItemType = (text: string) => {
-    for (const p of ITEM_PATTERNS) {
-      if (p.pattern.test(text)) return p.name;
-    }
-    return 'Other';
-  };
-  
-  const extractSplitDetails = (text: string, locationContext: string = ""): { element: string, loc: string } => {
-    const elements: string[] = [];
-    const locs: string[] = [];
-    STRUCTURAL_ELEMENTS.forEach(p => {
-      if (p.regex.test(text)) {
-        if (!elements.includes(p.label)) elements.push(p.label);
-      }
-    });
-
-    // Contextual Inference
-    const lowerText = text.toLowerCase();
-    const lowerLoc = locationContext.toLowerCase();
-    
-    if (lowerLoc.includes('tailrace') && lowerText.includes('lift')) {
-        if (!elements.includes('Wall')) elements.push('Wall');
-    }
-    if (lowerLoc.includes('pressure tunnel') && lowerText.includes('lift')) {
-         if (!elements.includes('Infill')) elements.push('Infill');
-    }
-
-    const chMatch = text.match(CHAINAGE_PATTERN);
-    if (chMatch) locs.push(chMatch[0].trim());
-    const elMatch = text.match(ELEVATION_PATTERN);
-    if (elMatch) locs.push(elMatch[0].trim());
-
-    return {
-      element: elements.join(', '),
-      loc: locs.join(', ')
-    };
-  };
-
   const handleSendToQuantity = async (item: DPRItem) => {
      const regex = /(\d+(\.\d+)?)\s*(m3|cum|sqm|sq\.m|m|mtr|nos|t|ton)/i;
      const match = item.activityDescription.match(regex);
      
      if(match) {
          if(window.confirm(`Add this quantity to collection?\n\n${match[0]}`)) {
-             const fullLocationContext = `${item.location} ${item.chainageOrArea}`;
-             const details = extractSplitDetails(item.activityDescription, fullLocationContext);
+             
+             const details = parseQuantityDetails(item.location, item.chainageOrArea, item.activityDescription);
              
              const newQty: QuantityEntry = {
                 id: crypto.randomUUID(),
                 date: report.date,
                 location: item.location,
-                structure: item.chainageOrArea,
-                detailElement: details.element,
-                detailLocation: details.loc,
+                structure: details.structure,
+                detailElement: details.detailElement,
+                detailLocation: details.detailLocation,
                 itemType: identifyItemType(item.activityDescription),
                 description: item.activityDescription,
                 quantityValue: parseFloat(match[1]),

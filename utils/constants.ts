@@ -47,49 +47,33 @@ export const LOCATION_SORT_ORDER = [
 
 export const getLocationPriority = (location: string): number => {
   if (!location) return 999;
-  // Find index where the defined sort key is contained within the location string
   const index = LOCATION_SORT_ORDER.findIndex(key => 
     location.toLowerCase().includes(key.toLowerCase())
   );
   return index === -1 ? 999 : index;
 };
 
-// Regex patterns to identify item types from description text.
-// ORDER MATTERS: Specific items checked before generic ones.
+// Regex patterns to identify item types
 export const ITEM_PATTERNS = [
-  // 1. Special Concrete Types
   { name: "Plum Concrete", pattern: /\b(plum)\b/i, defaultUnit: 'm3' },
   { name: "Shotcrete", pattern: /\b(shotcrete|s\/c)\b/i, defaultUnit: 'm3' },
-
-  // 2. Standard Concrete Grades (Exclude Plum)
   { name: "C10 Concrete", pattern: /\b(c10|pcc|infill|grade 10|m10)\b(?!.*plum)/i, defaultUnit: 'm3' },
   { name: "C15 Concrete", pattern: /\b(c15|grade 15|m15)\b(?!.*plum)/i, defaultUnit: 'm3' },
   { name: "C20 Concrete", pattern: /\b(c20|grade 20|m20)\b(?!.*plum)/i, defaultUnit: 'm3' },
   { name: "C25 Concrete", pattern: /\b(c25|grade 25|m25)\b(?!.*plum)/i, defaultUnit: 'm3' },
   { name: "C30 Concrete", pattern: /\b(c30|grade 30|m30)\b(?!.*plum)/i, defaultUnit: 'm3' },
   { name: "C35 Concrete", pattern: /\b(c35|grade 35|m35)\b(?!.*plum)/i, defaultUnit: 'm3' },
-  
-  // 3. Reinforcement / Steel
   { name: "Rebar", pattern: /\b(rebar|reinforcement|steel|tmt|bar|tor)\b/i, defaultUnit: 'Ton' },
-  
-  // 4. Formwork
   { name: "Formwork", pattern: /\b(formwork|shuttering)\b/i, defaultUnit: 'm2' },
-  
-  // 5. Masonry & Walls
   { name: "Stone Masonry", pattern: /\b(masonry|rrm|ms wall|stone soling|soling)\b/i, defaultUnit: 'm3' },
   { name: "Concrete Block", pattern: /\b(block work|concrete block|hollow block|block)\b/i, defaultUnit: 'm3' },
   { name: "Plaster", pattern: /\b(plaster)\b/i, defaultUnit: 'm2' },
-  
-  // 6. Earthworks
   { name: "Excavation", pattern: /\b(excavation|mucking|digging)\b/i, defaultUnit: 'm3' },
   { name: "Backfill", pattern: /\b(backfill|backfilling)\b/i, defaultUnit: 'm3' },
-
-  // 7. Others
   { name: "Rock Bolt", pattern: /\b(rock bolt|bolt|anchor)\b/i, defaultUnit: 'nos' },
   { name: "Gabion", pattern: /\b(gabion)\b/i, defaultUnit: 'm3' },
 ];
 
-// Patterns to extract "Area" (Structural Elements)
 export const STRUCTURAL_ELEMENTS = [
   { regex: /\b(raft|foundation|footing)\b/i, label: "Raft" },
   { regex: /\b(wall|walls|side wall)\b/i, label: "Wall" },
@@ -106,8 +90,6 @@ export const STRUCTURAL_ELEMENTS = [
   { regex: /\b(glacis)\b/i, label: "Glacis" },
   { regex: /\b(apron)\b/i, label: "Apron" },
   { regex: /\b(soling)\b/i, label: "Soling" },
-
-  // Lifts and Sides (treated as part of Area description)
   { regex: /\b(first|1st)\s+lift\b/i, label: "1st Lift" },
   { regex: /\b(second|2nd)\s+lift\b/i, label: "2nd Lift" },
   { regex: /\b(third|3rd)\s+lift\b/i, label: "3rd Lift" },
@@ -119,3 +101,108 @@ export const STRUCTURAL_ELEMENTS = [
 
 export const CHAINAGE_PATTERN = /(?:ch\.?|chainage)\s*([\d\+\-\.]+)(?:\s*(?:to|-)\s*([\d\+\-\.]+))?/i;
 export const ELEVATION_PATTERN = /(?:el\.?|elevation|level)\s*([\d\+\-\.]+)(?:\s*(?:to|-)\s*([\d\+\-\.]+))?/i;
+
+// --- Helper Functions ---
+
+export const identifyItemType = (text: string): string => {
+  for (const item of ITEM_PATTERNS) {
+    if (item.pattern.test(text)) {
+      return item.name;
+    }
+  }
+  return "Other";
+};
+
+const formatChainageNumber = (valStr: string): string => {
+  const clean = valStr.replace(/\+/g, '').replace(/m$/i, '').trim();
+  const num = parseFloat(clean);
+  if (isNaN(num)) return valStr;
+
+  // If number is small (e.g. 38), assume 0+038
+  const km = Math.floor(num / 1000);
+  const m = Math.round(num % 1000); // Round to nearest int for standard chainage
+  return `${km}+${m.toString().padStart(3, '0')}`;
+};
+
+export const extractChainageAndFormat = (text: string): string | null => {
+  const match = text.match(CHAINAGE_PATTERN);
+  if (match) {
+    const start = formatChainageNumber(match[1]);
+    if (match[2]) {
+      const end = formatChainageNumber(match[2]);
+      return `${start} to ${end} m`;
+    }
+    return `${start} m`;
+  }
+  return null;
+};
+
+// Unified extraction logic used by both QuantityView and ReportTable
+export const parseQuantityDetails = (
+  location: string,
+  chainageOrAreaInput: string,
+  description: string
+) => {
+  const elements = new Set<string>();
+  let chainageStr = null;
+  let component = chainageOrAreaInput; // Default component is the report's structure column
+
+  // 1. Check if Chainage/Area Input is primarily Chainage
+  const chainageFromInput = extractChainageAndFormat(chainageOrAreaInput);
+  if (chainageFromInput) {
+    chainageStr = chainageFromInput;
+    // If the input was just chainage (e.g. "Ch 38-59"), the Component name is missing.
+    // We infer Component from Location or Context.
+    component = location; // Fallback to location (e.g. Tailrace Tunnel)
+  }
+
+  // 2. Scan for Elements in Input & Description
+  const combinedText = `${chainageOrAreaInput} ${description}`;
+  STRUCTURAL_ELEMENTS.forEach(p => {
+    if (p.regex.test(combinedText)) {
+      elements.add(p.label);
+    }
+  });
+
+  // 3. Chainage from Description (if not found in input)
+  if (!chainageStr) {
+    chainageStr = extractChainageAndFormat(description);
+  }
+
+  // 4. Elevation
+  const elMatch = combinedText.match(ELEVATION_PATTERN);
+  if (elMatch) {
+    const elStr = elMatch[0].trim();
+    // Append to chainage string for the "Chainage / EL" column
+    chainageStr = chainageStr ? `${chainageStr}, ${elStr}` : elStr;
+  }
+
+  // 5. Contextual Rules for "Component" vs "Area"
+  const lowerLoc = location.toLowerCase();
+  const lowerDesc = combinedText.toLowerCase();
+
+  // Rule: Tailrace + Lift -> Component = "Wall" or "Tailrace Tunnel" with Area "Wall"?
+  // User request: "component would be wall, area would be Wall 1st lift"
+  if (lowerLoc.includes('tailrace') && lowerDesc.includes('lift')) {
+      if (!elements.has('Wall')) elements.add('Wall');
+      component = "Wall"; // Override component to Wall
+  }
+
+  if (lowerLoc.includes('pressure tunnel') && lowerDesc.includes('lift')) {
+      if (!elements.has('Infill')) elements.add('Infill');
+      // Keep component as Pressure Tunnel or set to Infill?
+      // Usually Pressure Tunnel Infill is the main activity
+  }
+  
+  // If we found specific elements like "Barrage" in the text, and Component is generic, refine it.
+  // But typically `chainageOrAreaInput` has the component name (e.g. "Barrage").
+  
+  // Clean up Elements string
+  const detailElement = Array.from(elements).join(', ');
+
+  return {
+    structure: component,
+    detailElement,
+    detailLocation: chainageStr || ''
+  };
+};
