@@ -346,6 +346,9 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
      }
   };
 
+  // Helper to determine if we should show the Location column
+  const showLocationColumn = analysisLocation === 'All' || analysisLocation === 'Unclassified';
+
   return (
     <div className="flex flex-col h-full space-y-6 animate-fade-in">
       
@@ -548,6 +551,9 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                <table className="w-full text-left border-collapse">
                  <thead className="bg-slate-100 sticky top-0 z-10">
                    <tr>
+                     {showLocationColumn && (
+                       <th className="p-3 text-xs font-bold text-slate-700 uppercase w-32 border-b">Location</th>
+                     )}
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase w-32 border-b">Component</th>
                      <th className="p-3 text-xs font-bold text-indigo-700 uppercase w-32 border-b">Area</th>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase w-32 border-b">Item Type</th>
@@ -562,6 +568,9 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                      <tr key={item.id} className="hover:bg-indigo-50/30">
                        {editingId === item.id ? (
                            <>
+                              {showLocationColumn && (
+                                <td className="p-2"><input className="input-edit" value={editForm.location} onChange={e => setEditForm({...editForm, location: e.target.value})} placeholder="Location" /></td>
+                              )}
                               <td className="p-2"><input className="input-edit" value={editForm.structure} onChange={e => setEditForm({...editForm, structure: e.target.value})} placeholder="Component" /></td>
                               <td className="p-2"><input className="input-edit" value={editForm.detailElement || ''} onChange={e => setEditForm({...editForm, detailElement: e.target.value})} /></td>
                               <td className="p-2"><input className="input-edit" value={editForm.itemType} onChange={e => setEditForm({...editForm, itemType: e.target.value})} /></td>
@@ -575,6 +584,11 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                            </>
                        ) : (
                            <>
+                              {showLocationColumn && (
+                                <td className="p-3 text-slate-700 text-xs font-medium">
+                                    {item.location || <span className="text-red-500 italic">Missing</span>}
+                                </td>
+                              )}
                               <td className="p-3 text-slate-700 text-xs font-medium">
                                   {item.structure || <span className="text-red-500 italic">Unknown</span>}
                               </td>
