@@ -3,7 +3,7 @@ export const LOCATION_HIERARCHY: Record<string, string[]> = {
   "Headworks": [
     "Barrage",
     "Weir",
-    "Upstream Apron",
+    "Upstream Apon",
     "Stilling Basin",
     "Syphon",
     "Intake",

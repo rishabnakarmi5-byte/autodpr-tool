@@ -142,25 +142,37 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
 
     const newEntries = entries.map(item => {
         let newLocation = item.location;
-        let newComponent = item.component;
+        let newComponent = item.component || "";
         let changed = false;
 
-        // 1. Try to fix Location
-        if (!validLocations.includes(item.location)) {
+        // 1. Specific Fixes for "HRT from Inlet", "HRT from Adit" which were previously locations
+        if (item.location.includes("HRT from Inlet") || item.location.includes("HRT from Adit")) {
+            newLocation = "Headrace Tunnel (HRT)";
+            newComponent = item.location.includes("Inlet") ? "HRT from Inlet" : "HRT from Adit";
+            changed = true;
+        }
+
+        // 2. Try to fix Location generally
+        else if (!validLocations.includes(item.location)) {
             // Find closest match (simple inclusion check)
             const match = validLocations.find(k => 
                 k.toLowerCase().includes(item.location.toLowerCase()) || 
                 item.location.toLowerCase().includes(k.toLowerCase()) ||
                 (item.location === "HRT" && k.includes("Headrace Tunnel")) ||
-                (item.location === "TRT" && k.includes("Tailrace Tunnel"))
+                (item.location === "TRT" && k.includes("Powerhouse")) // TRT is under Powerhouse now
             );
             if (match) {
                 newLocation = match;
                 changed = true;
+                
+                // If it was TRT, set component to Tailrace Tunnel if empty
+                if(item.location === "TRT" && !newComponent) {
+                    newComponent = "Tailrace Tunnel (TRT)";
+                }
             }
         }
 
-        // 2. Try to fix Component if Location is valid
+        // 3. Try to fix Component if Location is valid
         if (validLocations.includes(newLocation)) {
             const validComponents = LOCATION_HIERARCHY[newLocation];
             // If component is missing or invalid
