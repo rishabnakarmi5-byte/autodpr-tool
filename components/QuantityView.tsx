@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { DailyReport, QuantityEntry, DPRItem } from '../types';
-import { LOCATION_HIERARCHY } from '../utils/constants';
+import { LOCATION_HIERARCHY, ITEM_PATTERNS } from '../utils/constants';
 import { subscribeToQuantities, addQuantity, updateQuantity, deleteQuantity } from '../services/firebaseService';
 import { User } from 'firebase/auth';
 
@@ -9,9 +9,14 @@ interface QuantityViewProps {
   user?: User | null;
 }
 
+type SubTab = 'ledger' | 'analysis';
+
 export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => {
-  // State
+  // --- STATE ---
   const [quantities, setQuantities] = useState<QuantityEntry[]>([]);
+  const [activeSubTab, setActiveSubTab] = useState<SubTab>('ledger');
+  
+  // Filters (Ledger)
   const [filterLocation, setFilterLocation] = useState<string>('All');
   const [startDate, setStartDate] = useState<string>(
     new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]
@@ -19,6 +24,13 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   const [endDate, setEndDate] = useState<string>(
     new Date().toISOString().split('T')[0]
   );
+
+  // Filters (Detailed Analysis)
+  const [analysisLocation, setAnalysisLocation] = useState<string>('All');
+  const [analysisStructure, setAnalysisStructure] = useState<string>('All');
+  const [analysisItemType, setAnalysisItemType] = useState<string>('All');
+
+  // Loading/Exporting
   const [isExporting, setIsExporting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   
@@ -33,21 +45,51 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     return () => unsubscribe();
   }, []);
 
-  // --- Helper Functions ---
+  // --- LOGIC: Item Identification & Unit Conversion ---
 
-  const extractQuantityData = (text: string): { val: number, unit: string, raw: string } => {
-    // Matches number followed optionally by unit
-    const regex = /(\d+(\.\d+)?)\s*(m3|cum|sqm|sq\.m|m|mtr|nos|t|ton)/i;
-    const match = text.match(regex);
-    if (match) {
-      return {
-        val: parseFloat(match[1]),
-        unit: match[3],
-        raw: match[0]
-      };
+  const identifyItem = (text: string): string => {
+    for (const item of ITEM_PATTERNS) {
+      if (item.pattern.test(text)) {
+        return item.name;
+      }
     }
-    return { val: 0, unit: '-', raw: '-' };
+    return "Other";
   };
+
+  const extractQuantityData = (text: string): { val: number, unit: string, raw: string, type: string } => {
+    // 1. Identify Type first
+    const type = identifyItem(text);
+
+    // 2. Extract Number and Unit
+    // Matches number followed optionally by unit
+    // We look for kg specifically for rebar conversion
+    const regex = /(\d+(\.\d+)?)\s*(m3|cum|sqm|sq\.m|m2|m|mtr|nos|t|ton|kg)/i;
+    const match = text.match(regex);
+    
+    if (match) {
+      let val = parseFloat(match[1]);
+      let unit = match[3].toLowerCase();
+      const raw = match[0];
+
+      // Unit Standardization & Conversion
+      if (unit === 'cum') unit = 'm3';
+      if (unit === 'sqm' || unit === 'sq.m') unit = 'm2';
+      if (unit === 'mtr') unit = 'm';
+      if (unit === 't') unit = 'Ton';
+
+      // Rebar Conversion: kg -> Ton
+      if (type === 'Rebar' && unit === 'kg') {
+        val = val / 1000;
+        unit = 'Ton';
+      }
+
+      return { val, unit, raw, type };
+    }
+
+    return { val: 0, unit: '-', raw: '-', type };
+  };
+
+  // --- HANDLER: Sync ---
 
   const handleSyncFromReports = async () => {
     setIsSyncing(true);
@@ -64,14 +106,14 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
           if (!existingRefIds.has(entry.id)) {
             const qtyData = extractQuantityData(entry.activityDescription);
             
-            // Only add if we found a valid quantity (value > 0 and unit exists)
-            // OR if user forces it (but auto-sync should only pick actual quantities)
+            // Only add if we found a valid quantity (value > 0)
             if (qtyData.val > 0) {
               const newQty: QuantityEntry = {
                 id: crypto.randomUUID(),
                 date: report.date,
                 location: entry.location,
                 structure: entry.chainageOrArea,
+                itemType: qtyData.type,
                 description: entry.activityDescription,
                 quantityValue: qtyData.val,
                 quantityUnit: qtyData.unit,
@@ -136,7 +178,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   };
 
   const handleDeleteClick = async (item: QuantityEntry) => {
-    if (window.confirm(`Are you sure you want to delete this quantity record?\n\n${item.location} - ${item.quantityValue}${item.quantityUnit}\n\nThis will move it to the Recycle Bin.`)) {
+    if (window.confirm(`Are you sure you want to delete this quantity record?\n\n${item.itemType} at ${item.location}\n${item.quantityValue}${item.quantityUnit}\n\nThis will move it to the Recycle Bin.`)) {
       try {
         await deleteQuantity(item, user?.displayName || 'Unknown');
       } catch (e) {
@@ -145,9 +187,8 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     }
   };
 
-  // --- Filtering ---
-  
-  const filteredItems = useMemo(() => {
+  // --- MEMO: Filtered Ledger Items ---
+  const filteredLedgerItems = useMemo(() => {
     const start = new Date(startDate);
     const end = new Date(endDate);
     
@@ -159,22 +200,56 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     });
   }, [quantities, startDate, endDate, filterLocation]);
 
+  // --- MEMO: Analysis Filter Options ---
+  // Get unique structures based on selected location
+  const analysisStructures = useMemo(() => {
+    if (analysisLocation === 'All') return [];
+    return Array.from(new Set(quantities.filter(q => q.location.includes(analysisLocation)).map(q => q.structure))).sort();
+  }, [quantities, analysisLocation]);
+
+  const analysisItems = useMemo(() => {
+      let filtered = quantities;
+      if (analysisLocation !== 'All') filtered = filtered.filter(q => q.location.includes(analysisLocation));
+      if (analysisStructure !== 'All') filtered = filtered.filter(q => q.structure === analysisStructure);
+      return Array.from(new Set(filtered.map(q => q.itemType || 'Other'))).sort();
+  }, [quantities, analysisLocation, analysisStructure]);
+
+  // --- MEMO: Analysis Filtered Data ---
+  const analysisData = useMemo(() => {
+      return quantities.filter(q => {
+          if (analysisLocation !== 'All' && !q.location.includes(analysisLocation)) return false;
+          if (analysisStructure !== 'All' && q.structure !== analysisStructure) return false;
+          if (analysisItemType !== 'All' && (q.itemType || 'Other') !== analysisItemType) return false;
+          return true;
+      });
+  }, [quantities, analysisLocation, analysisStructure, analysisItemType]);
+
+  const analysisTotal = useMemo(() => {
+      return analysisData.reduce((sum, item) => sum + item.quantityValue, 0);
+  }, [analysisData]);
+  
+  const analysisUnit = analysisData.length > 0 ? analysisData[0].quantityUnit : '';
+
 
   // --- Export ---
   
   const handleExportCSV = () => {
-    const headers = ['Date', 'Location', 'Structure', 'Description', 'Qty', 'Unit', 'Original Ref'];
+    // Reuse existing filtered items based on current tab
+    const dataToExport = activeSubTab === 'ledger' ? filteredLedgerItems : analysisData;
+    const filename = activeSubTab === 'ledger' ? 'Quantity_Ledger' : 'Quantity_Analysis';
+
+    const headers = ['Date', 'Location', 'Structure', 'Item Type', 'Description', 'Qty', 'Unit'];
     const csvRows = [headers.join(',')];
 
-    filteredItems.forEach(item => {
+    dataToExport.forEach(item => {
       const row = [
         item.date,
         `"${item.location.replace(/"/g, '""')}"`,
         `"${item.structure.replace(/"/g, '""')}"`,
+        `"${item.itemType || 'Other'}"`,
         `"${item.description.replace(/"/g, '""')}"`,
         item.quantityValue,
-        item.quantityUnit,
-        `"${item.originalRawString}"`
+        item.quantityUnit
       ];
       csvRows.push(row.join(','));
     });
@@ -183,7 +258,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Quantities_${startDate}_to_${endDate}.csv`;
+    a.download = `${filename}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -191,12 +266,12 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   const handleExportJPG = async () => {
      setIsExporting(true);
      try {
-       const tableEl = document.getElementById('qty-table-container');
+       const tableEl = document.getElementById(activeSubTab === 'ledger' ? 'qty-ledger-table' : 'qty-analysis-table');
        if(tableEl) {
          const canvas = await window.html2canvas(tableEl, { scale: 2, backgroundColor: '#ffffff' });
          const link = document.createElement('a');
          link.href = canvas.toDataURL("image/jpeg", 0.9);
-         link.download = `Quantity_Report.jpg`;
+         link.download = `Quantity_${activeSubTab}.jpg`;
          link.click();
        }
      } catch(e) {
@@ -214,103 +289,82 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
          <div>
             <h2 className="text-2xl font-bold text-slate-800">Quantity Collection</h2>
             <p className="text-sm text-slate-500 mt-1">
-                Editable ledger of project quantities. Auto-synced from reports or added manually.
+                Centralized database of all project quantities.
             </p>
          </div>
-
-         <div className="flex flex-col md:flex-row gap-4 w-full xl:w-auto items-end">
-            
-            {/* Sync Button */}
+         <div className="flex gap-2">
             <button 
                 onClick={handleSyncFromReports}
                 disabled={isSyncing}
-                className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 h-full shadow-md shadow-indigo-200"
-                title="Scans all Daily Reports for quantities not yet in this list"
+                className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-md"
             >
                 <i className={`fas fa-sync ${isSyncing ? 'fa-spin' : ''}`}></i> 
                 {isSyncing ? 'Scanning...' : 'Sync from Reports'}
             </button>
-
-            {/* Date Filters */}
-            <div className="flex gap-2">
-               <div className="flex flex-col">
-                  <label className="text-[10px] text-slate-400 font-bold uppercase">From</label>
-                  <input 
-                    type="date" 
-                    value={startDate} 
-                    onChange={e => setStartDate(e.target.value)}
-                    className="border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
-               </div>
-               <div className="flex flex-col">
-                  <label className="text-[10px] text-slate-400 font-bold uppercase">To</label>
-                  <input 
-                    type="date" 
-                    value={endDate} 
-                    onChange={e => setEndDate(e.target.value)}
-                    className="border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
-               </div>
-            </div>
-
-            {/* Location Filter */}
-            <div className="flex flex-col min-w-[150px]">
-               <label className="text-[10px] text-slate-400 font-bold uppercase">Filter Location</label>
-               <select 
-                 value={filterLocation}
-                 onChange={e => setFilterLocation(e.target.value)}
-                 className="border border-slate-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-               >
-                 <option value="All">All Locations</option>
-                 {Object.keys(LOCATION_HIERARCHY).map(loc => (
-                    <option key={loc} value={loc}>{loc}</option>
-                 ))}
-               </select>
+            <div className="flex border border-slate-200 rounded-lg overflow-hidden">
+                <button 
+                   onClick={() => setActiveSubTab('ledger')}
+                   className={`px-4 py-2 text-xs font-bold transition-colors ${activeSubTab === 'ledger' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                >
+                   <i className="fas fa-list mr-1"></i> General Ledger
+                </button>
+                <button 
+                   onClick={() => setActiveSubTab('analysis')}
+                   className={`px-4 py-2 text-xs font-bold transition-colors ${activeSubTab === 'analysis' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                >
+                   <i className="fas fa-chart-pie mr-1"></i> Detailed Analysis
+                </button>
             </div>
          </div>
       </div>
 
-      {/* Main Table Content */}
-      <div className="bg-white rounded-2xl shadow border border-slate-200 flex-1 overflow-hidden flex flex-col">
-          <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-             <div className="text-sm font-bold text-slate-600">
-               Showing {filteredItems.length} records
+      {/* --- TAB: GENERAL LEDGER --- */}
+      {activeSubTab === 'ledger' && (
+        <div className="flex flex-col flex-1 space-y-4">
+             {/* Ledger Filters */}
+             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap gap-4 items-center">
+                 <div className="flex gap-2 items-center">
+                   <label className="text-xs font-bold text-slate-500 uppercase">From</label>
+                   <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="p-1.5 border rounded text-xs" />
+                   <label className="text-xs font-bold text-slate-500 uppercase">To</label>
+                   <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="p-1.5 border rounded text-xs" />
+                 </div>
+                 <div className="flex items-center gap-2">
+                   <label className="text-xs font-bold text-slate-500 uppercase">Location</label>
+                   <select value={filterLocation} onChange={e => setFilterLocation(e.target.value)} className="p-1.5 border rounded text-xs min-w-[120px]">
+                     <option value="All">All Locations</option>
+                     {Object.keys(LOCATION_HIERARCHY).map(loc => <option key={loc} value={loc}>{loc}</option>)}
+                   </select>
+                 </div>
+                 <div className="ml-auto flex gap-2">
+                    <button onClick={handleExportCSV} className="btn-export bg-green-600 text-white"><i className="fas fa-file-excel mr-1"></i> CSV</button>
+                    <button onClick={handleExportJPG} className="btn-export bg-indigo-600 text-white"><i className="fas fa-image mr-1"></i> JPG</button>
+                 </div>
              </div>
-             <div className="flex gap-2">
-                <button onClick={handleExportCSV} className="btn-export bg-green-600 hover:bg-green-700 text-white">
-                   <i className="fas fa-file-excel mr-1"></i> CSV
-                </button>
-                <button onClick={handleExportJPG} disabled={isExporting} className="btn-export bg-indigo-600 hover:bg-indigo-700 text-white">
-                   {isExporting ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-image mr-1"></i>} JPG
-                </button>
-             </div>
-          </div>
 
-          <div className="overflow-auto flex-1 p-4" id="qty-table-container">
-             <table className="w-full text-left border-collapse">
-               <thead>
-                 <tr className="bg-slate-100 border-b-2 border-slate-300">
-                   <th className="p-3 text-xs font-bold text-slate-700 uppercase w-24">Date</th>
-                   <th className="p-3 text-xs font-bold text-slate-700 uppercase w-40">Location</th>
-                   <th className="p-3 text-xs font-bold text-slate-700 uppercase w-40">Structure</th>
-                   <th className="p-3 text-xs font-bold text-slate-700 uppercase">Description</th>
-                   <th className="p-3 text-xs font-bold text-indigo-700 uppercase text-right w-24">Qty</th>
-                   <th className="p-3 text-xs font-bold text-indigo-700 uppercase w-16">Unit</th>
-                   <th className="p-3 text-xs font-bold text-slate-700 uppercase w-20 text-center no-export">Actions</th>
-                 </tr>
-               </thead>
-               <tbody className="divide-y divide-slate-100 text-sm">
-                 {filteredItems.length === 0 ? (
-                   <tr><td colSpan={7} className="p-8 text-center text-slate-400 italic">No entries found.</td></tr>
-                 ) : (
-                   filteredItems.map((item) => (
+             <div className="bg-white rounded-2xl shadow border border-slate-200 flex-1 overflow-auto" id="qty-ledger-table">
+               <table className="w-full text-left border-collapse">
+                 <thead className="bg-slate-100 sticky top-0 z-10">
+                   <tr>
+                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-24 border-b">Date</th>
+                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-32 border-b">Location</th>
+                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-32 border-b">Structure</th>
+                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-24 border-b">Item</th>
+                     <th className="p-3 text-xs font-bold text-slate-700 uppercase border-b">Description</th>
+                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase text-right w-20 border-b">Qty</th>
+                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase w-16 border-b">Unit</th>
+                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-20 text-center no-export border-b">Actions</th>
+                   </tr>
+                 </thead>
+                 <tbody className="divide-y divide-slate-100 text-sm">
+                   {filteredLedgerItems.map((item) => (
                      <tr key={item.id} className="hover:bg-indigo-50/30 transition-colors group">
                        {editingId === item.id ? (
-                         // EDIT MODE
                          <>
                            <td className="p-2"><input className="input-edit" type="date" value={editForm.date} onChange={e => setEditForm({...editForm, date: e.target.value})} /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.location} onChange={e => setEditForm({...editForm, location: e.target.value})} /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.structure} onChange={e => setEditForm({...editForm, structure: e.target.value})} /></td>
+                           <td className="p-2"><input className="input-edit" value={editForm.itemType} onChange={e => setEditForm({...editForm, itemType: e.target.value})} /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.description} onChange={e => setEditForm({...editForm, description: e.target.value})} /></td>
                            <td className="p-2 text-right"><input className="input-edit text-right" type="number" value={editForm.quantityValue} onChange={e => setEditForm({...editForm, quantityValue: parseFloat(e.target.value)})} /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.quantityUnit} onChange={e => setEditForm({...editForm, quantityUnit: e.target.value})} /></td>
@@ -320,38 +374,124 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                            </td>
                          </>
                        ) : (
-                         // VIEW MODE
                          <>
                            <td className="p-3 text-slate-500 whitespace-nowrap">{item.date}</td>
-                           <td className="p-3 font-medium text-slate-800">{item.location}</td>
-                           <td className="p-3 text-slate-600">{item.structure}</td>
-                           <td className="p-3 text-slate-700">{item.description}</td>
+                           <td className="p-3 font-medium text-slate-800 text-xs">{item.location}</td>
+                           <td className="p-3 text-slate-600 text-xs">{item.structure}</td>
+                           <td className="p-3 text-slate-600 text-xs"><span className="bg-slate-100 px-2 py-0.5 rounded">{item.itemType || 'Other'}</span></td>
+                           <td className="p-3 text-slate-700 text-xs">{item.description}</td>
                            <td className="p-3 text-right font-mono font-bold text-indigo-600 bg-slate-50/50">{item.quantityValue}</td>
                            <td className="p-3 text-slate-500">{item.quantityUnit}</td>
                            <td className="p-3 text-center no-export opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => handleEditClick(item)} className="text-blue-500 hover:text-blue-700 mr-2" title="Edit">
-                                <i className="fas fa-pen"></i>
-                              </button>
-                              <button onClick={() => handleDeleteClick(item)} className="text-red-400 hover:text-red-600" title="Delete">
-                                <i className="fas fa-trash-alt"></i>
-                              </button>
+                              <button onClick={() => handleEditClick(item)} className="text-blue-500 hover:text-blue-700 mr-2"><i className="fas fa-pen"></i></button>
+                              <button onClick={() => handleDeleteClick(item)} className="text-red-400 hover:text-red-600"><i className="fas fa-trash-alt"></i></button>
                            </td>
                          </>
                        )}
                      </tr>
-                   ))
-                 )}
-               </tbody>
-             </table>
-             
-             {/* Signature for Export */}
-             <div className="mt-8 pt-4 border-t border-slate-300 flex justify-between items-center opacity-0 export-visible">
-                <div className="text-xs text-slate-400">Generated via DPR Maker</div>
-                <div className="text-xs font-bold text-slate-800">Project Manager / Engineer</div>
+                   ))}
+                 </tbody>
+               </table>
+               {filteredLedgerItems.length === 0 && <div className="p-8 text-center text-slate-400 italic">No entries match your filters.</div>}
              </div>
-          </div>
-      </div>
-      
+        </div>
+      )}
+
+      {/* --- TAB: DETAILED ANALYSIS --- */}
+      {activeSubTab === 'analysis' && (
+        <div className="flex flex-col flex-1 space-y-4">
+             {/* 3-Level Filter */}
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-indigo-50 p-6 rounded-2xl border border-indigo-100 shadow-sm">
+                
+                <div className="flex flex-col gap-2">
+                   <label className="text-xs font-bold text-indigo-800 uppercase tracking-wider">1. Select Location</label>
+                   <select 
+                      value={analysisLocation} 
+                      onChange={e => {
+                          setAnalysisLocation(e.target.value);
+                          setAnalysisStructure('All'); // Reset
+                          setAnalysisItemType('All'); // Reset
+                      }} 
+                      className="p-3 border border-indigo-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm"
+                   >
+                     <option value="All">All Locations</option>
+                     {Object.keys(LOCATION_HIERARCHY).map(loc => <option key={loc} value={loc}>{loc}</option>)}
+                   </select>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                   <label className="text-xs font-bold text-indigo-800 uppercase tracking-wider">2. Select Structure</label>
+                   <select 
+                      value={analysisStructure} 
+                      onChange={e => {
+                          setAnalysisStructure(e.target.value);
+                          setAnalysisItemType('All'); // Reset
+                      }}
+                      disabled={analysisLocation === 'All'}
+                      className="p-3 border border-indigo-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm disabled:opacity-50"
+                   >
+                     <option value="All">All Structures</option>
+                     {analysisStructures.map(s => <option key={s} value={s}>{s}</option>)}
+                   </select>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                   <label className="text-xs font-bold text-indigo-800 uppercase tracking-wider">3. Select Item</label>
+                   <select 
+                      value={analysisItemType} 
+                      onChange={e => setAnalysisItemType(e.target.value)} 
+                      className="p-3 border border-indigo-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm"
+                   >
+                     <option value="All">All Items</option>
+                     {analysisItems.map(i => <option key={i} value={i}>{i}</option>)}
+                   </select>
+                </div>
+             </div>
+
+             {/* Total Summary */}
+             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-lg flex justify-between items-center">
+                <div>
+                   <h3 className="text-sm text-slate-500 uppercase font-bold">Total Quantity Found</h3>
+                   <div className="text-xs text-slate-400 mt-1">Based on selected filters above</div>
+                </div>
+                <div className="text-right">
+                   <span className="text-4xl font-bold text-indigo-600 block">{analysisTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} <span className="text-lg text-slate-500 ml-1">{analysisUnit}</span></span>
+                </div>
+             </div>
+
+             {/* Detailed Table */}
+             <div className="bg-white rounded-2xl shadow border border-slate-200 flex-1 overflow-auto" id="qty-analysis-table">
+               <div className="p-3 bg-slate-50 border-b border-slate-200 flex justify-end gap-2">
+                   <button onClick={handleExportCSV} className="btn-export bg-green-600 text-white"><i className="fas fa-file-excel mr-1"></i> CSV</button>
+                   <button onClick={handleExportJPG} className="btn-export bg-indigo-600 text-white"><i className="fas fa-image mr-1"></i> JPG</button>
+               </div>
+               <table className="w-full text-left border-collapse">
+                 <thead className="bg-slate-100 sticky top-0 z-10">
+                   <tr>
+                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-32 border-b">Structure</th>
+                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-32 border-b">Item Type</th>
+                     <th className="p-3 text-xs font-bold text-slate-700 uppercase border-b">Detail / Description</th>
+                     <th className="p-3 text-xs font-bold text-slate-700 uppercase w-24 border-b">Date</th>
+                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase text-right w-24 border-b">Qty</th>
+                   </tr>
+                 </thead>
+                 <tbody className="divide-y divide-slate-100 text-sm">
+                   {analysisData.map((item) => (
+                     <tr key={item.id} className="hover:bg-indigo-50/30">
+                       <td className="p-3 text-slate-700 text-xs font-medium">{item.structure}</td>
+                       <td className="p-3 text-slate-600 text-xs"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded">{item.itemType || 'Other'}</span></td>
+                       <td className="p-3 text-slate-500 text-xs">{item.description}</td>
+                       <td className="p-3 text-slate-400 text-xs">{item.date}</td>
+                       <td className="p-3 text-right font-mono font-bold text-slate-800">{item.quantityValue}</td>
+                     </tr>
+                   ))}
+                 </tbody>
+               </table>
+               {analysisData.length === 0 && <div className="p-8 text-center text-slate-400 italic">No items found for this selection.</div>}
+             </div>
+        </div>
+      )}
+
       {/* Styles */}
       <style>{`
         .btn-export { @apply px-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center; }

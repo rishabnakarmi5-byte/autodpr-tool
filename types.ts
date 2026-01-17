@@ -51,6 +51,7 @@ export interface QuantityEntry {
   date: string;
   location: string;
   structure: string; // Chainage or sub-area
+  itemType: string; // E.g., "C25 Concrete", "Rebar", "Formwork"
   description: string;
   quantityValue: number; // Parsed number
   quantityUnit: string; // Parsed unit
