@@ -119,6 +119,7 @@ export const STRUCTURAL_ELEMENTS = [
   { regex: /\b(right\s+bank)\b/i, label: "RB" },
 ];
 
+// Expanded to handle "Ch 0 to 38m" and simple "0+000"
 export const CHAINAGE_PATTERN = /(?:ch\.?|chainage)\s*([\d\+\-\.]+)(?:\s*(?:to|-)\s*([\d\+\-\.]+))?/i;
 export const ELEVATION_PATTERN = /(?:el\.?|elevation|level)\s*([\d\+\-\.]+)(?:\s*(?:to|-)\s*([\d\+\-\.]+))?/i;
 
@@ -147,9 +148,13 @@ const formatChainageNumber = (valStr: string): string => {
 export const extractChainageAndFormat = (text: string): string | null => {
   const match = text.match(CHAINAGE_PATTERN);
   if (match) {
-    const start = formatChainageNumber(match[1]);
-    if (match[2]) {
-      const end = formatChainageNumber(match[2]);
+    // Group 1 is first number, Group 2 is second number (optional)
+    const startRaw = match[1];
+    const endRaw = match[2];
+
+    const start = formatChainageNumber(startRaw);
+    if (endRaw) {
+      const end = formatChainageNumber(endRaw);
       return `${start} to ${end} m`;
     }
     return `${start} m`;
@@ -168,16 +173,14 @@ export const parseQuantityDetails = (
   let chainageStr = null;
   
   // 1. Structure/Component Logic
-  // If provided explicit component (from report), use it.
-  // Otherwise default to chainageOrAreaInput if it's not purely a chainage string, or fallback to location.
   let component = componentInput || "";
   
-  // Check if Chainage/Area Input is primarily Chainage
+  // Try to find chainage in the "Chainage / Area" field first
   const chainageFromInput = extractChainageAndFormat(chainageOrAreaInput);
   
   if (!component) {
       if (chainageFromInput) {
-        // chainageOrAreaInput was just a number "Ch 100". Component is missing.
+        // chainageOrAreaInput was just a number "Ch 100". Component is inferred to be Location.
         component = location; 
       } else {
         // chainageOrAreaInput was likely a name "Barrage".
@@ -185,9 +188,12 @@ export const parseQuantityDetails = (
       }
   }
 
-  // 2. Chainage Logic
+  // 2. Chainage Logic - PRIORITIZE explicit field
   if (chainageFromInput) {
       chainageStr = chainageFromInput;
+  } else {
+      // Fallback: try to find chainage in description
+      chainageStr = extractChainageAndFormat(description);
   }
 
   // 3. Scan for Elements in Input & Description
@@ -198,12 +204,7 @@ export const parseQuantityDetails = (
     }
   });
 
-  // 4. Chainage from Description (if not found in input)
-  if (!chainageStr) {
-    chainageStr = extractChainageAndFormat(description);
-  }
-
-  // 5. Elevation
+  // 4. Elevation
   const elMatch = combinedText.match(ELEVATION_PATTERN);
   if (elMatch) {
     const elStr = elMatch[0].trim();
@@ -211,7 +212,7 @@ export const parseQuantityDetails = (
     chainageStr = chainageStr ? `${chainageStr}, ${elStr}` : elStr;
   }
 
-  // 6. Contextual Rules for "Component" vs "Area"
+  // 5. Contextual Rules for "Component" vs "Area"
   const lowerLoc = location.toLowerCase();
   const lowerDesc = combinedText.toLowerCase();
 

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { parseConstructionData } from '../services/geminiService';
 import { DPRItem } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
+import { LOCATION_HIERARCHY } from '../utils/constants';
 
 interface InputSectionProps {
   currentDate: string;
@@ -12,11 +13,27 @@ interface InputSectionProps {
   user: any;
 }
 
+type InputMode = 'ai' | 'manual';
+
 export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateChange, onItemsAdded, onViewReport, entryCount, user }) => {
+  const [mode, setMode] = useState<InputMode>('ai');
+  
+  // AI State
   const [rawText, setRawText] = useState('');
   const [instructions, setInstructions] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // AI Context State
+  const [aiLocation, setAiLocation] = useState('');
+  const [aiComponent, setAiComponent] = useState('');
+
+  // Manual State
+  const [manualLoc, setManualLoc] = useState('');
+  const [manualComp, setManualComp] = useState('');
+  const [manualChainage, setManualChainage] = useState('');
+  const [manualDesc, setManualDesc] = useState('');
+  const [manualNext, setManualNext] = useState('');
   
   // Modal State: 0 = closed, 1 = success, 2 = announcement
   const [modalStep, setModalStep] = useState<number>(0);
@@ -26,11 +43,15 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const nepaliDate = getNepaliDate(currentDate);
 
   const handleProcessAndAdd = async () => {
-    if (!rawText.trim()) return;
+    if (!rawText.trim() || !aiLocation || !aiComponent) {
+        setError("Please select a Location and Component, and enter text.");
+        return;
+    }
+    
     setIsProcessing(true);
     setError(null);
     try {
-      const parsedData = await parseConstructionData(rawText, instructions);
+      const parsedData = await parseConstructionData(rawText, instructions, aiLocation, aiComponent);
       const newItems: DPRItem[] = parsedData.map(item => ({ 
         ...item, 
         id: crypto.randomUUID(),
@@ -50,6 +71,34 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     }
   };
 
+  const handleManualAdd = () => {
+      if(!manualLoc || !manualComp || !manualDesc) {
+          setError("Location, Component, and Description are required.");
+          return;
+      }
+
+      const newItem: DPRItem = {
+          id: crypto.randomUUID(),
+          location: manualLoc,
+          component: manualComp,
+          chainageOrArea: manualChainage,
+          activityDescription: manualDesc,
+          plannedNextActivity: manualNext,
+          createdBy: user?.displayName || user?.email || 'Manual Input'
+      };
+
+      onItemsAdded([newItem], `Manual Entry: ${manualDesc}`);
+      
+      // Reset form
+      setManualChainage('');
+      setManualDesc('');
+      setManualNext('');
+      setError(null);
+      
+      // Keep location/component for rapid entry of similar items
+      setModalStep(1);
+  };
+
   const handleNextModal = () => {
     setModalStep(2);
   };
@@ -58,6 +107,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     setModalStep(0);
     onViewReport();
   };
+
+  // Helper to check validity of AI form
+  const isAiFormValid = rawText.trim().length > 0 && aiLocation !== '' && aiComponent !== '';
 
   return (
     <div className="space-y-8 animate-fade-in relative">
@@ -108,79 +160,223 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         </div>
       </div>
 
-      {/* TEXT INPUT SECTION */}
-      <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 overflow-hidden">
-        <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <i className="fab fa-whatsapp text-green-500 text-xl"></i> 
-            Data Parser
-          </h2>
+      {/* INPUT SECTION WRAPPER */}
+      <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 overflow-hidden transition-all">
+        
+        {/* Toggle Header */}
+        <div className="p-2 bg-slate-50 border-b border-slate-200 flex gap-2">
+            <button 
+                onClick={() => setMode('ai')}
+                className={`flex-1 py-3 text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-all ${mode === 'ai' ? 'bg-white text-indigo-600 shadow-md ring-1 ring-slate-200' : 'text-slate-500 hover:bg-slate-100'}`}
+            >
+                <i className="fab fa-whatsapp text-lg"></i> AI Text Parser
+            </button>
+            <button 
+                onClick={() => setMode('manual')}
+                className={`flex-1 py-3 text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-all ${mode === 'manual' ? 'bg-white text-indigo-600 shadow-md ring-1 ring-slate-200' : 'text-slate-500 hover:bg-slate-100'}`}
+            >
+                <i className="fas fa-keyboard text-lg"></i> Manual Entry
+            </button>
         </div>
         
-        <div className="p-6 md:p-8 space-y-6">
-          <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Paste Site Engineer's Update</label>
-              <div className="relative group">
-                <textarea
-                  value={rawText}
-                  onChange={(e) => setRawText(e.target.value)}
-                  placeholder="Paste text here... e.g., 'Headworks: Apron concreting 45m3 done...'"
-                  className="w-full h-40 p-5 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-all resize-none font-mono text-sm leading-relaxed"
-                />
-                <div className="absolute top-4 right-4 flex gap-2">
-                    {rawText && (
-                      <button 
-                        onClick={() => setRawText('')}
-                        className="p-1.5 text-slate-400 hover:text-red-500 transition-colors bg-white rounded shadow-sm border border-slate-200"
-                        title="Clear text"
-                      >
-                        <i className="fas fa-times"></i>
-                      </button>
-                    )}
+        {/* AI MODE */}
+        {mode === 'ai' && (
+            <div className="p-6 md:p-8 space-y-6 animate-fade-in">
+            
+            {/* Compulsory Selectors */}
+            <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 grid grid-cols-1 md:grid-cols-2 gap-4">
+                 <div>
+                    <label className="block text-xs font-bold text-indigo-800 uppercase mb-1">
+                       <i className="fas fa-map-marker-alt mr-1"></i> Location <span className="text-red-500">*</span>
+                    </label>
+                    <select 
+                        value={aiLocation} 
+                        onChange={e => {
+                            setAiLocation(e.target.value);
+                            setAiComponent(''); // Reset component
+                        }}
+                        className={`w-full p-2 border rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-400 outline-none ${!aiLocation ? 'border-red-300' : 'border-indigo-200'}`}
+                    >
+                        <option value="">Select Location...</option>
+                        {Object.keys(LOCATION_HIERARCHY).map(loc => (
+                            <option key={loc} value={loc}>{loc}</option>
+                        ))}
+                    </select>
+                 </div>
+                 <div>
+                    <label className="block text-xs font-bold text-indigo-800 uppercase mb-1">
+                       <i className="fas fa-layer-group mr-1"></i> Component <span className="text-red-500">*</span>
+                    </label>
+                    <select 
+                        value={aiComponent} 
+                        onChange={e => setAiComponent(e.target.value)}
+                        disabled={!aiLocation}
+                        className={`w-full p-2 border rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-400 outline-none disabled:opacity-50 ${!aiComponent ? 'border-red-300' : 'border-indigo-200'}`}
+                    >
+                        <option value="">Select Component...</option>
+                        {aiLocation && LOCATION_HIERARCHY[aiLocation]?.map(comp => (
+                            <option key={comp} value={comp}>{comp}</option>
+                        ))}
+                    </select>
+                 </div>
+                 <div className="md:col-span-2 text-[10px] text-indigo-600 italic">
+                     * These selections tell the AI exactly where this work belongs.
+                 </div>
+            </div>
+
+            <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Paste Site Engineer's Update</label>
+                <div className="relative group">
+                    <textarea
+                    value={rawText}
+                    onChange={(e) => setRawText(e.target.value)}
+                    placeholder="Paste text here... e.g., 'Apron concreting 45m3 done...'"
+                    className="w-full h-40 p-5 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-all resize-none font-mono text-sm leading-relaxed"
+                    />
+                    <div className="absolute top-4 right-4 flex gap-2">
+                        {rawText && (
+                        <button 
+                            onClick={() => setRawText('')}
+                            className="p-1.5 text-slate-400 hover:text-red-500 transition-colors bg-white rounded shadow-sm border border-slate-200"
+                            title="Clear text"
+                        >
+                            <i className="fas fa-times"></i>
+                        </button>
+                        )}
+                    </div>
                 </div>
-              </div>
-          </div>
+            </div>
 
-          <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
-              <label className="block text-xs font-bold text-indigo-800 mb-2 uppercase tracking-wide">
-                <i className="fas fa-robot mr-1"></i> Special Instructions (Optional)
-              </label>
-              <input
-                type="text"
-                value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
-                placeholder="e.g. 'Split separate locations into different rows' or 'Ignore safety mentions'"
-                className="w-full p-3 border border-indigo-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-400 focus:outline-none text-sm text-slate-700 placeholder-indigo-300"
-              />
-          </div>
+            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <div className="flex items-center gap-2 mb-1 cursor-pointer" onClick={() => {
+                    const el = document.getElementById('extra-instructions');
+                    if(el) el.classList.toggle('hidden');
+                }}>
+                    <i className="fas fa-chevron-right text-xs text-slate-400"></i>
+                    <label className="text-xs font-bold text-slate-600 uppercase tracking-wide cursor-pointer select-none">
+                        Advanced Instructions
+                    </label>
+                </div>
+                <div id="extra-instructions" className="hidden mt-2">
+                    <input
+                        type="text"
+                        value={instructions}
+                        onChange={(e) => setInstructions(e.target.value)}
+                        placeholder="e.g. 'Split separate locations into different rows'"
+                        className="w-full p-2 border border-slate-300 rounded text-sm bg-white focus:outline-none focus:border-indigo-400"
+                    />
+                </div>
+            </div>
 
-          {error && (
-            <div className="p-4 bg-red-50 text-red-700 rounded-xl text-sm flex items-center border border-red-100 animate-pulse">
+            <div className="flex justify-between items-center pt-2">
+                <p className="text-xs text-slate-400 hidden md:block">
+                    <i className="fas fa-shield-alt mr-1"></i> Data backed up automatically
+                </p>
+                <button
+                onClick={handleProcessAndAdd}
+                disabled={isProcessing || !isAiFormValid}
+                className={`flex items-center px-8 py-3.5 rounded-xl font-bold text-white shadow-lg shadow-indigo-500/30 transition-all transform
+                    ${isProcessing || !isAiFormValid
+                    ? 'bg-slate-300 shadow-none cursor-not-allowed translate-y-0' 
+                    : 'bg-green-600 hover:bg-green-700 hover:-translate-y-1 active:translate-y-0'
+                    }`}
+                >
+                {isProcessing ? (
+                    <span><i className="fas fa-circle-notch fa-spin mr-2"></i> Processing...</span> 
+                ) : (
+                    <span><i className="fas fa-wand-magic-sparkles mr-2"></i> Analyze & Add to Report</span>
+                )}
+                </button>
+            </div>
+            </div>
+        )}
+
+        {/* MANUAL MODE */}
+        {mode === 'manual' && (
+            <div className="p-6 md:p-8 space-y-4 animate-fade-in bg-slate-50/30">
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Location <span className="text-red-500">*</span></label>
+                        <select 
+                            value={manualLoc} 
+                            onChange={e => {
+                                setManualLoc(e.target.value);
+                                setManualComp(''); // Reset component when location changes
+                            }}
+                            className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                        >
+                            <option value="">Select Location...</option>
+                            {Object.keys(LOCATION_HIERARCHY).map(loc => (
+                                <option key={loc} value={loc}>{loc}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Component <span className="text-red-500">*</span></label>
+                        <select 
+                            value={manualComp} 
+                            onChange={e => setManualComp(e.target.value)}
+                            disabled={!manualLoc}
+                            className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-50"
+                        >
+                            <option value="">Select Component...</option>
+                            {manualLoc && LOCATION_HIERARCHY[manualLoc]?.map(comp => (
+                                <option key={comp} value={comp}>{comp}</option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                     <div className="md:col-span-1">
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Chainage / Area</label>
+                        <input 
+                            value={manualChainage}
+                            onChange={e => setManualChainage(e.target.value)}
+                            placeholder="e.g. Ch 0 to 15m"
+                            className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                     </div>
+                     <div className="md:col-span-3">
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Activity Description <span className="text-red-500">*</span></label>
+                        <input 
+                            value={manualDesc}
+                            onChange={e => setManualDesc(e.target.value)}
+                            placeholder="e.g. Concrete pouring of 45 m3..."
+                            className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                     </div>
+                </div>
+
+                <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Planned Next Activity</label>
+                    <input 
+                        value={manualNext}
+                        onChange={e => setManualNext(e.target.value)}
+                        placeholder="What's next?"
+                        className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                </div>
+
+                <div className="pt-4 flex justify-end">
+                    <button
+                        onClick={handleManualAdd}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-indigo-200 transition-all flex items-center"
+                    >
+                        <i className="fas fa-plus-circle mr-2"></i> Add Entry
+                    </button>
+                </div>
+
+            </div>
+        )}
+        
+        {error && (
+            <div className="mx-6 mb-6 p-4 bg-red-50 text-red-700 rounded-xl text-sm flex items-center border border-red-100 animate-pulse">
               <i className="fas fa-exclamation-triangle mr-3 text-lg"></i> {error}
             </div>
-          )}
+        )}
 
-          <div className="flex justify-between items-center pt-2">
-              <p className="text-xs text-slate-400 hidden md:block">
-                <i className="fas fa-shield-alt mr-1"></i> Data backed up automatically
-              </p>
-              <button
-              onClick={handleProcessAndAdd}
-              disabled={isProcessing || !rawText.trim()}
-              className={`flex items-center px-8 py-3.5 rounded-xl font-bold text-white shadow-lg shadow-indigo-500/30 transition-all transform
-                ${isProcessing || !rawText.trim() 
-                  ? 'bg-slate-300 shadow-none cursor-not-allowed translate-y-0' 
-                  : 'bg-green-600 hover:bg-green-700 hover:-translate-y-1 active:translate-y-0'
-                }`}
-            >
-              {isProcessing ? (
-                  <span><i className="fas fa-circle-notch fa-spin mr-2"></i> Processing...</span> 
-              ) : (
-                  <span><i className="fas fa-wand-magic-sparkles mr-2"></i> Analyze & Add to Report</span>
-              )}
-            </button>
-          </div>
-        </div>
       </div>
 
       {/* STEP 1: SUCCESS MODAL */}
@@ -191,9 +387,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                  <i className="fas fa-check text-green-600 text-3xl"></i>
               </div>
               
-              <h3 className="text-xl font-bold text-slate-800 mb-1">Thank you, {user?.displayName ? user.displayName.split(' ')[0] : 'Engineer'}!</h3>
+              <h3 className="text-xl font-bold text-slate-800 mb-1">Entry Added!</h3>
               <p className="text-slate-600 mb-6 text-sm">
-                 Thank you for updating your site's progress in this DPR.
+                 Item successfully added to the daily report.
               </p>
               
               <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mb-6 text-left shadow-inner">
@@ -202,19 +398,23 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                        <i className="fab fa-whatsapp text-green-500 mt-1 text-lg flex-shrink-0"></i>
                        <span className="font-bold">Don't forget to send photos in WhatsApp!</span>
                     </li>
-                    <li className="flex items-start gap-3">
-                       <i className="fas fa-database text-indigo-500 mt-1 flex-shrink-0"></i>
-                       <span>Data safely backed up in permanent storage.</span>
-                    </li>
                  </ul>
               </div>
 
-              <button 
-                  onClick={handleNextModal}
-                  className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-black transition-colors shadow-lg shadow-slate-300/50 flex items-center justify-center"
-              >
-                  Next
-              </button>
+              <div className="flex gap-3">
+                  <button 
+                      onClick={() => setModalStep(0)}
+                      className="flex-1 bg-white text-slate-700 border border-slate-300 font-bold py-3 rounded-xl hover:bg-slate-50 transition-colors"
+                  >
+                      Add More
+                  </button>
+                  <button 
+                      onClick={handleNextModal}
+                      className="flex-1 bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-black transition-colors shadow-lg"
+                  >
+                      Done
+                  </button>
+              </div>
            </div>
         </div>
       )}
@@ -228,15 +428,15 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                  <i className="fas fa-bullhorn text-yellow-300 text-3xl animate-bounce"></i>
               </div>
               
-              <h3 className="text-2xl font-bold mb-2">Big update on Magh 3!</h3>
+              <h3 className="text-2xl font-bold mb-2">Check Quantities!</h3>
               
               <div className="bg-white/10 backdrop-blur-md rounded-xl p-5 mb-8 text-left border border-white/10">
                  <p className="text-indigo-100 mb-4 leading-relaxed">
-                   Check out the <strong className="text-white border-b border-white/50">Quantities Page</strong> after you have checked your report.
+                   The <strong className="text-white border-b border-white/50">Quantities Page</strong> syncs automatically.
                  </p>
                  <p className="text-indigo-100 leading-relaxed text-sm">
                    <i className="fas fa-hand-point-right mr-2 text-yellow-300"></i>
-                   Please spend only <strong className="text-white">2-3 minutes</strong> of your time to correct the missing location/area details in the quantity tab.
+                   Please verify the locations and chainages in the Quantity Tab after finishing here.
                  </p>
               </div>
 
@@ -244,7 +444,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                   onClick={handleCloseAll}
                   className="w-full bg-white text-indigo-700 font-bold py-3 rounded-xl hover:bg-indigo-50 transition-colors shadow-lg flex items-center justify-center"
               >
-                  Got it, Check Report
+                  Go to Report
               </button>
            </div>
         </div>

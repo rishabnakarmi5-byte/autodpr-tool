@@ -6,12 +6,24 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const parseConstructionData = async (
   rawText: string,
-  instructions?: string
+  instructions?: string,
+  contextLocation?: string,
+  contextComponent?: string
 ): Promise<Omit<DPRItem, 'id'>[]> => {
   
   const instructionBlock = instructions 
     ? `USER SPECIFIC INSTRUCTIONS (Prioritize these): ${instructions}` 
     : 'No specific user instructions.';
+
+  // Context Block
+  let contextBlock = "";
+  if (contextLocation) {
+      contextBlock += `\n    DEFAULT LOCATION CONTEXT: "${contextLocation}"`;
+      if (contextComponent) {
+          contextBlock += `\n    DEFAULT COMPONENT CONTEXT: "${contextComponent}"`;
+      }
+      contextBlock += `\n    IMPORTANT: The user has explicitly selected the above context. Assume all items in the text belong to this Location/Component unless the text EXPLICITLY mentions a different location.`;
+  }
 
   // Flatten the hierarchy to show the model valid components
   const hierarchyString = Object.entries(LOCATION_HIERARCHY).map(([loc, comps]) => {
@@ -24,6 +36,7 @@ export const parseConstructionData = async (
     Your job is to extract the construction activities into a structured JSON array.
 
     ${instructionBlock}
+    ${contextBlock}
 
     CRITICAL CATEGORIZATION RULES:
     You must classify 'location' (Main Area) and 'component' (Sub Area) STRICTLY based on the following list. 
