@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { DailyReport, QuantityEntry, DPRItem } from '../types';
-import { LOCATION_HIERARCHY, ITEM_PATTERNS, EXTRACTION_PATTERNS, CHAINAGE_REGEX } from '../utils/constants';
+import { LOCATION_HIERARCHY, ITEM_PATTERNS, STRUCTURAL_ELEMENTS, CHAINAGE_PATTERN, ELEVATION_PATTERN } from '../utils/constants';
 import { subscribeToQuantities, addQuantity, updateQuantity, deleteQuantity } from '../services/firebaseService';
 import { User } from 'firebase/auth';
 
@@ -56,32 +56,44 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     return "Other";
   };
 
-  const extractSpecificLocation = (text: string): string => {
-    const found: string[] = [];
-    
-    // Check for Chainage
-    const chMatch = text.match(CHAINAGE_REGEX);
-    if (chMatch) {
-      found.push(chMatch[0]); // e.g. "Ch 10-20"
-    }
+  const extractSplitDetails = (text: string): { element: string, loc: string } => {
+    const elements: string[] = [];
+    const locs: string[] = [];
 
-    // Check for Elements/Lifts
-    EXTRACTION_PATTERNS.forEach(p => {
+    // 1. Extract Elements (Area)
+    STRUCTURAL_ELEMENTS.forEach(p => {
       if (p.regex.test(text)) {
-        if (!found.includes(p.label)) {
-           found.push(p.label);
+        if (!elements.includes(p.label)) {
+           elements.push(p.label);
         }
       }
     });
 
-    return found.join(', ');
+    // 2. Extract Chainage
+    const chMatch = text.match(CHAINAGE_PATTERN);
+    if (chMatch) {
+       // Match full string like "Ch 10-20"
+       locs.push(chMatch[0].trim());
+    }
+
+    // 3. Extract Elevation
+    const elMatch = text.match(ELEVATION_PATTERN);
+    if (elMatch) {
+       locs.push(elMatch[0].trim());
+    }
+
+    return {
+      element: elements.join(', '),
+      loc: locs.join(', ')
+    };
   };
 
-  const extractQuantityData = (text: string): { val: number, unit: string, raw: string, type: string, detail: string } => {
+  const extractQuantityData = (text: string): { val: number, unit: string, raw: string, type: string, element: string, loc: string } => {
     // 1. Identify Type
     const type = identifyItem(text);
-    // 2. Extract Detail (Specific Location)
-    const detail = extractSpecificLocation(text);
+    
+    // 2. Extract Split Details
+    const { element, loc } = extractSplitDetails(text);
 
     // 3. Extract Number and Unit
     const regex = /(\d+(\.\d+)?)\s*(m3|cum|sqm|sq\.m|m2|m|mtr|nos|t|ton|kg)/i;
@@ -104,10 +116,10 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
         unit = 'Ton';
       }
 
-      return { val, unit, raw, type, detail };
+      return { val, unit, raw, type, element, loc };
     }
 
-    return { val: 0, unit: '-', raw: '-', type, detail };
+    return { val: 0, unit: '-', raw: '-', type, element, loc };
   };
 
   // --- HANDLER: Sync ---
@@ -132,7 +144,8 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                 date: report.date,
                 location: entry.location, // Main Location
                 structure: entry.chainageOrArea, // Component (e.g. Barrage)
-                specificLocation: qtyData.detail, // Chainage / Area (e.g. Raft)
+                detailElement: qtyData.element, // Area (e.g. Raft)
+                detailLocation: qtyData.loc, // Chainage/EL (e.g. Ch 10)
                 itemType: qtyData.type,
                 description: entry.activityDescription,
                 quantityValue: qtyData.val,
@@ -150,12 +163,25 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
         }
       }
 
-      // 2. REPAIR/UPDATE EXISTING ITEMS (Populate new field or fix categories)
+      // 2. REPAIR/UPDATE EXISTING ITEMS 
+      // This step ensures we split 'specificLocation' into 'detailElement' and 'detailLocation' for existing items
       for (const qty of quantities) {
         let needsUpdate = false;
         let updates: Partial<QuantityEntry> = {};
 
-        // Fix Item Type
+        // Recalculate details from description
+        const { element, loc } = extractSplitDetails(qty.description);
+
+        if (qty.detailElement !== element) {
+           updates.detailElement = element;
+           needsUpdate = true;
+        }
+        if (qty.detailLocation !== loc) {
+           updates.detailLocation = loc;
+           needsUpdate = true;
+        }
+
+        // Recalculate Item Type if needed
         if (!qty.itemType || qty.itemType === 'Other') {
            const newType = identifyItem(qty.description);
            if (newType !== 'Other') {
@@ -164,20 +190,11 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
            }
         }
 
-        // Fix Specific Location (if empty)
-        if (!qty.specificLocation) {
-           const newDetail = extractSpecificLocation(qty.description);
-           if (newDetail) {
-             updates.specificLocation = newDetail;
-             needsUpdate = true;
-           }
-        }
-
         if (needsUpdate) {
              await updateQuantity(
                { ...qty, ...updates }, 
                qty, 
-               user?.displayName || 'System Updater'
+               user?.displayName || 'System Splitter'
              );
              updatedCount++;
         }
@@ -185,7 +202,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
 
       let msg = "";
       if (addedCount > 0) msg += `Added ${addedCount} new items. `;
-      if (updatedCount > 0) msg += `Updated ${updatedCount} items with details. `;
+      if (updatedCount > 0) msg += `Updated ${updatedCount} items with split details (Area vs Chainage). `;
       if (!msg) msg = "Everything is up to date.";
       
       alert(msg);
@@ -291,7 +308,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     const dataToExport = activeSubTab === 'ledger' ? filteredLedgerItems : analysisData;
     const filename = activeSubTab === 'ledger' ? 'Quantity_Ledger' : 'Quantity_Analysis';
 
-    const headers = ['Date', 'Location', 'Component', 'Chainage/Area', 'Item Type', 'Description', 'Qty', 'Unit'];
+    const headers = ['Date', 'Location', 'Component', 'Area (Element)', 'Chainage / EL', 'Item Type', 'Description', 'Qty', 'Unit'];
     const csvRows = [headers.join(',')];
 
     dataToExport.forEach(item => {
@@ -299,7 +316,8 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
         item.date,
         `"${item.location.replace(/"/g, '""')}"`,
         `"${item.structure.replace(/"/g, '""')}"`, // Component
-        `"${(item.specificLocation || '').replace(/"/g, '""')}"`, // Chainage/Area
+        `"${(item.detailElement || '').replace(/"/g, '""')}"`, // Area
+        `"${(item.detailLocation || '').replace(/"/g, '""')}"`, // Chainage/EL
         `"${item.itemType || 'Other'}"`,
         `"${item.description.replace(/"/g, '""')}"`,
         item.quantityValue,
@@ -343,7 +361,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
          <div>
             <h2 className="text-2xl font-bold text-slate-800">Quantity Collection</h2>
             <p className="text-sm text-slate-500 mt-1">
-                Centralized database. Sync extracts Components and Chainage/Areas automatically.
+                Centralized database. Sync extracts Area (Raft, Wall) and Chainage automatically.
             </p>
          </div>
          <div className="flex gap-2">
@@ -353,7 +371,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                 className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-md"
             >
                 <i className={`fas fa-sync ${isSyncing ? 'fa-spin' : ''}`}></i> 
-                {isSyncing ? 'Processing...' : 'Sync & Extract Details'}
+                {isSyncing ? 'Scanning...' : 'Sync & Split Details'}
             </button>
             <div className="flex border border-slate-200 rounded-lg overflow-hidden">
                 <button 
@@ -403,7 +421,8 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase w-24 border-b">Date</th>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase w-28 border-b">Location</th>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase w-28 border-b">Component</th>
-                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase w-28 border-b">Chainage / Area</th>
+                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase w-24 border-b">Area</th>
+                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase w-24 border-b">Chainage / EL</th>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase w-20 border-b">Item</th>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase border-b">Description</th>
                      <th className="p-3 text-xs font-bold text-indigo-700 uppercase text-right w-16 border-b">Qty</th>
@@ -419,7 +438,8 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                            <td className="p-2"><input className="input-edit" type="date" value={editForm.date} onChange={e => setEditForm({...editForm, date: e.target.value})} /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.location} onChange={e => setEditForm({...editForm, location: e.target.value})} /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.structure} onChange={e => setEditForm({...editForm, structure: e.target.value})} /></td>
-                           <td className="p-2"><input className="input-edit border-indigo-400" value={editForm.specificLocation || ''} onChange={e => setEditForm({...editForm, specificLocation: e.target.value})} placeholder="e.g. Raft" /></td>
+                           <td className="p-2"><input className="input-edit border-indigo-400" value={editForm.detailElement || ''} onChange={e => setEditForm({...editForm, detailElement: e.target.value})} placeholder="Raft, Wall" /></td>
+                           <td className="p-2"><input className="input-edit border-indigo-400" value={editForm.detailLocation || ''} onChange={e => setEditForm({...editForm, detailLocation: e.target.value})} placeholder="Ch 100" /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.itemType} onChange={e => setEditForm({...editForm, itemType: e.target.value})} /></td>
                            <td className="p-2"><input className="input-edit" value={editForm.description} onChange={e => setEditForm({...editForm, description: e.target.value})} /></td>
                            <td className="p-2 text-right"><input className="input-edit text-right" type="number" value={editForm.quantityValue} onChange={e => setEditForm({...editForm, quantityValue: parseFloat(e.target.value)})} /></td>
@@ -434,7 +454,8 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                            <td className="p-3 text-slate-500 whitespace-nowrap">{item.date}</td>
                            <td className="p-3 font-medium text-slate-800 text-xs">{item.location}</td>
                            <td className="p-3 text-slate-600 text-xs">{item.structure}</td>
-                           <td className="p-3 text-indigo-700 text-xs font-medium bg-indigo-50/50">{item.specificLocation}</td>
+                           <td className="p-3 text-indigo-700 text-xs font-medium bg-indigo-50/50">{item.detailElement}</td>
+                           <td className="p-3 text-slate-600 text-xs font-mono">{item.detailLocation}</td>
                            <td className="p-3 text-slate-600 text-xs">
                               <span className={`px-2 py-0.5 rounded border ${
                                 item.itemType && item.itemType !== 'Other' 
@@ -534,7 +555,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                  <thead className="bg-slate-100 sticky top-0 z-10">
                    <tr>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase w-32 border-b">Component</th>
-                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase w-32 border-b">Chainage/Area</th>
+                     <th className="p-3 text-xs font-bold text-indigo-700 uppercase w-32 border-b">Area</th>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase w-32 border-b">Item Type</th>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase border-b">Detail / Description</th>
                      <th className="p-3 text-xs font-bold text-slate-700 uppercase w-24 border-b">Date</th>
@@ -545,7 +566,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
                    {analysisData.map((item) => (
                      <tr key={item.id} className="hover:bg-indigo-50/30">
                        <td className="p-3 text-slate-700 text-xs font-medium">{item.structure}</td>
-                       <td className="p-3 text-indigo-700 text-xs font-medium">{item.specificLocation}</td>
+                       <td className="p-3 text-indigo-700 text-xs font-medium">{item.detailElement}</td>
                        <td className="p-3 text-slate-600 text-xs"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded">{item.itemType || 'Other'}</span></td>
                        <td className="p-3 text-slate-500 text-xs">{item.description}</td>
                        <td className="p-3 text-slate-400 text-xs">{item.date}</td>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DailyReport, DPRItem, QuantityEntry } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
-import { LOCATION_HIERARCHY, ITEM_PATTERNS, EXTRACTION_PATTERNS, CHAINAGE_REGEX } from '../utils/constants';
+import { LOCATION_HIERARCHY, ITEM_PATTERNS, STRUCTURAL_ELEMENTS, CHAINAGE_PATTERN, ELEVATION_PATTERN } from '../utils/constants';
 import { addQuantity } from '../services/firebaseService';
 
 interface ReportTableProps {
@@ -106,16 +106,23 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     return 'Other';
   };
   
-  const extractSpecificLocation = (text: string): string => {
-    const found: string[] = [];
-    const chMatch = text.match(CHAINAGE_REGEX);
-    if (chMatch) found.push(chMatch[0]);
-    EXTRACTION_PATTERNS.forEach(p => {
+  const extractSplitDetails = (text: string): { element: string, loc: string } => {
+    const elements: string[] = [];
+    const locs: string[] = [];
+    STRUCTURAL_ELEMENTS.forEach(p => {
       if (p.regex.test(text)) {
-        if (!found.includes(p.label)) found.push(p.label);
+        if (!elements.includes(p.label)) elements.push(p.label);
       }
     });
-    return found.join(', ');
+    const chMatch = text.match(CHAINAGE_PATTERN);
+    if (chMatch) locs.push(chMatch[0].trim());
+    const elMatch = text.match(ELEVATION_PATTERN);
+    if (elMatch) locs.push(elMatch[0].trim());
+
+    return {
+      element: elements.join(', '),
+      loc: locs.join(', ')
+    };
   };
 
   const handleSendToQuantity = async (item: DPRItem) => {
@@ -124,12 +131,14 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
      
      if(match) {
          if(window.confirm(`Add this quantity to collection?\n\n${match[0]}`)) {
+             const details = extractSplitDetails(item.activityDescription);
              const newQty: QuantityEntry = {
                 id: crypto.randomUUID(),
                 date: report.date,
                 location: item.location,
                 structure: item.chainageOrArea,
-                specificLocation: extractSpecificLocation(item.activityDescription),
+                detailElement: details.element,
+                detailLocation: details.loc,
                 itemType: identifyItemType(item.activityDescription),
                 description: item.activityDescription,
                 quantityValue: parseFloat(match[1]),

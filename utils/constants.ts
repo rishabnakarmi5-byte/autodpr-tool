@@ -89,11 +89,11 @@ export const ITEM_PATTERNS = [
   { name: "Gabion", pattern: /\b(gabion)\b/i, defaultUnit: 'm3' },
 ];
 
-// Patterns to extract "Specific Location" (Chainage / Area / Element)
-export const EXTRACTION_PATTERNS = [
-  // Structural Elements
+// Patterns to extract "Area" (Structural Elements)
+export const STRUCTURAL_ELEMENTS = [
   { regex: /\b(raft|foundation|footing)\b/i, label: "Raft" },
   { regex: /\b(wall|walls|side wall)\b/i, label: "Wall" },
+  { regex: /\b(kicker)\b/i, label: "Kicker" },
   { regex: /\b(invert|floor|bed)\b/i, label: "Invert" },
   { regex: /\b(arch|crown|roof)\b/i, label: "Arch" },
   { regex: /\b(key)\b/i, label: "Key" },
@@ -105,8 +105,9 @@ export const EXTRACTION_PATTERNS = [
   { regex: /\b(abutment)\b/i, label: "Abutment" },
   { regex: /\b(glacis)\b/i, label: "Glacis" },
   { regex: /\b(apron)\b/i, label: "Apron" },
+  { regex: /\b(soling)\b/i, label: "Soling" },
 
-  // Lifts and Sides
+  // Lifts and Sides (treated as part of Area description)
   { regex: /\b(first|1st)\s+lift\b/i, label: "1st Lift" },
   { regex: /\b(second|2nd)\s+lift\b/i, label: "2nd Lift" },
   { regex: /\b(third|3rd)\s+lift\b/i, label: "3rd Lift" },
@@ -116,4 +117,5 @@ export const EXTRACTION_PATTERNS = [
   { regex: /\b(right\s+bank)\b/i, label: "RB" },
 ];
 
-export const CHAINAGE_REGEX = /(?:ch\.?|chainage)\s*([\d\+\-\.]+)/i;
+export const CHAINAGE_PATTERN = /(?:ch\.?|chainage)\s*([\d\+\-\.]+)(?:\s*(?:to|-)\s*([\d\+\-\.]+))?/i;
+export const ELEVATION_PATTERN = /(?:el\.?|elevation|level)\s*([\d\+\-\.]+)(?:\s*(?:to|-)\s*([\d\+\-\.]+))?/i;
