@@ -27,7 +27,7 @@ export const parseConstructionData = async (
 
   // Flatten the hierarchy to show the model valid components
   const hierarchyString = Object.entries(LOCATION_HIERARCHY).map(([loc, comps]) => {
-      return `${loc}: [${comps.join(', ')}]`;
+      return `LOCATION: "${loc}" contains COMPONENTS: [${comps.join(', ')}]`;
   }).join('\n    ');
 
   const prompt = `
@@ -38,22 +38,38 @@ export const parseConstructionData = async (
     ${instructionBlock}
     ${contextBlock}
 
-    CRITICAL CATEGORIZATION RULES:
-    You must classify 'location' (Main Area) and 'component' (Sub Area) STRICTLY based on the following list. 
-    If a location/component doesn't match exactly, pick the closest one from this list.
+    ---------------------------------------------------------
+    CRITICAL HIERARCHY RULES (FOLLOW STRICTLY):
+    You must classify 'location' (Main Area) and 'component' (Sub Area) STRICTLY based on the provided hierarchy.
+    
+    NEVER use a Component name as a Location. 
+    
+    CORRECT MAPPINGS (Memorize These):
+    1. IF input is "Inlet", "Adit", "HRT", "Face" -> 
+       LOCATION MUST BE: "Headrace Tunnel (HRT)"
+       COMPONENT MUST BE: "HRT from Inlet" OR "HRT from Adit" OR "Adit Tunnel"
+    
+    2. IF input is "Tailrace", "TRT", "Tailrace Tunnel" -> 
+       LOCATION MUST BE: "Powerhouse"
+       COMPONENT MUST BE: "Tailrace Tunnel (TRT)"
+       
+    3. IF input is "Powerhouse", "PH", "Machine Hall", "Service Bay", "Control Building" ->
+       LOCATION MUST BE: "Powerhouse"
+       COMPONENT MUST BE: "Main Building" (or specific area if mentioned)
 
-    VALID HIERARCHY:
+    4. IF input is "Bifurcation", "Vertical Shaft", "VS", "LPT", "Surge Tank" ->
+       LOCATION MUST BE: "Pressure Tunnels"
+    
+    5. IF input is "Barrage", "Weir", "Intake", "Desander", "Settling Basin" ->
+       LOCATION MUST BE: "Headworks"
+
+    VALID HIERARCHY REFERENCE:
     ${hierarchyString}
-
-    IMPORTANT OVERRIDES:
-    1. "Bifurcation" ALWAYS belongs to "Pressure Tunnels".
-    2. "Vertical Shaft" ALWAYS belongs to "Pressure Tunnels".
-    3. "Tailrace Tunnel" or "TRT" ALWAYS belongs to "Powerhouse".
-    4. "HRT Inlet" or "HRT from Adit" ALWAYS belongs to "Headrace Tunnel (HRT)".
+    ---------------------------------------------------------
 
     The output format must be a list of items with the following fields:
-    - location: The major site location (Must match VALID HIERARCHY keys).
-    - component: The specific structure (Must match VALID HIERARCHY values for that location).
+    - location: The major site location (MUST be one of the top-level keys like "Headworks", "Powerhouse", "Headrace Tunnel (HRT)").
+    - component: The specific structure (MUST be one of the values listed under that location).
     - chainageOrArea: The specific detail, lift, or chainage (e.g. "Raft", "Wall 1st Lift", "Ch 0+100").
     - activityDescription: What work was done today (include quantities like m3, T, msq).
     - plannedNextActivity: What is planned for tomorrow/next day.

@@ -97,104 +97,94 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
     let addedCount = 0;
     let updatedCount = 0;
 
-    const existingRefIds = new Set(quantities.map(q => q.originalReportItemId).filter(Boolean));
+    // Create a map of existing quantity items by their source ID for fast lookup
+    const existingQtyMap = new Map<string, QuantityEntry>();
+    quantities.forEach(q => {
+        if(q.originalReportItemId) existingQtyMap.set(q.originalReportItemId, q);
+    });
 
     try {
-      // 1. SCAN FOR NEW ITEMS
+      // ITERATE OVER ALL REPORTS & ENTRIES
       for (const report of reports) {
         for (const entry of report.entries) {
-          if (!existingRefIds.has(entry.id)) {
+            
+            // Extract the potential quantity data first to see if it's a valid quantity item
             const qtyData = extractQuantityData(entry.location, entry.component, entry.chainageOrArea, entry.activityDescription);
             
-            if (qtyData.val > 0) {
-              const newQty: QuantityEntry = {
-                id: crypto.randomUUID(),
-                date: report.date,
-                location: entry.location, // Main Location
-                structure: qtyData.structure, // Component (inferred or explicit)
-                detailElement: qtyData.element, // Area (e.g. Raft, Wall)
-                detailLocation: qtyData.loc, // Chainage/EL formatted
-                itemType: qtyData.type,
-                description: entry.activityDescription,
-                quantityValue: qtyData.val,
-                quantityUnit: qtyData.unit,
-                originalRawString: qtyData.raw,
-                originalReportItemId: entry.id,
-                reportId: report.id,
-                lastUpdated: new Date().toISOString(),
-                updatedBy: user?.displayName || 'System Sync'
-              };
-              await addQuantity(newQty);
-              addedCount++;
+            // Must have a value > 0 to be a quantity item
+            if (qtyData.val <= 0) continue;
+
+            // Check if we already have this item synced
+            const existingQty = existingQtyMap.get(entry.id);
+
+            if (!existingQty) {
+                // CASE 1: NEW ITEM
+                const newQty: QuantityEntry = {
+                    id: crypto.randomUUID(),
+                    date: report.date,
+                    location: entry.location, 
+                    structure: qtyData.structure,
+                    detailElement: qtyData.element,
+                    detailLocation: qtyData.loc,
+                    itemType: qtyData.type,
+                    description: entry.activityDescription,
+                    quantityValue: qtyData.val,
+                    quantityUnit: qtyData.unit,
+                    originalRawString: qtyData.raw,
+                    originalReportItemId: entry.id,
+                    reportId: report.id,
+                    lastUpdated: new Date().toISOString(),
+                    updatedBy: user?.displayName || 'System Sync'
+                };
+                await addQuantity(newQty);
+                addedCount++;
+            } else {
+                // CASE 2: UPDATE CHECK
+                // Check if critical fields differ (Location, Component/Structure)
+                // We trust the Report as the "Source of Truth" for Location/Component adjustments made by user
+                
+                let needsUpdate = false;
+                let updates: Partial<QuantityEntry> = {};
+
+                // 1. Check Location mismatch (e.g. User fixed "Tailrace Tunnel" -> "Powerhouse")
+                if (existingQty.location !== entry.location) {
+                    updates.location = entry.location;
+                    needsUpdate = true;
+                }
+
+                // 2. Check Component mismatch
+                // The report entry component (if set) is the authority. 
+                // If report entry component is empty, we fall back to the parser logic (qtyData.structure).
+                const targetStructure = entry.component || qtyData.structure;
+                
+                if (existingQty.structure !== targetStructure) {
+                    updates.structure = targetStructure;
+                    needsUpdate = true;
+                }
+
+                // 3. Check Quantity Value mismatch (if user edited description in report)
+                if (existingQty.quantityValue !== qtyData.val || existingQty.quantityUnit !== qtyData.unit) {
+                    updates.quantityValue = qtyData.val;
+                    updates.quantityUnit = qtyData.unit;
+                    updates.description = entry.activityDescription; // update desc too
+                    needsUpdate = true;
+                }
+
+                if (needsUpdate) {
+                    await updateQuantity(
+                        { ...existingQty, ...updates }, 
+                        existingQty, 
+                        user?.displayName || 'System Sync Update'
+                    );
+                    updatedCount++;
+                }
             }
-          }
-        }
-      }
-
-      // 2. REPAIR/UPDATE EXISTING ITEMS 
-      for (const qty of quantities) {
-        let needsUpdate = false;
-        let updates: Partial<QuantityEntry> = {};
-
-        // Find source report entry to verify latest Location/Component
-        const sourceReport = reports.find(r => r.id === qty.reportId);
-        const sourceEntry = sourceReport?.entries.find(e => e.id === qty.originalReportItemId);
-        
-        if (sourceEntry) {
-            // Check if Location Changed (Normalized from "Tailrace" -> "Powerhouse")
-            if (sourceEntry.location !== qty.location) {
-                updates.location = sourceEntry.location;
-                needsUpdate = true;
-            }
-
-            // Check if Component Changed (Normalized to "Tailrace Tunnel")
-            // Note: If sourceEntry.component is set, it overrides local inference
-            const sourceComponent = sourceEntry.component;
-            
-            // Re-run parsing with latest source info
-            const details = parseQuantityDetails(sourceEntry.location, sourceComponent, qty.structure, qty.description);
-            
-            // Logic: If source has strict component, use it. Otherwise rely on parser.
-            const strictStructure = sourceComponent || details.structure;
-
-            if (strictStructure !== qty.structure) {
-                 updates.structure = strictStructure;
-                 needsUpdate = true;
-            }
-
-            // Also check details updates
-            if (qty.detailElement !== details.detailElement) {
-               updates.detailElement = details.detailElement;
-               needsUpdate = true;
-            }
-            if (qty.detailLocation !== details.detailLocation) {
-               updates.detailLocation = details.detailLocation;
-               needsUpdate = true;
-            }
-        }
-        
-        // Recalculate Item Type if needed
-        if (!qty.itemType || qty.itemType === 'Other') {
-           const newType = identifyItemType(qty.description);
-           if (newType !== 'Other') {
-             updates.itemType = newType;
-             needsUpdate = true;
-           }
-        }
-
-        if (needsUpdate) {
-             await updateQuantity(
-               { ...qty, ...updates }, 
-               qty, 
-               user?.displayName || 'System Splitter'
-             );
-             updatedCount++;
         }
       }
 
       let msg = "";
       if (addedCount > 0) msg += `Added ${addedCount} new items. `;
-      if (updatedCount > 0) msg += `Updated ${updatedCount} items based on latest report corrections. `;
+      if (updatedCount > 0) msg += `Updated ${updatedCount} items based on report corrections. `;
       if (!msg) msg = "Everything is up to date.";
       
       alert(msg);

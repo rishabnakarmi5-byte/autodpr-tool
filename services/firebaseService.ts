@@ -5,7 +5,7 @@ import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry }
 
 // Workaround for potential type definition mismatches
 const { initializeApp } = _app as any;
-const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, getDocs, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion } = _firestore as any;
+const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, getDocs, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion, where } = _firestore as any;
 const { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } = _auth as any;
 
 // Define loose types for internal use to avoid import errors
@@ -251,11 +251,12 @@ export const savePermanentBackup = async (
   parsedItems: DPRItem[], 
   user: string, 
   reportIdContext: string
-) => {
-  if (!db) return;
+): Promise<string | null> => {
+  if (!db) return null;
   try {
+    const backupId = crypto.randomUUID();
     const backupEntry: BackupEntry = {
-      id: crypto.randomUUID(),
+      id: backupId,
       date,
       timestamp: new Date().toISOString(),
       user: user || "Anonymous",
@@ -264,17 +265,35 @@ export const savePermanentBackup = async (
       reportIdContext
     };
     // This collection is intended to be append-only and never deleted by the app
-    await setDoc(doc(db, BACKUP_COLLECTION, backupEntry.id), backupEntry);
-    console.log("Permanent backup saved.");
+    await setDoc(doc(db, BACKUP_COLLECTION, backupId), backupEntry);
+    console.log("Permanent backup saved:", backupId);
+    return backupId;
   } catch (e) {
     console.error("Failed to save backup:", e);
+    return null;
   }
 };
 
-export const getBackups = async (limitCount = 50): Promise<BackupEntry[]> => {
+export const getBackups = async (
+  limitCount = 50, 
+  startDate?: string, 
+  endDate?: string
+): Promise<BackupEntry[]> => {
   if (!db) return [];
   try {
-    const q = query(collection(db, BACKUP_COLLECTION), orderBy("timestamp", "desc"), limit(limitCount));
+    let q = query(collection(db, BACKUP_COLLECTION), orderBy("timestamp", "desc"));
+    
+    if (startDate && endDate) {
+        // Note: Firestore string comparison works for ISO dates
+        q = query(collection(db, BACKUP_COLLECTION), 
+            where("date", ">=", startDate), 
+            where("date", "<=", endDate),
+            orderBy("date", "desc")
+        );
+    } else {
+        q = query(q, limit(limitCount));
+    }
+
     const snapshot = await getDocs(q);
     const backups: BackupEntry[] = [];
     snapshot.forEach((doc: any) => {
@@ -413,16 +432,21 @@ export const restoreTrashItem = async (trashItem: TrashItem): Promise<void> => {
 
 // --- Activity Logs ---
 
-export const logActivity = async (user: string, action: string, details: string, reportDate: string) => {
+export const logActivity = async (user: string, action: string, details: string, reportDate: string, relatedBackupId?: string) => {
   if (!db) return;
   try {
-    const log: Omit<LogEntry, 'id'> = {
+    const log: any = {
       timestamp: new Date().toISOString(),
       user: user || "Anonymous",
       action,
       details,
-      reportDate
+      reportDate,
     };
+    
+    if (relatedBackupId) {
+        log.relatedBackupId = relatedBackupId;
+    }
+
     await addDoc(collection(db, LOG_COLLECTION), log);
   } catch (e) {
     console.error("Error logging activity:", e);

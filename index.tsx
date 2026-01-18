@@ -189,24 +189,32 @@ const App = () => {
     // Capture state before adding
     captureUndoState(baseEntries);
 
-    // 1. Merge items
+    // 1. Save to Permanent Backup (Independent of report logic)
+    // We capture the ID of this backup to link it in the logs
+    const backupId = await savePermanentBackup(currentDate, rawText, newItems, getUserName(), effectiveReportId);
+
+    // 2. Merge items
     let updatedEntries = [...baseEntries, ...newItems];
 
-    // 2. Sort items
+    // 3. Sort items
     updatedEntries.sort((a, b) => {
       return getLocationPriority(a.location) - getLocationPriority(b.location);
     });
     
-    // 3. Save to Permanent Backup (Independent of report logic)
-    await savePermanentBackup(currentDate, rawText, newItems, getUserName(), effectiveReportId);
-
     // 4. Update State & Save Report
     setCurrentReportId(effectiveReportId);
     setCurrentEntries(updatedEntries); // Optimistic update
     
     await saveCurrentState(updatedEntries, currentDate, effectiveReportId);
     
-    logActivity(getUserName(), "Report Updated", `Added ${newItems.length} items (Backup Secured)`, currentDate);
+    // 5. Log with link to backup
+    logActivity(
+      getUserName(), 
+      "Report Updated", 
+      `Added ${newItems.length} items`, 
+      currentDate,
+      backupId || undefined
+    );
   };
 
   const handleUpdateItem = (id: string, field: keyof DPRItem, value: string) => {
