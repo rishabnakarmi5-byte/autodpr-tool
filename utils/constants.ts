@@ -65,14 +65,27 @@ export const getLocationPriority = (location: string): number => {
 
 // Regex patterns to identify item types
 export const ITEM_PATTERNS = [
-  { name: "Plum Concrete", pattern: /\b(plum)\b/i, defaultUnit: 'm3' },
+  // --- PLUM CONCRETE (Specific grades first) ---
+  { name: "C25 Plum Concrete", pattern: /\b(c25|grade 25|m25).*(plum)|(plum).*(c25|grade 25|m25)\b/i, defaultUnit: 'm3' },
+  { name: "C15 Plum Concrete", pattern: /\b(c15|grade 15|m15).*(plum)|(plum).*(c15|grade 15|m15)\b/i, defaultUnit: 'm3' },
+  // Default Plum is C10 per user request
+  { name: "C10 Plum Concrete", pattern: /\b(plum)\b/i, defaultUnit: 'm3' },
+
   { name: "Shotcrete", pattern: /\b(shotcrete|s\/c)\b/i, defaultUnit: 'm3' },
-  { name: "C10 Concrete", pattern: /\b(c10|pcc|infill|grade 10|m10)\b(?!.*plum)/i, defaultUnit: 'm3' },
-  { name: "C15 Concrete", pattern: /\b(c15|grade 15|m15)\b(?!.*plum)/i, defaultUnit: 'm3' },
-  { name: "C20 Concrete", pattern: /\b(c20|grade 20|m20)\b(?!.*plum)/i, defaultUnit: 'm3' },
-  { name: "C25 Concrete", pattern: /\b(c25|grade 25|m25)\b(?!.*plum)/i, defaultUnit: 'm3' },
-  { name: "C30 Concrete", pattern: /\b(c30|grade 30|m30)\b(?!.*plum)/i, defaultUnit: 'm3' },
-  { name: "C35 Concrete", pattern: /\b(c35|grade 35|m35)\b(?!.*plum)/i, defaultUnit: 'm3' },
+
+  // --- CONCRETE GRADES ---
+  { name: "C35 Concrete", pattern: /\b(c35|grade 35|m35)\b/i, defaultUnit: 'm3' },
+  // C30 includes "2nd Stage" (usually powerhouse flooring)
+  { name: "C30 Concrete", pattern: /\b(c30|grade 30|m30|(2nd|second)\s+stage)\b/i, defaultUnit: 'm3' },
+  { name: "C20 Concrete", pattern: /\b(c20|grade 20|m20)\b/i, defaultUnit: 'm3' },
+  { name: "C15 Concrete", pattern: /\b(c15|grade 15|m15)\b/i, defaultUnit: 'm3' },
+  { name: "C10 Concrete", pattern: /\b(c10|pcc|infill|grade 10|m10)\b/i, defaultUnit: 'm3' },
+
+  // --- DEFAULT CONCRETE (C25) ---
+  // Matches generic terms "Concrete", "Conc", "RCC" if no specific grade matched above
+  { name: "C25 Concrete", pattern: /\b(c25|grade 25|m25|concrete|conc\.?|rcc)\b/i, defaultUnit: 'm3' },
+
+  // --- OTHER ITEMS ---
   { name: "Rebar", pattern: /\b(rebar|reinforcement|steel|tmt|bar|tor)\b/i, defaultUnit: 'Ton' },
   { name: "Formwork", pattern: /\b(formwork|shuttering)\b/i, defaultUnit: 'm2' },
   { name: "Stone Masonry", pattern: /\b(masonry|rrm|ms wall|stone soling|soling)\b/i, defaultUnit: 'm3' },
