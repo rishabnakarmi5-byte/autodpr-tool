@@ -1,25 +1,23 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { UserProfile, UserMood } from '../types';
-import { subscribeToUserProfile, saveUserMood, subscribeToUserMoods } from '../services/firebaseService';
+import { subscribeToUserProfile, subscribeToUserMoods } from '../services/firebaseService';
 
 interface ProfileViewProps {
   user: any;
 }
 
 const MOODS = [
-  { label: 'Happy', icon: '😄', color: 'bg-green-100 text-green-600', quote: "Success is not the key to happiness. Happiness is the key to success." },
-  { label: 'Excited', icon: '🤩', color: 'bg-yellow-100 text-yellow-600', quote: "The future belongs to those who believe in the beauty of their dreams." },
-  { label: 'Tired', icon: '😴', color: 'bg-slate-100 text-slate-600', quote: "Rest when you're weary. Refresh and renew yourself, your body, your mind, your spirit." },
-  { label: 'Frustrated', icon: '😤', color: 'bg-red-100 text-red-600', quote: "Obstacles are those frightful things you see when you take your eyes off your goal." },
-  { label: 'Sad', icon: '😢', color: 'bg-blue-100 text-blue-600', quote: "Every day may not be good, but there's something good in every day." }
+  { label: 'Happy', icon: '😄', color: 'bg-green-100 text-green-600' },
+  { label: 'Excited', icon: '🤩', color: 'bg-yellow-100 text-yellow-600' },
+  { label: 'Tired', icon: '😴', color: 'bg-slate-100 text-slate-600' },
+  { label: 'Frustrated', icon: '😤', color: 'bg-red-100 text-red-600' },
+  { label: 'Sad', icon: '😢', color: 'bg-blue-100 text-blue-600' }
 ];
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ user }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [moods, setMoods] = useState<UserMood[]>([]);
-  const [selectedMood, setSelectedMood] = useState<string | null>(null);
-  const [motivationalMessage, setMotivationalMessage] = useState<string>('');
 
   useEffect(() => {
     if (user?.uid) {
@@ -32,16 +30,23 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user }) => {
     }
   }, [user]);
 
-  const handleMoodSelect = async (moodLabel: string) => {
-    setSelectedMood(moodLabel);
-    const moodObj = MOODS.find(m => m.label === moodLabel);
-    setMotivationalMessage(moodObj?.quote || "Keep going!");
-    
-    if (user?.uid) {
-        // Just cast string to the specific union type for simplicity here
-        await saveUserMood(user.uid, moodLabel as any);
-    }
-  };
+  // Calculate mood trend (last 7 entries)
+  const moodTrend = useMemo(() => {
+      if (moods.length === 0) return null;
+      
+      const counts: Record<string, number> = {};
+      moods.forEach(m => {
+          counts[m.mood] = (counts[m.mood] || 0) + 1;
+      });
+      
+      const sorted = Object.entries(counts).sort((a,b) => b[1] - a[1]);
+      const dominant = sorted[0][0];
+      
+      return {
+          dominant,
+          message: `You have been feeling ${dominant} recently.`
+      };
+  }, [moods]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 animate-fade-in">
@@ -92,36 +97,29 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user }) => {
       </div>
 
       <div className="grid md:grid-cols-3 gap-8">
-        {/* Mood Tracker */}
+        
+        {/* Mood Analysis */}
         <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-           <h3 className="text-xl font-bold text-slate-800 mb-4">How are you feeling today?</h3>
-           
-           <div className="flex flex-wrap gap-4 mb-6">
-              {MOODS.map(m => (
-                <button
-                  key={m.label}
-                  onClick={() => handleMoodSelect(m.label)}
-                  className={`flex-1 min-w-[100px] p-4 rounded-xl border transition-all transform hover:-translate-y-1 hover:shadow-md flex flex-col items-center gap-2
-                    ${selectedMood === m.label ? `${m.color} border-current ring-2 ring-offset-2` : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}
-                  `}
-                >
-                  <span className="text-3xl">{m.icon}</span>
-                  <span className="font-bold text-sm">{m.label}</span>
-                </button>
-              ))}
-           </div>
-
-           {motivationalMessage && (
-             <div className="bg-indigo-50 border border-indigo-100 p-6 rounded-xl text-center animate-fade-in">
-                <i className="fas fa-quote-left text-indigo-200 text-2xl mb-2 block"></i>
-                <p className="text-indigo-800 font-medium text-lg italic">{motivationalMessage}</p>
-             </div>
+           <h3 className="text-xl font-bold text-slate-800 mb-4">Well-being Analysis</h3>
+           {moodTrend ? (
+               <div className="bg-indigo-50 border border-indigo-100 p-6 rounded-xl flex items-center gap-4">
+                   <div className="text-4xl">
+                       {MOODS.find(m => m.label === moodTrend.dominant)?.icon}
+                   </div>
+                   <div>
+                       <h4 className="font-bold text-indigo-900 text-lg">Weekly Trend</h4>
+                       <p className="text-indigo-700">{moodTrend.message}</p>
+                       <p className="text-xs text-indigo-500 mt-1">Based on your last {Math.min(7, moods.length)} check-ins.</p>
+                   </div>
+               </div>
+           ) : (
+               <p className="text-slate-500 italic">Check in daily on the dashboard to see your trend analysis here.</p>
            )}
         </div>
 
         {/* Mood History */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-           <h3 className="text-lg font-bold text-slate-800 mb-4">Recent Moods</h3>
+           <h3 className="text-lg font-bold text-slate-800 mb-4">History</h3>
            <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
               {moods.length === 0 ? (
                 <div className="text-slate-400 text-center italic text-sm py-4">No mood history yet.</div>
@@ -134,6 +132,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user }) => {
                         <div className="flex-1">
                            <div className="text-sm font-bold text-slate-700">{m.mood}</div>
                            <div className="text-xs text-slate-400">{new Date(m.timestamp).toLocaleDateString()} {new Date(m.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                           {m.note && <div className="text-[10px] text-indigo-500 mt-1 italic line-clamp-1">"{m.note}"</div>}
                         </div>
                      </div>
                    );

@@ -21,6 +21,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   
   const [entries, setEntries] = useState<DPRItem[]>(report.entries);
   const [fontSize, setFontSize] = useState<number>(12);
+  const [rowHeight, setRowHeight] = useState<'normal' | 'compact'>('normal');
   const [isExporting, setIsExporting] = useState(false);
   const [isDragMode, setIsDragMode] = useState(false);
   
@@ -149,6 +150,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
        setEditingComponentId(null);
   };
 
+  const rowPaddingClass = rowHeight === 'normal' ? 'p-1.5' : 'p-0.5';
+
   return (
     <div className="flex flex-col h-full space-y-6 animate-fade-in relative">
       
@@ -205,14 +208,25 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
              </button>
           </div>
           
-          <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200">
-             <i className="fas fa-search-plus text-slate-400 text-xs"></i>
+          {/* Font Size Control (Replacing old Zoom) */}
+          <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200" title="Text Size">
+             <i className="fas fa-text-height text-slate-400 text-xs"></i>
              <input 
-                 type="range" min="0.5" max="1.5" step="0.1" value={zoom} 
-                 onChange={e => setZoom(parseFloat(e.target.value))}
+                 type="range" min="8" max="16" step="1" value={fontSize} 
+                 onChange={e => setFontSize(parseInt(e.target.value))}
                  className="w-20"
              />
+             <span className="text-xs font-mono w-4">{fontSize}</span>
           </div>
+
+          {/* Row Height Control */}
+          <button 
+             onClick={() => setRowHeight(h => h === 'normal' ? 'compact' : 'normal')}
+             className="px-3 py-2 rounded-xl text-sm font-bold border flex items-center gap-2 bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+             title="Toggle Row Height"
+          >
+             <i className={`fas ${rowHeight === 'normal' ? 'fa-align-justify' : 'fa-align-justify fa-rotate-90'}`}></i>
+          </button>
 
           <button
              onClick={() => setIsDragMode(!isDragMode)}
@@ -229,7 +243,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               onClick={handlePrint}
               className="flex items-center justify-center px-4 py-2 bg-slate-900 text-white font-bold rounded-xl hover:bg-black transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
             >
-              <i className="fas fa-print mr-2"></i> Print / PDF
+              <i className="fas fa-print mr-2"></i> Print
           </button>
           
           <button 
@@ -240,6 +254,17 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               {isExporting ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-image mr-2"></i>} JPG
           </button>
         </div>
+      </div>
+
+      {/* Floating Zoom Control */}
+      <div className="fixed bottom-6 right-6 z-50 bg-white shadow-xl rounded-full border border-slate-200 p-2 flex items-center gap-2 animate-fade-in">
+          <button onClick={() => setZoom(z => Math.max(0.5, z - 0.1))} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-600">
+              <i className="fas fa-minus"></i>
+          </button>
+          <span className="text-xs font-bold w-12 text-center">{Math.round(zoom * 100)}%</span>
+          <button onClick={() => setZoom(z => Math.min(2, z + 0.1))} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-600">
+              <i className="fas fa-plus"></i>
+          </button>
       </div>
 
       {/* Printable Area Wrapper */}
@@ -306,7 +331,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                     </div>
 
                   {/* Location */}
-                  <div className="col-span-2 p-1.5 relative">
+                  <div className={`col-span-2 ${rowPaddingClass} relative`}>
                     {editingLocationId === item.id ? (
                       <div className="absolute top-0 left-0 z-30 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48">
                          <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
@@ -327,7 +352,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   </div>
 
                   {/* Component */}
-                  <div className="col-span-2 p-1.5 relative">
+                  <div className={`col-span-2 ${rowPaddingClass} relative`}>
                     {editingComponentId === item.id ? (
                       <div className="absolute top-0 left-0 z-20 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48">
                          <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
@@ -348,7 +373,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   </div>
 
                   {/* Area */}
-                  <div className="col-span-1 p-1.5 relative">
+                  <div className={`col-span-1 ${rowPaddingClass} relative`}>
                      <textarea
                       value={item.structuralElement || ''}
                       onChange={(e) => handleLocalChange(item.id, 'structuralElement', e.target.value)}
@@ -360,9 +385,10 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   </div>
 
                   {/* CH / EL */}
-                  <div className="col-span-1 p-1.5 relative">
+                  <div className={`col-span-1 ${rowPaddingClass} relative`}>
                      <textarea
-                      value={item.chainage || ''}
+                      // Fallback to legacy string if chainage is empty
+                      value={item.chainage || item.chainageOrArea || ''}
                       onChange={(e) => {
                           handleLocalChange(item.id, 'chainage', e.target.value);
                       }}
@@ -374,7 +400,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   </div>
 
                   {/* Description */}
-                  <div className="col-span-4 p-1.5 relative">
+                  <div className={`col-span-4 ${rowPaddingClass} relative`}>
                      <textarea
                       value={item.activityDescription}
                       onChange={(e) => handleLocalChange(item.id, 'activityDescription', e.target.value)}
@@ -385,7 +411,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   </div>
 
                   {/* Next */}
-                  <div className="col-span-2 p-1.5 relative">
+                  <div className={`col-span-2 ${rowPaddingClass} relative`}>
                      <textarea
                       value={item.plannedNextActivity}
                       onChange={(e) => handleLocalChange(item.id, 'plannedNextActivity', e.target.value)}

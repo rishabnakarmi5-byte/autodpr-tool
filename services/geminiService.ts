@@ -5,6 +5,30 @@ import { LOCATION_HIERARCHY } from "../utils/constants";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+export const getMoodMessage = async (mood: string, userName: string): Promise<string> => {
+  const prompt = `
+    You are a supportive, witty, and professional assistant for a Construction Manager named ${userName}.
+    The user just reported feeling "${mood}".
+    
+    Generate a short, 1-sentence response.
+    - If Happy/Excited: Be hyping and energetic.
+    - If Tired/Frustrated: Be supportive, maybe a light construction-related joke or stoic encouragement.
+    - If Sad: Be gentle and uplifting.
+    
+    Keep it under 20 words. No emojis in the text (frontend handles that).
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+    });
+    return response.text || "Keep building strong!";
+  } catch (error) {
+    return "Keep up the great work!";
+  }
+};
+
 export const parseConstructionData = async (
   rawText: string,
   instructions?: string,

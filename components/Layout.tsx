@@ -1,7 +1,8 @@
 
 import React, { useEffect, useState } from 'react';
-import { TabView, UserProfile } from '../types';
-import { subscribeToUserProfile } from '../services/firebaseService';
+import { TabView, UserProfile, UserMood } from '../types';
+import { subscribeToUserProfile, subscribeToUserMoods, saveUserMood } from '../services/firebaseService';
+import { getMoodMessage } from '../services/geminiService';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -11,14 +12,51 @@ interface LayoutProps {
   onLogout: () => void;
 }
 
+const MOODS = [
+  { label: 'Happy', icon: '😄', color: 'bg-green-100 text-green-700 border-green-200' },
+  { label: 'Excited', icon: '🤩', color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
+  { label: 'Tired', icon: '😴', color: 'bg-slate-200 text-slate-700 border-slate-300' },
+  { label: 'Frustrated', icon: '😤', color: 'bg-red-100 text-red-700 border-red-200' },
+  { label: 'Sad', icon: '😢', color: 'bg-blue-100 text-blue-700 border-blue-200' }
+];
+
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user, onLogout }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [todaysMood, setTodaysMood] = useState<UserMood | null>(null);
+  const [aiMessage, setAiMessage] = useState<string | null>(null);
+  const [isProcessingMood, setIsProcessingMood] = useState(false);
 
   useEffect(() => {
     if(user?.uid) {
-        return subscribeToUserProfile(user.uid, (p) => setProfile(p));
+        const unsubProfile = subscribeToUserProfile(user.uid, (p) => setProfile(p));
+        // Check for mood log specifically for today
+        const unsubMood = subscribeToUserMoods(user.uid, (moods) => {
+            const today = new Date().toDateString();
+            const found = moods.find(m => new Date(m.timestamp).toDateString() === today);
+            setTodaysMood(found || null);
+            if (found && found.note && !aiMessage) {
+                setAiMessage(found.note); // Restore note if exists locally
+            }
+        });
+        return () => {
+            unsubProfile();
+            unsubMood();
+        }
     }
   }, [user]);
+
+  const handleMoodSelect = async (mood: any) => {
+      setIsProcessingMood(true);
+      // 1. Get AI Response
+      const message = await getMoodMessage(mood.label, user?.displayName?.split(' ')[0] || 'Engineer');
+      setAiMessage(message);
+      
+      // 2. Save to DB
+      if (user?.uid) {
+          await saveUserMood(user.uid, mood.label, message);
+      }
+      setIsProcessingMood(false);
+  };
 
   const getTimeGreeting = () => {
       const hour = new Date().getHours();
@@ -149,12 +187,44 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
       {/* Main Content */}
       <main className="flex-1 overflow-auto h-screen relative scroll-smooth pb-24 md:pb-0">
         
-        {/* Desktop Greeting Header */}
+        {/* Desktop Greeting Header with Mood Check */}
         <div className="hidden md:flex justify-between items-center px-10 py-6 bg-white border-b border-slate-200">
-           <div>
+           <div className="flex-1 max-w-2xl">
               <h1 className="text-2xl font-bold text-slate-800">{getTimeGreeting()}, {user?.displayName?.split(' ')[0]}!</h1>
-              <p className="text-sm text-slate-500">Welcome back to the construction dashboard.</p>
+              
+              {/* Mood Tracker Section */}
+              {!todaysMood ? (
+                  <div className="mt-3 animate-fade-in">
+                      <p className="text-xs text-slate-500 mb-2 font-medium uppercase tracking-wide">How are you feeling today?</p>
+                      <div className="flex gap-2">
+                          {isProcessingMood ? (
+                              <span className="text-xs text-indigo-500"><i className="fas fa-circle-notch fa-spin mr-1"></i> Saving mood...</span>
+                          ) : (
+                              MOODS.map(m => (
+                                  <button 
+                                    key={m.label} 
+                                    onClick={() => handleMoodSelect(m)}
+                                    className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all hover:-translate-y-0.5 hover:shadow-sm flex items-center gap-1.5 bg-white border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-600`}
+                                  >
+                                      <span>{m.icon}</span> {m.label}
+                                  </button>
+                              ))
+                          )}
+                      </div>
+                  </div>
+              ) : (
+                  <div className="mt-3 animate-fade-in flex items-start gap-3">
+                      <div className="bg-indigo-50 px-3 py-2 rounded-lg border border-indigo-100 inline-flex items-center gap-2">
+                          <span className="text-xl">{MOODS.find(m => m.label === todaysMood.mood)?.icon}</span>
+                          <div>
+                              <p className="text-xs font-bold text-indigo-900">You're feeling {todaysMood.mood}</p>
+                              {aiMessage && <p className="text-xs text-indigo-600 italic mt-0.5">"{aiMessage}"</p>}
+                          </div>
+                      </div>
+                  </div>
+              )}
            </div>
+
            <div className="flex gap-4">
               <div className="text-right">
                   <div className="text-xs font-bold text-slate-400 uppercase">Total Entries</div>

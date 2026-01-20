@@ -10,8 +10,8 @@ import { RecycleBin } from './components/RecycleBin';
 import { QuantityView } from './components/QuantityView';
 import { ProjectSettingsView } from './components/ProjectSettings';
 import { ProfileView } from './components/ProfileView';
-import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, syncQuantitiesFromItems, getProjectSettings, saveProjectSettings, incrementUserStats } from './services/firebaseService';
-import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings } from './types';
+import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, syncQuantitiesFromItems, getProjectSettings, saveProjectSettings, incrementUserStats, subscribeToQuantities, updateQuantity } from './services/firebaseService';
+import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, QuantityEntry } from './types';
 import { getLocationPriority, LOCATION_HIERARCHY, parseQuantityDetails } from './utils/constants';
 
 const App = () => {
@@ -26,6 +26,7 @@ const App = () => {
   const [reports, setReports] = useState<DailyReport[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
+  const [allQuantities, setAllQuantities] = useState<QuantityEntry[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
   const [currentEntries, setCurrentEntries] = useState<DPRItem[]>([]);
   const [undoStack, setUndoStack] = useState<DPRItem[][]>([]);
@@ -60,6 +61,11 @@ const App = () => {
 
   useEffect(() => {
     const unsubscribe = subscribeToTrash((data) => setTrashItems(data));
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToQuantities((data) => setAllQuantities(data));
     return () => unsubscribe();
   }, []);
 
@@ -192,6 +198,7 @@ const App = () => {
       logActivity(getUserName(), "Redo", "Restored report state", currentDate);
   };
 
+  // Normalizes current report entries (local + cloud)
   const handleNormalizeReport = async () => {
       pushUndo(currentEntries);
       const updatedEntries = currentEntries.map(item => {
@@ -205,7 +212,33 @@ const App = () => {
       });
       setCurrentEntries(updatedEntries);
       await saveCurrentState(updatedEntries, currentDate, currentReportId);
-      logActivity(getUserName(), "Normalize", "Re-parsed all items", currentDate);
+      logActivity(getUserName(), "Normalize", "Re-parsed all items in active report", currentDate);
+  };
+
+  // Normalizes ALL quantities in database
+  const handleNormalizeQuantities = async () => {
+      if (!confirm("This will re-scan and normalize Chainage & Area for ALL quantities in the system. Continue?")) return;
+      
+      let count = 0;
+      for (const qty of allQuantities) {
+          const parsed = parseQuantityDetails(qty.location, qty.structure, qty.detailLocation || '', qty.description);
+          
+          // Only update if something meaningful changed or improved
+          const newArea = parsed.detailElement || qty.detailElement;
+          const newChainage = parsed.detailLocation || qty.detailLocation;
+          
+          if (newArea !== qty.detailElement || newChainage !== qty.detailLocation) {
+              await updateQuantity({
+                  ...qty,
+                  detailElement: newArea,
+                  detailLocation: newChainage,
+                  lastUpdated: new Date().toISOString()
+              }, qty, getUserName());
+              count++;
+          }
+      }
+      alert(`Normalized ${count} entries.`);
+      logActivity(getUserName(), "Normalize Quantities", `Batch updated ${count} entries`, new Date().toISOString());
   };
 
   const handleSaveSettings = async (s: ProjectSettings) => {
@@ -275,7 +308,7 @@ const App = () => {
     <Layout activeTab={activeTab} onTabChange={handleTabChange} user={user} onLogout={logoutUser}>
         {activeTab === TabView.INPUT && <InputSection currentDate={currentDate} onDateChange={setCurrentDate} onItemsAdded={handleItemsAdded} onViewReport={() => setActiveTab(TabView.VIEW_REPORT)} entryCount={currentEntries.length} user={user} hierarchy={hierarchy} />}
         {activeTab === TabView.VIEW_REPORT && <ReportTable report={currentReport} onDeleteItem={handleDeleteItem} onUpdateItem={handleUpdateItem} onUndo={handleUndo} canUndo={undoStack.length > 0} onRedo={handleRedo} canRedo={redoStack.length > 0} onNormalize={handleNormalizeReport} hierarchy={hierarchy} />}
-        {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} />}
+        {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onNormalize={handleNormalizeQuantities} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={handleSelectReport} onDeleteReport={async (id) => { await moveReportToTrash(reports.find(r => r.id === id)!, getUserName()); }} onCreateNew={handleCreateNew} />}
         {activeTab === TabView.LOGS && <ActivityLogs logs={logs} />}
         {activeTab === TabView.RECYCLE_BIN && <RecycleBin logs={logs} trashItems={trashItems} onRestore={async (item) => { await restoreTrashItem(item); }} />}

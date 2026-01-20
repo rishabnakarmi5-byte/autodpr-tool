@@ -7,11 +7,12 @@ import { subscribeToQuantities, updateQuantity, deleteQuantity } from '../servic
 interface QuantityViewProps {
   reports: DailyReport[];
   user?: any;
+  onNormalize?: () => void;
 }
 
 type SubTab = 'ledger' | 'analysis';
 
-export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => {
+export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user, onNormalize }) => {
   const [quantities, setQuantities] = useState<QuantityEntry[]>([]);
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('ledger');
   
@@ -93,10 +94,23 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user }) => 
   return (
     <div className="flex flex-col h-full space-y-6 animate-fade-in">
       <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 flex justify-between items-center">
-         <h2 className="text-2xl font-bold text-slate-800">Quantities</h2>
-         <div className="flex border border-slate-200 rounded-lg overflow-hidden">
-            <button onClick={() => setActiveSubTab('ledger')} className={`px-4 py-2 text-xs font-bold transition-colors ${activeSubTab === 'ledger' ? 'bg-slate-800 text-white' : 'bg-white hover:bg-slate-50'}`}>Ledger</button>
-            <button onClick={() => setActiveSubTab('analysis')} className={`px-4 py-2 text-xs font-bold transition-colors ${activeSubTab === 'analysis' ? 'bg-slate-800 text-white' : 'bg-white hover:bg-slate-50'}`}>Analysis</button>
+         <div>
+             <h2 className="text-2xl font-bold text-slate-800">Quantities</h2>
+         </div>
+         <div className="flex items-center gap-3">
+             {onNormalize && (
+               <button 
+                  onClick={onNormalize} 
+                  className="bg-purple-100 text-purple-700 hover:bg-purple-200 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2"
+                  title="Re-parse Chainage & Area fields for all quantities"
+               >
+                  <i className="fas fa-sync-alt"></i> Sync/Normalize
+               </button>
+             )}
+             <div className="flex border border-slate-200 rounded-lg overflow-hidden">
+                <button onClick={() => setActiveSubTab('ledger')} className={`px-4 py-2 text-xs font-bold transition-colors ${activeSubTab === 'ledger' ? 'bg-slate-800 text-white' : 'bg-white hover:bg-slate-50'}`}>Ledger</button>
+                <button onClick={() => setActiveSubTab('analysis')} className={`px-4 py-2 text-xs font-bold transition-colors ${activeSubTab === 'analysis' ? 'bg-slate-800 text-white' : 'bg-white hover:bg-slate-50'}`}>Analysis</button>
+             </div>
          </div>
       </div>
 
