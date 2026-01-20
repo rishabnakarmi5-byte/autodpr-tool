@@ -88,9 +88,9 @@ export interface UserProfile {
 export interface UserMood {
   id: string;
   uid: string;
-  timestamp: string;
-  mood: 'Happy' | 'Sad' | 'Excited' | 'Frustrated' | 'Tired';
+  mood: 'Happy' | 'Excited' | 'Tired' | 'Frustrated' | 'Sad';
   note?: string;
+  timestamp: string;
 }
 
 export enum TabView {

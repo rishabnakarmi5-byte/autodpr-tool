@@ -2,7 +2,6 @@
 import React, { useEffect, useState } from 'react';
 import { TabView, UserProfile } from '../types';
 import { subscribeToUserProfile } from '../services/firebaseService';
-import { MoodTracker } from './MoodTracker';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -142,10 +141,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
         <div className="hidden md:flex justify-between items-center px-10 py-6 bg-white border-b border-slate-200">
            <div className="flex-1 max-w-2xl">
               <h1 className="text-3xl font-bold text-slate-800 tracking-wide uppercase">{getTimeGreeting()}, {user?.displayName?.split(' ')[0]}!</h1>
-              {/* CONDITIONAL MOOD SECTION: Only shows on INPUT tab */}
-              {activeTab === TabView.INPUT && (
-                  <MoodTracker user={user} />
-              )}
            </div>
            <div className="flex gap-8">
               <div className="text-right">
@@ -160,11 +155,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
            </div>
         </div>
         
-        {/* Mobile Header with Conditional Mood */}
+        {/* Mobile Header */}
         <div className="md:hidden px-4 pt-4">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
                  <h2 className="text-2xl font-bold text-slate-800 mb-2 uppercase">{getTimeGreeting()}, {user?.displayName?.split(' ')[0]}!</h2>
-                 {activeTab === TabView.INPUT && <MoodTracker user={user} />}
             </div>
         </div>
 

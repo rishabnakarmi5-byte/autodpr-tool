@@ -44,49 +44,75 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
       const input = document.getElementById('printable-report');
       if (input && window.html2canvas) {
           try {
-              // A4 width in pixels at 96 DPI is approximately 794px
+              // Standard A4 width at 96 DPI is ~794px. 
               const A4_WIDTH_PX = 794;
               
               const canvas = await window.html2canvas(input, { 
-                  scale: 2, // Higher scale for better quality, but base dim is A4
+                  scale: 2, // 2x scale for sharp text
                   useCORS: true,
                   width: A4_WIDTH_PX, 
-                  windowWidth: A4_WIDTH_PX, // Force the window width context
+                  windowWidth: A4_WIDTH_PX, 
                   backgroundColor: '#ffffff',
                   onclone: (clonedDoc) => {
-                      // 1. Remove non-printable elements
+                      const container = clonedDoc.getElementById('printable-report');
+                      
+                      // 1. Remove non-printable elements (Buttons, Toolbars)
                       const elementsToRemove = clonedDoc.querySelectorAll('.no-print');
                       elementsToRemove.forEach(el => el.remove());
                       
-                      // 2. Hide Actions Column (6th column index 5)
+                      // 2. Hide Actions Column (Last Column)
                       const tables = clonedDoc.querySelectorAll('table');
                       tables.forEach(table => {
                           const ths = table.querySelectorAll('th');
-                          if (ths.length > 5) ths[5].style.display = 'none';
+                          if (ths.length > 5) ths[5].style.display = 'none'; // Header
                           
                           const rows = table.querySelectorAll('tr');
                           rows.forEach(row => {
                               const tds = row.querySelectorAll('td');
-                              if (tds.length > 5) tds[5].style.display = 'none';
+                              if (tds.length > 5) tds[5].style.display = 'none'; // Cell
                           });
                       });
 
-                      // 3. FORCE A4 DIMENSIONS & RESET SCALING
-                      const container = clonedDoc.getElementById('printable-report');
+                      // 3. CRITICAL: Replace Textareas with Divs
+                      // Textareas inside html2canvas can clip content if not fully expanded.
+                      // We replace them with static divs to ensure all text is rendered.
+                      const textareas = clonedDoc.querySelectorAll('textarea');
+                      textareas.forEach(ta => {
+                          const div = clonedDoc.createElement('div');
+                          div.innerText = ta.value;
+                          // Copy relevant styles
+                          div.style.whiteSpace = 'pre-wrap';
+                          div.style.wordBreak = 'break-word';
+                          div.style.fontSize = ta.style.fontSize || `${fontSize}px`;
+                          div.style.fontFamily = ta.style.fontFamily || 'inherit';
+                          div.style.width = '100%';
+                          div.style.padding = '0';
+                          div.style.border = 'none';
+                          div.style.background = 'transparent';
+                          div.style.color = '#000'; // Force black text
+                          
+                          if (ta.parentNode) {
+                              ta.parentNode.replaceChild(div, ta);
+                          }
+                      });
+
+                      // 4. Force Dimensions & Reset Styles on Container
                       if (container) {
                           container.style.transform = 'none';
                           container.style.width = `${A4_WIDTH_PX}px`;
                           container.style.minWidth = `${A4_WIDTH_PX}px`;
                           container.style.maxWidth = `${A4_WIDTH_PX}px`;
                           container.style.margin = '0';
-                          container.style.padding = '40px'; // consistent padding
+                          container.style.padding = '40px'; 
                           container.style.boxShadow = 'none';
                           container.style.border = 'none';
+                          container.style.height = 'auto'; // Allow growing
+                          container.style.overflow = 'visible'; // Show everything
                       }
                   }
               });
               
-              const imgData = canvas.toDataURL('image/jpeg', 0.9);
+              const imgData = canvas.toDataURL('image/jpeg', 0.95);
               const link = document.createElement('a');
               link.href = imgData;
               link.download = `DPR_${report.date}.jpg`;

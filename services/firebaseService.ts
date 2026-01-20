@@ -112,6 +112,33 @@ export const subscribeToUserProfile = (uid: string, onUpdate: (profile: UserProf
     });
 };
 
+export const saveUserMood = async (uid: string, mood: string, note: string) => {
+  if (!db) return;
+  const today = new Date().toISOString().split('T')[0];
+  const id = `${uid}_${today}`;
+  const moodEntry: UserMood = {
+      id,
+      uid,
+      mood: mood as any,
+      note,
+      timestamp: new Date().toISOString()
+  };
+  await setDoc(doc(db, MOOD_COLLECTION, id), moodEntry);
+};
+
+export const subscribeToTodayMood = (uid: string, onUpdate: (mood: UserMood | null) => void): Unsubscribe => {
+    if (!db) return () => {};
+    const today = new Date().toISOString().split('T')[0];
+    const id = `${uid}_${today}`;
+    return onSnapshot(doc(db, MOOD_COLLECTION, id), (docSnap: any) => {
+        if (docSnap.exists()) {
+            onUpdate(docSnap.data() as UserMood);
+        } else {
+            onUpdate(null);
+        }
+    });
+};
+
 export const logoutUser = async () => {
   if (!auth) return;
   await signOut(auth);
@@ -395,69 +422,5 @@ export const subscribeToLogs = (onUpdate: (logs: LogEntry[]) => void): Unsubscri
     const logs: LogEntry[] = [];
     snapshot.forEach((doc: any) => logs.push({ ...doc.data(), id: doc.id } as LogEntry));
     onUpdate(logs);
-  });
-};
-
-// --- MOOD (FRESH APPROACH) ---
-
-export const saveUserMood = async (uid: string, mood: UserMood['mood'], note?: string) => {
-  if (!db) return;
-  
-  // Create a deterministic ID based on Date + UID. 
-  // This prevents race conditions or duplicates for a single day.
-  const todayKey = new Date().toISOString().split('T')[0]; // "2025-01-20"
-  const docId = `mood_${uid}_${todayKey}`;
-
-  const docRef = doc(db, MOOD_COLLECTION, docId);
-  const docSnap = await getDoc(docRef);
-
-  if (docSnap.exists()) {
-      // Just update the mood if they changed their mind
-      await updateDoc(docRef, {
-          mood,
-          note,
-          timestamp: new Date().toISOString()
-      });
-  } else {
-      // New Entry for today
-      const entry: UserMood = {
-        id: docId,
-        uid,
-        timestamp: new Date().toISOString(),
-        mood,
-        note
-      };
-      await setDoc(docRef, entry);
-      
-      // Award Stats (Safely increment)
-      const userRef = doc(db, USER_COLLECTION, uid);
-      await updateDoc(userRef, {
-          totalDays: increment(1),
-          xp: increment(50)
-      });
-  }
-};
-
-export const subscribeToTodayMood = (uid: string, onUpdate: (mood: UserMood | null) => void): Unsubscribe => {
-    if (!db || !uid) return () => {};
-    const todayKey = new Date().toISOString().split('T')[0];
-    const docId = `mood_${uid}_${todayKey}`;
-    
-    return onSnapshot(doc(db, MOOD_COLLECTION, docId), (doc: any) => {
-        if(doc.exists()) {
-            onUpdate(doc.data() as UserMood);
-        } else {
-            onUpdate(null);
-        }
-    });
-};
-
-export const subscribeToUserMoods = (uid: string, onUpdate: (moods: UserMood[]) => void): Unsubscribe => {
-  if (!db || !uid) return () => {};
-  const q = query(collection(db, MOOD_COLLECTION), where("uid", "==", uid), orderBy("timestamp", "desc"), limit(20));
-  return onSnapshot(q, (snapshot: any) => {
-    const items: UserMood[] = [];
-    snapshot.forEach((doc: any) => items.push(doc.data() as UserMood));
-    onUpdate(items);
   });
 };
