@@ -405,14 +405,47 @@ export const subscribeToLogs = (onUpdate: (logs: LogEntry[]) => void): Unsubscri
 // --- Mood ---
 export const saveUserMood = async (uid: string, mood: UserMood['mood'], note?: string) => {
   if (!db) return;
-  const entry: UserMood = {
-    id: crypto.randomUUID(),
-    uid,
-    timestamp: new Date().toISOString(),
-    mood,
-    note
-  };
-  await setDoc(doc(db, MOOD_COLLECTION, entry.id), entry);
+  
+  // Check if a mood entry already exists for today
+  // Since timestamps differ, we need to check string equality of the date part
+  // However, firestore querying by derived date string is hard without storing it.
+  // We will assume we fetch recent moods in the component and can pass the ID if it exists,
+  // OR we just do a query here. Let's do a query here for robustness.
+  
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  // Query for entries by this user today
+  const q = query(
+      collection(db, MOOD_COLLECTION), 
+      where("uid", "==", uid),
+      where("timestamp", ">=", today.toISOString()),
+      where("timestamp", "<", tomorrow.toISOString())
+  );
+
+  const snapshot = await getDocs(q);
+  
+  if (!snapshot.empty) {
+      // Update existing
+      const docId = snapshot.docs[0].id;
+      await updateDoc(doc(db, MOOD_COLLECTION, docId), {
+          mood,
+          note,
+          timestamp: new Date().toISOString() // Update time to latest interaction
+      });
+  } else {
+      // Create new
+      const entry: UserMood = {
+        id: crypto.randomUUID(),
+        uid,
+        timestamp: new Date().toISOString(),
+        mood,
+        note
+      };
+      await setDoc(doc(db, MOOD_COLLECTION, entry.id), entry);
+  }
 };
 
 export const subscribeToUserMoods = (uid: string, onUpdate: (moods: UserMood[]) => void): Unsubscribe => {

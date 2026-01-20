@@ -297,141 +297,143 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
           </div>
 
           {/* Table Container - Standard CSS Grid */}
-          <div className="border-2 border-black text-xs">
-            
-            {/* Header Row */}
-            <div 
-                className="grid border-b-2 border-black bg-gray-200 divide-x-2 divide-black font-bold text-center uppercase tracking-wide"
-                style={{ gridTemplateColumns: gridTemplate }}
-            >
-              <div className="p-2 flex items-center justify-center">Location</div>
-              <div className="p-2 flex items-center justify-center">Component</div>
-              <div className="p-2 flex items-center justify-center">Area / CH</div>
-              <div className="p-2 flex items-center justify-center">Activity Description</div>
-              <div className="p-2 flex items-center justify-center">Next Plan</div>
-            </div>
-
-            {/* Data Rows */}
-            {entries.length === 0 ? (
-               <div className="p-12 text-center text-gray-400 italic">-- No Data --</div>
-            ) : (
-              entries.map((item, index) => (
+          <div className="border-2 border-black text-xs overflow-x-auto">
+            {/* Added min-w to force scroll on small screens instead of overlap */}
+            <div className="min-w-[800px]">
+                {/* Header Row */}
                 <div 
-                  key={item.id} 
-                  draggable={isDragMode}
-                  onDragStart={(e) => onDragStart(e, index)}
-                  onDragEnter={(e) => onDragEnter(e, index)}
-                  onDragEnd={onDragEnd}
-                  className={`grid divide-x divide-black leading-relaxed group hover:bg-blue-50/10 transition-colors relative
-                    ${index !== entries.length - 1 ? 'border-b border-black' : ''}
-                    ${isDragMode ? 'cursor-move' : ''}
-                  `}
-                  style={{ 
-                      gridTemplateColumns: gridTemplate,
-                      fontSize: `${fontSize}px`,
-                      minHeight: rowMinHeight > 0 ? `${rowMinHeight}px` : 'auto'
-                  }}
+                    className="grid border-b-2 border-black bg-gray-200 divide-x-2 divide-black font-bold text-center uppercase tracking-wide"
+                    style={{ gridTemplateColumns: gridTemplate }}
                 >
-                    {/* Delete Button (Floating Left) */}
-                    <div className="no-print absolute -left-8 top-2 opacity-0 group-hover:opacity-100 transition-opacity z-50">
-                        <button 
-                            onClick={() => handleDeleteClick(item)}
-                            className="bg-red-100 text-red-500 rounded-full w-6 h-6 flex items-center justify-center shadow hover:bg-red-500 hover:text-white"
-                        >
-                            <i className="fas fa-trash-alt text-[10px]"></i>
-                        </button>
+                <div className="p-2 flex items-center justify-center">Location</div>
+                <div className="p-2 flex items-center justify-center">Component</div>
+                <div className="p-2 flex items-center justify-center">Area / CH</div>
+                <div className="p-2 flex items-center justify-center">Activity Description</div>
+                <div className="p-2 flex items-center justify-center">Next Plan</div>
+                </div>
+
+                {/* Data Rows */}
+                {entries.length === 0 ? (
+                <div className="p-12 text-center text-gray-400 italic">-- No Data --</div>
+                ) : (
+                entries.map((item, index) => (
+                    <div 
+                    key={item.id} 
+                    draggable={isDragMode}
+                    onDragStart={(e) => onDragStart(e, index)}
+                    onDragEnter={(e) => onDragEnter(e, index)}
+                    onDragEnd={onDragEnd}
+                    className={`grid divide-x divide-black leading-relaxed group hover:bg-blue-50/10 transition-colors relative
+                        ${index !== entries.length - 1 ? 'border-b border-black' : ''}
+                        ${isDragMode ? 'cursor-move' : ''}
+                    `}
+                    style={{ 
+                        gridTemplateColumns: gridTemplate,
+                        fontSize: `${fontSize}px`,
+                        minHeight: rowMinHeight > 0 ? `${rowMinHeight}px` : 'auto'
+                    }}
+                    >
+                        {/* Delete Button (Floating Left) */}
+                        <div className="no-print absolute -left-8 top-2 opacity-0 group-hover:opacity-100 transition-opacity z-50">
+                            <button 
+                                onClick={() => handleDeleteClick(item)}
+                                className="bg-red-100 text-red-500 rounded-full w-6 h-6 flex items-center justify-center shadow hover:bg-red-500 hover:text-white"
+                            >
+                                <i className="fas fa-trash-alt text-[10px]"></i>
+                            </button>
+                        </div>
+
+                    {/* Location */}
+                    <div className="relative p-1.5 flex items-center">
+                        {editingLocationId === item.id ? (
+                        <div className="absolute top-0 left-0 z-30 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48">
+                            <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                                {Object.keys(hierarchy).map(loc => (
+                                <button key={loc} onClick={() => applyLocation(item.id, loc)} className="text-left text-xs p-1 hover:bg-indigo-50 rounded">
+                                    {loc}
+                                </button>
+                                ))}
+                            </div>
+                        </div>
+                        ) : (
+                        <div className="w-full h-full whitespace-pre-wrap break-words font-bold cursor-pointer" onClick={() => setEditingLocationId(item.id)}>
+                            <span className={item.location.includes('Needs Fix') ? 'text-red-500' : ''}>{item.location}</span>
+                        </div>
+                        )}
                     </div>
 
-                  {/* Location */}
-                  <div className="relative p-1.5 flex items-center">
-                    {editingLocationId === item.id ? (
-                      <div className="absolute top-0 left-0 z-30 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48">
-                         <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
-                            {Object.keys(hierarchy).map(loc => (
-                              <button key={loc} onClick={() => applyLocation(item.id, loc)} className="text-left text-xs p-1 hover:bg-indigo-50 rounded">
-                                {loc}
-                              </button>
-                            ))}
-                         </div>
-                      </div>
-                    ) : (
-                      <div className="w-full h-full whitespace-pre-wrap break-words font-bold cursor-pointer" onClick={() => setEditingLocationId(item.id)}>
-                         <span className={item.location.includes('Needs Fix') ? 'text-red-500' : ''}>{item.location}</span>
-                      </div>
-                    )}
-                  </div>
+                    {/* Component */}
+                    <div className="relative p-1.5 flex items-center">
+                        {editingComponentId === item.id ? (
+                        <div className="absolute top-0 left-0 z-20 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48">
+                            <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                                {(hierarchy[item.location] || []).map(sub => (
+                                <button key={sub} onClick={() => applyComponent(item.id, sub)} className="text-left text-xs p-1 hover:bg-indigo-50 rounded">
+                                    {sub}
+                                </button>
+                                ))}
+                            </div>
+                        </div>
+                        ) : (
+                        <div className="w-full h-full whitespace-pre-wrap break-words cursor-pointer" onClick={() => setEditingComponentId(item.id)}>
+                            {item.component || item.component}
+                        </div>
+                        )}
+                    </div>
 
-                  {/* Component */}
-                  <div className="relative p-1.5 flex items-center">
-                    {editingComponentId === item.id ? (
-                      <div className="absolute top-0 left-0 z-20 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48">
-                         <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
-                            {(hierarchy[item.location] || []).map(sub => (
-                              <button key={sub} onClick={() => applyComponent(item.id, sub)} className="text-left text-xs p-1 hover:bg-indigo-50 rounded">
-                                {sub}
-                              </button>
-                            ))}
-                         </div>
-                      </div>
-                    ) : (
-                      <div className="w-full h-full whitespace-pre-wrap break-words cursor-pointer" onClick={() => setEditingComponentId(item.id)}>
-                        {item.component || item.component}
-                      </div>
-                    )}
-                  </div>
+                    {/* Merged Area / CH */}
+                    <div className="relative p-1.5">
+                        <textarea
+                        value={item.structuralElement || item.chainage ? `${item.structuralElement || ''} ${item.chainage || ''}`.trim() : item.chainageOrArea}
+                        onChange={(e) => {
+                            handleLocalChange(item.id, 'structuralElement', e.target.value);
+                            handleLocalChange(item.id, 'chainage', ''); 
+                        }}
+                        onBlur={(e) => handleBlur(item.id, 'structuralElement', e.target.value)}
+                        className="w-full h-full bg-transparent resize-none outline-none font-medium text-slate-700 whitespace-pre-wrap break-words overflow-hidden"
+                        style={{ minHeight: '1.5em' }}
+                        onInput={(e) => {
+                            e.currentTarget.style.height = 'auto';
+                            e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
+                        }}
+                        />
+                    </div>
 
-                  {/* Merged Area / CH */}
-                  <div className="relative p-1.5">
-                     <textarea
-                      value={item.structuralElement || item.chainage ? `${item.structuralElement || ''} ${item.chainage || ''}`.trim() : item.chainageOrArea}
-                      onChange={(e) => {
-                          handleLocalChange(item.id, 'structuralElement', e.target.value);
-                          handleLocalChange(item.id, 'chainage', ''); 
-                      }}
-                      onBlur={(e) => handleBlur(item.id, 'structuralElement', e.target.value)}
-                      className="w-full h-full bg-transparent resize-none outline-none font-medium text-slate-700 whitespace-pre-wrap break-words overflow-hidden"
-                      style={{ minHeight: '1.5em' }}
-                      onInput={(e) => {
-                          e.currentTarget.style.height = 'auto';
-                          e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
-                      }}
-                    />
-                  </div>
+                    {/* Description */}
+                    <div className="relative p-1.5">
+                        <textarea
+                        value={item.activityDescription}
+                        onChange={(e) => handleLocalChange(item.id, 'activityDescription', e.target.value)}
+                        onBlur={(e) => handleBlur(item.id, 'activityDescription', e.target.value)}
+                        className="w-full h-full bg-transparent resize-none outline-none whitespace-pre-wrap break-words overflow-hidden"
+                        style={{ minHeight: '1.5em' }}
+                        onInput={(e) => {
+                            e.currentTarget.style.height = 'auto';
+                            e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
+                        }}
+                        // Initialize height on render
+                        ref={el => { if(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+                        />
+                    </div>
 
-                  {/* Description */}
-                  <div className="relative p-1.5">
-                     <textarea
-                      value={item.activityDescription}
-                      onChange={(e) => handleLocalChange(item.id, 'activityDescription', e.target.value)}
-                      onBlur={(e) => handleBlur(item.id, 'activityDescription', e.target.value)}
-                      className="w-full h-full bg-transparent resize-none outline-none whitespace-pre-wrap break-words overflow-hidden"
-                      style={{ minHeight: '1.5em' }}
-                      onInput={(e) => {
-                          e.currentTarget.style.height = 'auto';
-                          e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
-                      }}
-                      // Initialize height on render
-                      ref={el => { if(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
-                    />
-                  </div>
-
-                  {/* Next */}
-                  <div className="relative p-1.5">
-                     <textarea
-                      value={item.plannedNextActivity}
-                      onChange={(e) => handleLocalChange(item.id, 'plannedNextActivity', e.target.value)}
-                      onBlur={(e) => handleBlur(item.id, 'plannedNextActivity', e.target.value)}
-                      className="w-full h-full bg-transparent resize-none outline-none whitespace-pre-wrap break-words overflow-hidden"
-                      style={{ minHeight: '1.5em' }}
-                      onInput={(e) => {
-                          e.currentTarget.style.height = 'auto';
-                          e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
-                      }}
-                    />
-                  </div>
-                </div>
-              ))
-            )}
+                    {/* Next */}
+                    <div className="relative p-1.5">
+                        <textarea
+                        value={item.plannedNextActivity}
+                        onChange={(e) => handleLocalChange(item.id, 'plannedNextActivity', e.target.value)}
+                        onBlur={(e) => handleBlur(item.id, 'plannedNextActivity', e.target.value)}
+                        className="w-full h-full bg-transparent resize-none outline-none whitespace-pre-wrap break-words overflow-hidden"
+                        style={{ minHeight: '1.5em' }}
+                        onInput={(e) => {
+                            e.currentTarget.style.height = 'auto';
+                            e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
+                        }}
+                        />
+                    </div>
+                    </div>
+                ))
+                )}
+            </div>
           </div>
           
           <div className="absolute bottom-1 right-1 print:block">

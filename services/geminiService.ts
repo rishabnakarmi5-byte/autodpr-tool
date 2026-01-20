@@ -175,7 +175,12 @@ export const parseConstructionData = async (
              warnings.push(`Item "${item.activityDescription.substring(0, 20)}..." detected as Concrete but no Grade specified. Defaulting to C25.`);
          }
 
-         // 2. Missing Chainage/Elevation Check (Skip for Headworks)
+         // 2. Location Check (Unclassified)
+         if (loc.includes('unclassified') || loc.includes('needs fix') || loc === '') {
+             warnings.push(`Item "${item.activityDescription.substring(0, 20)}..." has an invalid Location. Please check.`);
+         }
+
+         // 3. Missing Chainage/Elevation Check (Skip for Headworks as mostly open area)
          if (!loc.includes('headworks')) {
              if (!item.chainage || item.chainage.trim() === '') {
                  warnings.push(`Item "${item.activityDescription.substring(0, 20)}..." at ${item.location} is missing Chainage or Elevation details.`);

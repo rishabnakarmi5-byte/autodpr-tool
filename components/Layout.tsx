@@ -144,11 +144,26 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                 </div>
             </div>
         ) : (
-            <div className="animate-fade-in flex flex-col md:flex-row items-start gap-4">
-                {/* Mood Indicator */}
-                <div className="bg-indigo-50 px-3 py-2 rounded-lg border border-indigo-100 flex items-center gap-2 shadow-sm">
-                    <span className="text-xl">{MOODS.find(m => m.label === todaysMood.mood)?.icon}</span>
-                    <span className="text-xs font-bold text-indigo-900">{todaysMood.mood}</span>
+            <div className="animate-fade-in flex flex-col items-start gap-4">
+                <div className="flex items-center gap-3">
+                   {/* Mood Indicator */}
+                    <div className="bg-indigo-50 px-3 py-2 rounded-lg border border-indigo-100 flex items-center gap-2 shadow-sm">
+                        <span className="text-xl">{MOODS.find(m => m.label === todaysMood.mood)?.icon}</span>
+                        <span className="text-xs font-bold text-indigo-900">{todaysMood.mood}</span>
+                    </div>
+                    {/* Allow Update */}
+                    <div className="flex gap-1">
+                        {MOODS.filter(m => m.label !== todaysMood.mood).map(m => (
+                             <button 
+                                key={m.label} 
+                                onClick={() => handleMoodSelect(m)}
+                                className="w-8 h-8 rounded-full border border-slate-100 flex items-center justify-center bg-white text-base hover:bg-slate-50 transition-colors"
+                                title={`Change to ${m.label}`}
+                             >
+                                {m.icon}
+                             </button>
+                        ))}
+                    </div>
                 </div>
 
                 {/* AI Response Bubble */}
