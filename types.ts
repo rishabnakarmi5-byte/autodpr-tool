@@ -1,5 +1,4 @@
 
-
 export interface DPRItem {
   id: string;
   location: string;
@@ -84,6 +83,14 @@ export interface UserProfile {
   level: number;
   xp: number;
   joinedDate: string;
+}
+
+export interface UserMood {
+  id: string;
+  uid: string;
+  timestamp: string;
+  mood: 'Happy' | 'Sad' | 'Excited' | 'Frustrated' | 'Tired';
+  note?: string;
 }
 
 export enum TabView {

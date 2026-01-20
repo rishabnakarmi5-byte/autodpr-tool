@@ -2,7 +2,7 @@
 import * as _app from "firebase/app";
 import * as _firestore from "firebase/firestore";
 import * as _auth from "firebase/auth";
-import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry, ProjectSettings, UserProfile } from "../types";
+import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry, ProjectSettings, UserProfile, UserMood } from "../types";
 import { LOCATION_HIERARCHY, identifyItemType, parseQuantityDetails } from "../utils/constants";
 
 // Workaround for potential type definition mismatches
@@ -55,6 +55,7 @@ const REPORT_HISTORY_COLLECTION = "report_history";
 const QUANTITY_COLLECTION = "quantities";
 const SETTINGS_COLLECTION = "project_settings";
 const USER_COLLECTION = "user_profiles";
+const MOOD_COLLECTION = "user_moods";
 
 // --- Authentication & Profile ---
 
@@ -398,5 +399,28 @@ export const subscribeToLogs = (onUpdate: (logs: LogEntry[]) => void): Unsubscri
     const logs: LogEntry[] = [];
     snapshot.forEach((doc: any) => logs.push({ ...doc.data(), id: doc.id } as LogEntry));
     onUpdate(logs);
+  });
+};
+
+// --- Mood ---
+export const saveUserMood = async (uid: string, mood: UserMood['mood'], note?: string) => {
+  if (!db) return;
+  const entry: UserMood = {
+    id: crypto.randomUUID(),
+    uid,
+    timestamp: new Date().toISOString(),
+    mood,
+    note
+  };
+  await setDoc(doc(db, MOOD_COLLECTION, entry.id), entry);
+};
+
+export const subscribeToUserMoods = (uid: string, onUpdate: (moods: UserMood[]) => void): Unsubscribe => {
+  if (!db || !uid) return () => {};
+  const q = query(collection(db, MOOD_COLLECTION), where("uid", "==", uid), orderBy("timestamp", "desc"), limit(20));
+  return onSnapshot(q, (snapshot: any) => {
+    const items: UserMood[] = [];
+    snapshot.forEach((doc: any) => items.push(doc.data() as UserMood));
+    onUpdate(items);
   });
 };

@@ -11,10 +11,13 @@ interface ReportTableProps {
   onUpdateAllEntries?: (entries: DPRItem[]) => void;
   onUndo?: () => void;
   canUndo?: boolean;
+  onRedo?: () => void;
+  canRedo?: boolean;
+  onNormalize?: () => void;
   hierarchy: Record<string, string[]>;
 }
 
-export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, onUpdateItem, onUpdateAllEntries, onUndo, canUndo, hierarchy }) => {
+export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, onUpdateItem, onUpdateAllEntries, onUndo, canUndo, onRedo, canRedo, onNormalize, hierarchy }) => {
   
   const [entries, setEntries] = useState<DPRItem[]>(report.entries);
   const [fontSize, setFontSize] = useState<number>(12);
@@ -63,6 +66,25 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         const el = document.getElementById('print-style-override');
         if(el) el.remove();
     }, 1000);
+  };
+
+  const handleDownloadJPG = async () => {
+      setIsExporting(true);
+      const input = document.getElementById('printable-report');
+      if (input && window.html2canvas) {
+          try {
+              const canvas = await window.html2canvas(input, { scale: 2, backgroundColor: '#ffffff' });
+              const imgData = canvas.toDataURL('image/jpeg', 0.9);
+              const link = document.createElement('a');
+              link.href = imgData;
+              link.download = `DPR_${report.date}.jpg`;
+              link.click();
+          } catch(e) {
+              console.error(e);
+              alert("Failed to capture image.");
+          }
+      }
+      setIsExporting(false);
   };
 
   const handleLocalChange = (id: string, field: keyof DPRItem, value: string) => {
@@ -132,11 +154,36 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
       
       {/* Action Bar */}
       <div className="flex flex-col xl:flex-row justify-between items-center bg-white p-6 rounded-2xl shadow-lg shadow-slate-200/50 border border-slate-100 gap-6">
-        <div>
-           <h2 className="text-xl font-bold text-slate-800">Final Report</h2>
-           <p className="text-sm text-slate-500 mt-1">
-             Drag rows to reorder.
-           </p>
+        <div className="flex gap-4 items-center">
+           <div>
+              <h2 className="text-xl font-bold text-slate-800">Final Report</h2>
+              <p className="text-sm text-slate-500 mt-1">
+                Drag rows to reorder.
+              </p>
+           </div>
+           
+           <div className="flex gap-2">
+             {canUndo && (
+               <button onClick={onUndo} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600" title="Undo">
+                  <i className="fas fa-undo"></i>
+               </button>
+             )}
+             {canRedo && (
+               <button onClick={onRedo} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600" title="Redo">
+                  <i className="fas fa-redo"></i>
+               </button>
+             )}
+           </div>
+
+           {onNormalize && (
+               <button 
+                  onClick={onNormalize} 
+                  className="bg-purple-100 text-purple-700 hover:bg-purple-200 px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-2"
+                  title="Re-parse Chainage & Area fields based on text"
+               >
+                  <i className="fas fa-sync-alt"></i> Sync/Normalize
+               </button>
+           )}
         </div>
 
         {/* Controls */}
@@ -184,6 +231,14 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
             >
               <i className="fas fa-print mr-2"></i> Print / PDF
           </button>
+          
+          <button 
+              onClick={handleDownloadJPG}
+              disabled={isExporting}
+              className="flex items-center justify-center px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
+            >
+              {isExporting ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-image mr-2"></i>} JPG
+          </button>
         </div>
       </div>
 
@@ -191,6 +246,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
       <div className="overflow-auto bg-slate-200/50 p-4 md:p-8 rounded-2xl border border-slate-200 text-center flex justify-center">
         
         <div 
+          id="printable-report"
           className="report-page bg-white p-[15mm] shadow-2xl text-left relative mb-8 transition-all duration-300 origin-top"
           style={{ 
               width: currentDimensions.w, 
@@ -297,7 +353,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                       value={item.structuralElement || ''}
                       onChange={(e) => handleLocalChange(item.id, 'structuralElement', e.target.value)}
                       onBlur={(e) => handleBlur(item.id, 'structuralElement', e.target.value)}
-                      className="w-full h-full bg-transparent resize-none outline-none font-medium"
+                      className="w-full h-full bg-transparent resize-none outline-none font-medium text-indigo-700"
                       style={{ fontSize: `${fontSize}px` }}
                       placeholder="Area"
                     />
@@ -306,16 +362,14 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   {/* CH / EL */}
                   <div className="col-span-1 p-1.5 relative">
                      <textarea
-                      value={item.chainage || item.chainageOrArea || ''}
+                      value={item.chainage || ''}
                       onChange={(e) => {
                           handleLocalChange(item.id, 'chainage', e.target.value);
-                          // Keep fallback sync for now if needed, or drift apart
-                          handleLocalChange(item.id, 'chainageOrArea', e.target.value); 
                       }}
                       onBlur={(e) => handleBlur(item.id, 'chainage', e.target.value)}
                       className="w-full h-full bg-transparent resize-none outline-none font-mono text-[10px]"
                       style={{ fontSize: `${fontSize}px` }}
-                      placeholder="Pos"
+                      placeholder="Ch/EL"
                     />
                   </div>
 

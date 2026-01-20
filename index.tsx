@@ -9,9 +9,10 @@ import { ActivityLogs } from './components/ActivityLogs';
 import { RecycleBin } from './components/RecycleBin';
 import { QuantityView } from './components/QuantityView';
 import { ProjectSettingsView } from './components/ProjectSettings';
+import { ProfileView } from './components/ProfileView';
 import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, syncQuantitiesFromItems, getProjectSettings, saveProjectSettings, incrementUserStats } from './services/firebaseService';
 import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings } from './types';
-import { getLocationPriority, LOCATION_HIERARCHY } from './utils/constants';
+import { getLocationPriority, LOCATION_HIERARCHY, parseQuantityDetails } from './utils/constants';
 
 const App = () => {
   const [user, setUser] = useState<any | null>(null);
@@ -28,6 +29,7 @@ const App = () => {
   const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
   const [currentEntries, setCurrentEntries] = useState<DPRItem[]>([]);
   const [undoStack, setUndoStack] = useState<DPRItem[][]>([]);
+  const [redoStack, setRedoStack] = useState<DPRItem[][]>([]);
   
   // Settings State
   const [settings, setSettings] = useState<ProjectSettings | null>(null);
@@ -85,7 +87,10 @@ const App = () => {
     }
   }, [currentDate, reports]);
   
-  useEffect(() => setUndoStack([]), [currentDate, currentReportId]);
+  useEffect(() => {
+      setUndoStack([]);
+      setRedoStack([]);
+  }, [currentDate, currentReportId]);
 
   const handleLogin = async () => { try { await signInWithGoogle(); } catch (error) { alert("Failed to sign in."); } };
   const getUserName = () => user?.displayName || user?.email || 'Anonymous';
@@ -110,12 +115,19 @@ const App = () => {
     } catch (e) { console.error("Failed to save", e); return null; }
   };
 
+  // Helper to manage undo stack push
+  const pushUndo = (entries: DPRItem[]) => {
+      setUndoStack(prev => [...prev.slice(-19), entries]);
+      setRedoStack([]); // Clear redo on new action
+  };
+
   const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
     const existingReportOnServer = reports.find(r => r.date === currentDate);
     const effectiveReportId = existingReportOnServer ? existingReportOnServer.id : (currentReportId || crypto.randomUUID());
     const baseEntries = existingReportOnServer ? existingReportOnServer.entries : currentEntries;
 
-    setUndoStack(prev => [...prev.slice(-19), baseEntries]);
+    pushUndo(baseEntries);
+    
     const backupId = await savePermanentBackup(currentDate, rawText, newItems, getUserName(), effectiveReportId);
 
     let updatedEntries = [...baseEntries, ...newItems];
@@ -136,6 +148,7 @@ const App = () => {
   };
 
   const handleUpdateItem = (id: string, field: keyof DPRItem, value: string) => {
+    pushUndo(currentEntries);
     const updatedEntries = currentEntries.map(item => item.id === id ? { ...item, [field]: value } : item);
     setCurrentEntries(updatedEntries);
     saveCurrentState(updatedEntries, currentDate, currentReportId);
@@ -143,7 +156,7 @@ const App = () => {
   };
 
   const handleDeleteItem = async (id: string) => {
-    setUndoStack(prev => [...prev.slice(-19), currentEntries]);
+    pushUndo(currentEntries);
     const item = currentEntries.find(i => i.id === id);
     if (!item || !currentReportId) return;
     await moveItemToTrash(item, currentReportId, currentDate, getUserName());
@@ -156,10 +169,43 @@ const App = () => {
   const handleUndo = async () => {
       if (undoStack.length === 0) return;
       const previousState = undoStack[undoStack.length - 1];
+      
+      // Push current to redo
+      setRedoStack(prev => [...prev, currentEntries]);
+      
       setUndoStack(undoStack.slice(0, -1));
       setCurrentEntries(previousState);
       await saveCurrentState(previousState, currentDate, currentReportId);
       logActivity(getUserName(), "Undo", "Reverted report state", currentDate);
+  };
+
+  const handleRedo = async () => {
+      if (redoStack.length === 0) return;
+      const nextState = redoStack[redoStack.length - 1];
+
+      // Push current to undo (without clearing redo, handled by setRedoStack below)
+      setUndoStack(prev => [...prev, currentEntries]);
+
+      setRedoStack(redoStack.slice(0, -1));
+      setCurrentEntries(nextState);
+      await saveCurrentState(nextState, currentDate, currentReportId);
+      logActivity(getUserName(), "Redo", "Restored report state", currentDate);
+  };
+
+  const handleNormalizeReport = async () => {
+      pushUndo(currentEntries);
+      const updatedEntries = currentEntries.map(item => {
+          const parsed = parseQuantityDetails(item.location, item.component, item.chainageOrArea, item.activityDescription);
+          return {
+              ...item,
+              component: parsed.structure || item.component,
+              structuralElement: parsed.detailElement || item.structuralElement,
+              chainage: parsed.detailLocation || item.chainage
+          };
+      });
+      setCurrentEntries(updatedEntries);
+      await saveCurrentState(updatedEntries, currentDate, currentReportId);
+      logActivity(getUserName(), "Normalize", "Re-parsed all items", currentDate);
   };
 
   const handleSaveSettings = async (s: ProjectSettings) => {
@@ -228,12 +274,13 @@ const App = () => {
   return (
     <Layout activeTab={activeTab} onTabChange={handleTabChange} user={user} onLogout={logoutUser}>
         {activeTab === TabView.INPUT && <InputSection currentDate={currentDate} onDateChange={setCurrentDate} onItemsAdded={handleItemsAdded} onViewReport={() => setActiveTab(TabView.VIEW_REPORT)} entryCount={currentEntries.length} user={user} hierarchy={hierarchy} />}
-        {activeTab === TabView.VIEW_REPORT && <ReportTable report={currentReport} onDeleteItem={handleDeleteItem} onUpdateItem={handleUpdateItem} onUndo={handleUndo} canUndo={undoStack.length > 0} hierarchy={hierarchy} />}
+        {activeTab === TabView.VIEW_REPORT && <ReportTable report={currentReport} onDeleteItem={handleDeleteItem} onUpdateItem={handleUpdateItem} onUndo={handleUndo} canUndo={undoStack.length > 0} onRedo={handleRedo} canRedo={redoStack.length > 0} onNormalize={handleNormalizeReport} hierarchy={hierarchy} />}
         {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={handleSelectReport} onDeleteReport={async (id) => { await moveReportToTrash(reports.find(r => r.id === id)!, getUserName()); }} onCreateNew={handleCreateNew} />}
         {activeTab === TabView.LOGS && <ActivityLogs logs={logs} />}
         {activeTab === TabView.RECYCLE_BIN && <RecycleBin logs={logs} trashItems={trashItems} onRestore={async (item) => { await restoreTrashItem(item); }} />}
         {activeTab === TabView.SETTINGS && <ProjectSettingsView currentSettings={settings} onSave={handleSaveSettings} />}
+        {activeTab === TabView.PROFILE && <ProfileView user={user} />}
     </Layout>
   );
 };

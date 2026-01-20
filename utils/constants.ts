@@ -133,8 +133,8 @@ export const STRUCTURAL_ELEMENTS = [
 ];
 
 // Expanded to handle "Ch 0 to 38m" and simple "0+000"
-export const CHAINAGE_PATTERN = /(?:ch\.?|chainage)\s*([\d\+\-\.]+)(?:\s*(?:to|-)\s*([\d\+\-\.]+))?/i;
-export const ELEVATION_PATTERN = /(?:el\.?|elevation|level)\s*([\d\+\-\.]+)(?:\s*(?:to|-)\s*([\d\+\-\.]+))?/i;
+export const CHAINAGE_PATTERN = /(?:ch\.?|chainage|chain|@)\s*(\d+\+\d+(?:\.\d+)?|[\d\+\-\.]+)(?:\s*(?:to|-)\s*(\d+\+\d+(?:\.\d+)?|[\d\+\-\.]+))?/i;
+export const ELEVATION_PATTERN = /(?:el\.?|elevation|level|lvl)\s*([\d\+\-\.]+)(?:\s*(?:to|-)\s*([\d\+\-\.]+))?/i;
 
 // --- Helper Functions ---
 
@@ -165,6 +165,8 @@ export const extractChainageAndFormat = (text: string): string | null => {
     const startRaw = match[1];
     const endRaw = match[2];
 
+    // Basic validation to avoid matching just "2" or simple numbers as chainage unless they look like 0+000
+    // But user wants robust parsing.
     const start = formatChainageNumber(startRaw);
     if (endRaw) {
       const end = formatChainageNumber(endRaw);
@@ -183,69 +185,63 @@ export const parseQuantityDetails = (
   description: string
 ) => {
   const elements = new Set<string>();
-  let chainageStr = null;
+  let chainageStr = "";
   
-  // 1. Structure/Component Logic
   let component = componentInput || "";
   
-  // Try to find chainage in the "Chainage / Area" field first
-  const chainageFromInput = extractChainageAndFormat(chainageOrAreaInput);
-  
-  if (!component) {
-      if (chainageFromInput) {
-        // chainageOrAreaInput was just a number "Ch 100". Component is inferred to be Location.
-        component = location; 
-      } else {
-        // chainageOrAreaInput was likely a name "Barrage".
-        component = chainageOrAreaInput; 
-      }
-  }
-
-  // 2. Chainage Logic - PRIORITIZE explicit field
-  if (chainageFromInput) {
-      chainageStr = chainageFromInput;
-  } else {
-      // Fallback: try to find chainage in description
-      chainageStr = extractChainageAndFormat(description);
-  }
-
-  // 3. Scan for Elements in Input & Description
   const combinedText = `${chainageOrAreaInput} ${description}`;
+
+  // 1. SCAN FOR AREA / STRUCTURAL ELEMENT (High Priority)
   STRUCTURAL_ELEMENTS.forEach(p => {
     if (p.regex.test(combinedText)) {
       elements.add(p.label);
     }
   });
 
-  // 4. Elevation
-  const elMatch = combinedText.match(ELEVATION_PATTERN);
-  if (elMatch) {
-    const elStr = elMatch[0].trim();
-    // Append to chainage string for the "Chainage / EL" column
-    chainageStr = chainageStr ? `${chainageStr}, ${elStr}` : elStr;
+  // 2. SCAN FOR CHAINAGE / ELEVATION
+  // Check chainageOrAreaInput specifically for Ch/EL patterns first to move them to valid column
+  let chainageFromInput = extractChainageAndFormat(chainageOrAreaInput);
+  const elMatchInput = chainageOrAreaInput.match(ELEVATION_PATTERN);
+
+  if (chainageFromInput) {
+    chainageStr += (chainageStr ? ", " : "") + chainageFromInput;
+  }
+  if (elMatchInput) {
+    const elStr = elMatchInput[0].trim();
+    chainageStr += (chainageStr ? ", " : "") + elStr;
   }
 
-  // 5. Contextual Rules for "Component" vs "Area"
-  const lowerLoc = location.toLowerCase();
-  const lowerDesc = combinedText.toLowerCase();
-
-  // Rule: Tailrace + Lift -> Component = "Wall" or "Tailrace Tunnel" with Area "Wall"?
-  if (lowerLoc.includes('tailrace') && lowerDesc.includes('lift')) {
-      if (!elements.has('Wall')) elements.add('Wall');
-      // If component is generic, we might want to ensure it says Tailrace Tunnel or Wall
-      if (component === location) component = "Tailrace Tunnel (TRT)"; 
+  // Also check Description for Chainage/EL if not found yet or to append
+  if (!chainageStr) {
+      const chDesc = extractChainageAndFormat(description);
+      if (chDesc) chainageStr += (chainageStr ? ", " : "") + chDesc;
+      
+      const elDesc = description.match(ELEVATION_PATTERN);
+      if (elDesc) chainageStr += (chainageStr ? ", " : "") + elDesc[0].trim();
   }
 
-  if (lowerLoc.includes('pressure tunnel') && lowerDesc.includes('lift')) {
-      if (!elements.has('Infill')) elements.add('Infill');
+  // 3. Fallback logic if component is missing
+  if (!component) {
+      // If the input was purely a Chainage or Elevation, assume Location is Component? 
+      // Or if input was an Element name, treat as component?
+      // Logic: If Elements found, pick first as component? 
+      // Better: Keep component empty or default to Location if totally unknown.
+      if (chainageFromInput || elMatchInput) {
+         component = location;
+      } else if (elements.size > 0) {
+         // Maybe use first element as component if strictly missing?
+         // component = Array.from(elements)[0]; 
+      } else {
+         component = chainageOrAreaInput; // Fallback to raw string if nothing parsed
+      }
   }
-  
-  // Clean up Elements string
+
+  // 4. Refine Elements string
   const detailElement = Array.from(elements).join(', ');
 
   return {
     structure: component,
-    detailElement,
-    detailLocation: chainageStr || ''
+    detailElement: detailElement, // Area
+    detailLocation: chainageStr // Chainage / EL
   };
 };
