@@ -90,7 +90,7 @@ const updateUserProfile = async (user: any) => {
         };
         await setDoc(userRef, newProfile);
     } else {
-        // Update last seen logic could go here
+        // We could update lastSeen here if needed
     }
 }
 
@@ -439,8 +439,14 @@ export const saveUserMood = async (uid: string, mood: UserMood['mood'], note?: s
         note
       };
       await setDoc(doc(db, MOOD_COLLECTION, entry.id), entry);
-      // Award XP for daily check-in
-      await incrementUserStats(uid, 0, 50);
+      
+      // Award XP for daily check-in AND update Total Days if not already done today
+      const userRef = doc(db, USER_COLLECTION, uid);
+      // We perform a specific update to ensure stats are bumped
+      await updateDoc(userRef, {
+          totalDays: increment(1), // Increment day streak
+          xp: increment(50)       // Award 50 XP
+      });
   }
 };
 

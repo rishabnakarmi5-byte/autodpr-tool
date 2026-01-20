@@ -44,42 +44,44 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
       const input = document.getElementById('printable-report');
       if (input && window.html2canvas) {
           try {
-              // We use onclone to manipulate the DOM before screenshot
+              // A4 width in pixels at 96 DPI is approximately 794px
+              const A4_WIDTH_PX = 794;
+              
               const canvas = await window.html2canvas(input, { 
-                  scale: 2, 
-                  backgroundColor: '#ffffff',
+                  scale: 2, // Higher scale for better quality, but base dim is A4
                   useCORS: true,
+                  width: A4_WIDTH_PX, 
+                  windowWidth: A4_WIDTH_PX, // Force the window width context
+                  backgroundColor: '#ffffff',
                   onclone: (clonedDoc) => {
-                      // 1. Remove all elements with 'no-print' class
+                      // 1. Remove non-printable elements
                       const elementsToRemove = clonedDoc.querySelectorAll('.no-print');
                       elementsToRemove.forEach(el => el.remove());
                       
-                      // 2. Remove the Actions column header and cells specifically if class fails
-                      // (Finding the 6th th and td)
+                      // 2. Hide Actions Column (6th column index 5)
                       const tables = clonedDoc.querySelectorAll('table');
                       tables.forEach(table => {
-                          // Header
                           const ths = table.querySelectorAll('th');
-                          if (ths.length > 5) ths[5].style.display = 'none'; // Hide Action Header
+                          if (ths.length > 5) ths[5].style.display = 'none';
                           
-                          // Rows
                           const rows = table.querySelectorAll('tr');
                           rows.forEach(row => {
                               const tds = row.querySelectorAll('td');
-                              if (tds.length > 5) tds[5].style.display = 'none'; // Hide Action Cell
+                              if (tds.length > 5) tds[5].style.display = 'none';
                           });
                       });
 
-                      // 3. Reset transform and set fixed width to prevent scrollbars
+                      // 3. FORCE A4 DIMENSIONS & RESET SCALING
                       const container = clonedDoc.getElementById('printable-report');
                       if (container) {
                           container.style.transform = 'none';
-                          container.style.width = '210mm'; // A4 Width
-                          container.style.maxWidth = '210mm';
-                          container.style.height = 'auto';
-                          container.style.overflow = 'hidden';
-                          container.style.boxShadow = 'none';
+                          container.style.width = `${A4_WIDTH_PX}px`;
+                          container.style.minWidth = `${A4_WIDTH_PX}px`;
+                          container.style.maxWidth = `${A4_WIDTH_PX}px`;
                           container.style.margin = '0';
+                          container.style.padding = '40px'; // consistent padding
+                          container.style.boxShadow = 'none';
+                          container.style.border = 'none';
                       }
                   }
               });
@@ -422,8 +424,9 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               </tbody>
           </table>
           
-          <div className="mt-4 text-right">
-             <span className="text-[10px] text-slate-400 tracking-tight">Generated via Construction DPR Maker</span>
+          {/* INVISIBLE FOOTER BUT DETECTABLE IN DOM */}
+          <div className="mt-4 text-right opacity-0 text-[1px] select-none pointer-events-none">
+             Generated via Construction DPR Maker. Developed by Rishab Nakarmi.
           </div>
         </div>
       </div>
