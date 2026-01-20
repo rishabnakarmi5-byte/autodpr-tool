@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { DPRItem } from "../types";
 import { LOCATION_HIERARCHY } from "../utils/constants";
@@ -8,9 +9,11 @@ export const parseConstructionData = async (
   rawText: string,
   instructions?: string,
   contextLocations?: string[],
-  contextComponents?: string[]
-): Promise<Omit<DPRItem, 'id'>[]> => {
+  contextComponents?: string[],
+  customHierarchy?: Record<string, string[]>
+): Promise<{ items: Omit<DPRItem, 'id'>[], warnings: string[] }> => {
   
+  const hierarchyToUse = customHierarchy || LOCATION_HIERARCHY;
   const instructionBlock = instructions 
     ? `USER SPECIFIC INSTRUCTIONS (Prioritize these): ${instructions}` 
     : 'No specific user instructions.';
@@ -26,7 +29,7 @@ export const parseConstructionData = async (
   }
 
   // Flatten the hierarchy to show the model valid components
-  const hierarchyString = Object.entries(LOCATION_HIERARCHY).map(([loc, comps]) => {
+  const hierarchyString = Object.entries(hierarchyToUse).map(([loc, comps]) => {
       return `LOCATION: "${loc}" contains COMPONENTS: [${comps.join(', ')}]`;
   }).join('\n    ');
 
@@ -40,8 +43,12 @@ export const parseConstructionData = async (
 
     ---------------------------------------------------------
     CRITICAL HIERARCHY RULES (FOLLOW STRICTLY):
-    You must classify 'location' (Main Area) and 'component' (Sub Area) STRICTLY based on the provided hierarchy.
-    
+    You must classify data into 4 levels:
+    1. LOCATION (Main Area, e.g., Headworks, Powerhouse)
+    2. COMPONENT (Structure, e.g., Barrage, Intake, Main Building)
+    3. STRUCTURAL ELEMENT (Specific part, e.g., Raft, Wall, Slab, Invert, Arch)
+    4. CHAINAGE/EL (Position, e.g., Ch 0+100, EL 1400)
+
     NEVER use a Component name as a Location. 
     
     CORRECT MAPPINGS (Memorize These):
@@ -68,9 +75,10 @@ export const parseConstructionData = async (
     ---------------------------------------------------------
 
     The output format must be a list of items with the following fields:
-    - location: The major site location (MUST be one of the top-level keys like "Headworks", "Powerhouse", "Headrace Tunnel (HRT)").
+    - location: The major site location (MUST be one of the top-level keys).
     - component: The specific structure (MUST be one of the values listed under that location).
-    - chainageOrArea: The specific detail, lift, or chainage (e.g. "Raft", "Wall 1st Lift", "Ch 0+100").
+    - structuralElement: The specific part (Raft, Wall, Kicker, etc.). Extract from text.
+    - chainage: The specific chainage or elevation (e.g. "Ch 0+100 to 0+115").
     - activityDescription: What work was done today (include quantities like m3, T, msq).
     - plannedNextActivity: What is planned for tomorrow/next day.
 
@@ -79,7 +87,7 @@ export const parseConstructionData = async (
     ${rawText}
     """
 
-    If the text contains multiple distinct activities, break them into separate items.
+    If the text contains "Concrete" or "Concreting" or "Plum" but NO grade (C10, C15, C20, C25, C30, C35) is specified, assume it is "C25" but DO NOT write C25 in the description unless you are sure. I will handle the warning.
     Clean up the text to be professional and concise suitable for a formal report.
   `;
 
@@ -90,26 +98,61 @@ export const parseConstructionData = async (
       config: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              location: { type: Type.STRING },
-              component: { type: Type.STRING },
-              chainageOrArea: { type: Type.STRING },
-              activityDescription: { type: Type.STRING },
-              plannedNextActivity: { type: Type.STRING },
-            },
-            required: ["location", "chainageOrArea", "activityDescription", "plannedNextActivity"],
-          },
+          type: Type.OBJECT,
+          properties: {
+             items: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    location: { type: Type.STRING },
+                    component: { type: Type.STRING },
+                    structuralElement: { type: Type.STRING },
+                    chainage: { type: Type.STRING },
+                    activityDescription: { type: Type.STRING },
+                    plannedNextActivity: { type: Type.STRING },
+                  },
+                  required: ["location", "activityDescription", "plannedNextActivity"],
+                },
+             },
+             warnings: {
+               type: Type.ARRAY,
+               items: { type: Type.STRING }
+             }
+          }
         },
       },
     });
 
     if (response.text) {
-      return JSON.parse(response.text);
+      const result = JSON.parse(response.text);
+      
+      // Post-processing to map to DPRItem structure
+      const processedItems = result.items.map((item: any) => ({
+          location: item.location || "Unclassified / Needs Fix",
+          component: item.component || "",
+          structuralElement: item.structuralElement || "",
+          chainage: item.chainage || "",
+          chainageOrArea: (item.chainage || "") + (item.structuralElement ? " " + item.structuralElement : ""),
+          activityDescription: item.activityDescription,
+          plannedNextActivity: item.plannedNextActivity
+      }));
+
+      // Infer warnings locally if model didn't catch them
+      const warnings: string[] = result.warnings || [];
+      
+      // Check for Concrete grade default
+      processedItems.forEach((item: any) => {
+         const desc = item.activityDescription.toLowerCase();
+         if ((desc.includes('concrete') || desc.includes('concreting') || desc.includes('plum')) && 
+             !desc.match(/c\d{2}|grade|m\d{2}/i)) {
+             warnings.push(`Item "${item.activityDescription.substring(0, 20)}..." detected as Concrete but no Grade specified. Defaulting to C25.`);
+         }
+      });
+
+      return { items: processedItems, warnings };
     }
-    return [];
+    return { items: [], warnings: [] };
   } catch (error) {
     console.error("Error parsing construction data:", error);
     throw error;

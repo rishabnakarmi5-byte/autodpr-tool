@@ -1,11 +1,13 @@
+
 import * as _app from "firebase/app";
 import * as _firestore from "firebase/firestore";
 import * as _auth from "firebase/auth";
-import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry } from "../types";
+import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry, ProjectSettings, UserProfile } from "../types";
+import { LOCATION_HIERARCHY, identifyItemType, parseQuantityDetails } from "../utils/constants";
 
 // Workaround for potential type definition mismatches
 const { initializeApp } = _app as any;
-const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, getDocs, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion, where } = _firestore as any;
+const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, getDocs, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion, where, increment } = _firestore as any;
 const { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } = _auth as any;
 
 // Define loose types for internal use to avoid import errors
@@ -22,13 +24,12 @@ const firebaseConfig = {
   measurementId: process.env.measurementId
 };
 
-// Robust check to warn which specific keys are missing
 const missingKeys = Object.entries(firebaseConfig)
-  .filter(([key, value]) => !value && key !== 'measurementId') // measurementId is optional
+  .filter(([key, value]) => !value && key !== 'measurementId') 
   .map(([key]) => key);
 
 if (missingKeys.length > 0) {
-  console.error(`Firebase Configuration Error: The following keys are missing in environment variables: ${missingKeys.join(', ')}.`);
+  console.error(`Firebase Configuration Error: Missing: ${missingKeys.join(', ')}.`);
 }
 
 let app;
@@ -40,12 +41,10 @@ if (missingKeys.length === 0) {
     app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
-    console.log("Firebase initialized successfully (Auth & Firestore only).");
+    console.log("Firebase initialized.");
   } catch (error) {
     console.error("Failed to initialize Firebase:", error);
   }
-} else {
-  console.warn("Firebase not initialized due to missing config.");
 }
 
 const REPORT_COLLECTION = "daily_reports";
@@ -54,176 +53,250 @@ const TRASH_COLLECTION = "trash_bin";
 const BACKUP_COLLECTION = "permanent_backups";
 const REPORT_HISTORY_COLLECTION = "report_history";
 const QUANTITY_COLLECTION = "quantities";
+const SETTINGS_COLLECTION = "project_settings";
+const USER_COLLECTION = "user_profiles";
 
-// --- Authentication ---
+// --- Authentication & Profile ---
 
 export const signInWithGoogle = async () => {
-  if (!auth) throw new Error("Authentication service not initialized. Check configuration.");
+  if (!auth) throw new Error("Authentication service not initialized.");
   const provider = new GoogleAuthProvider();
   try {
     const result = await signInWithPopup(auth, provider);
+    await updateUserProfile(result.user);
     return result.user;
   } catch (error) {
-    console.error("Error signing in with Google", error);
+    console.error("Error signing in", error);
     throw error;
   }
 };
 
+const updateUserProfile = async (user: any) => {
+    if(!db || !user) return;
+    const userRef = doc(db, USER_COLLECTION, user.uid);
+    const snap = await getDoc(userRef);
+
+    if (!snap.exists()) {
+        const newProfile: UserProfile = {
+            uid: user.uid,
+            displayName: user.displayName || 'User',
+            email: user.email || '',
+            totalEntries: 0,
+            totalDays: 1,
+            level: 1,
+            xp: 0,
+            joinedDate: new Date().toISOString()
+        };
+        await setDoc(userRef, newProfile);
+    } else {
+        // Update last seen logic could go here
+    }
+}
+
+export const incrementUserStats = async (uid: string, entriesCount: number) => {
+    if(!db || !uid) return;
+    const userRef = doc(db, USER_COLLECTION, uid);
+    try {
+        await updateDoc(userRef, {
+            totalEntries: increment(entriesCount),
+            xp: increment(entriesCount * 10) // 10 XP per entry
+        });
+    } catch(e) {
+        console.error("Failed to update stats", e);
+    }
+};
+
+export const subscribeToUserProfile = (uid: string, onUpdate: (profile: UserProfile) => void): Unsubscribe => {
+    if (!db || !uid) return () => {};
+    return onSnapshot(doc(db, USER_COLLECTION, uid), (doc: any) => {
+        if(doc.exists()) onUpdate(doc.data() as UserProfile);
+    });
+};
+
 export const logoutUser = async () => {
   if (!auth) return;
-  try {
-    await signOut(auth);
-  } catch (error) {
-    console.error("Error signing out", error);
-  }
+  await signOut(auth);
 };
 
 export const subscribeToAuth = (callback: (user: User | null) => void): Unsubscribe => {
-  if (!auth) {
-    callback(null);
-    return () => {};
-  }
+  if (!auth) { callback(null); return () => {}; }
   return onAuthStateChanged(auth, callback);
+};
+
+// --- Settings ---
+
+export const getProjectSettings = async (): Promise<ProjectSettings | null> => {
+    if(!db) return null;
+    try {
+        const docSnap = await getDoc(doc(db, SETTINGS_COLLECTION, 'general'));
+        if(docSnap.exists()) return docSnap.data() as ProjectSettings;
+        return {
+            projectName: 'Bhotekoshi Hydroelectric Project',
+            projectDescription: 'Construction Management',
+            locationHierarchy: LOCATION_HIERARCHY,
+            customItems: []
+        };
+    } catch(e) { return null; }
+};
+
+export const saveProjectSettings = async (settings: ProjectSettings) => {
+    if(!db) return;
+    await setDoc(doc(db, SETTINGS_COLLECTION, 'general'), settings);
 };
 
 // --- Reports ---
 
 export const subscribeToReports = (onUpdate: (reports: DailyReport[]) => void): Unsubscribe => {
   if (!db) return () => {};
-  
   const q = query(collection(db, REPORT_COLLECTION), orderBy("date", "desc"));
-  
-  const unsubscribe = onSnapshot(q, (snapshot: any) => {
+  return onSnapshot(q, (snapshot: any) => {
     const reports: DailyReport[] = [];
-    snapshot.forEach((doc: any) => {
-      reports.push(doc.data() as DailyReport);
-    });
+    snapshot.forEach((doc: any) => reports.push(doc.data() as DailyReport));
     onUpdate(reports);
-  }, (error: any) => {
-    console.error("Error subscribing to reports:", error);
   });
-
-  return unsubscribe;
 };
 
 export const saveReportToCloud = async (report: DailyReport): Promise<void> => {
-  if (!db) {
-     console.error("Cannot save report: Database not initialized.");
-     return;
-  }
-  try {
-    await setDoc(doc(db, REPORT_COLLECTION, report.id), report);
-  } catch (e) {
-    console.error("Error adding document: ", e);
-    throw e;
-  }
+  if (!db) return;
+  await setDoc(doc(db, REPORT_COLLECTION, report.id), report);
 };
 
-// Automatic full-state backup
 export const saveReportHistory = async (report: DailyReport) => {
     if (!db) return;
-    try {
-        const historyId = crypto.randomUUID();
-        await setDoc(doc(db, REPORT_HISTORY_COLLECTION, historyId), {
-            historyId,
-            timestamp: new Date().toISOString(),
-            reportId: report.id,
-            reportDate: report.date,
-            snapshot: report
-        });
-        console.log("Database state snapshot saved.");
-    } catch (e) {
-        console.error("Failed to save history snapshot:", e);
-    }
+    const historyId = crypto.randomUUID();
+    await setDoc(doc(db, REPORT_HISTORY_COLLECTION, historyId), {
+        historyId, timestamp: new Date().toISOString(), reportId: report.id, reportDate: report.date, snapshot: report
+    });
 };
+
+// --- Sync Logic (One Shot) ---
+
+export const syncQuantitiesFromItems = async (items: DPRItem[], report: DailyReport, user: string) => {
+    if(!db) return;
+    let added = 0;
+    
+    // We only process items that have valid quantity data
+    for (const item of items) {
+        // 1. Identify Type & Parse
+        const type = identifyItemType(item.activityDescription);
+        
+        // Use explicit fields if available, otherwise parse
+        let structure = item.component || "";
+        let element = item.structuralElement || "";
+        let chainage = item.chainage || "";
+        
+        // Fallback parsing if explicit fields are empty
+        if (!element || !chainage) {
+             const parsed = parseQuantityDetails(item.location, item.component, item.chainageOrArea, item.activityDescription);
+             if(!structure) structure = parsed.structure;
+             if(!element) element = parsed.detailElement || "";
+             if(!chainage) chainage = parsed.detailLocation || "";
+        }
+
+        // 2. Extract Number/Unit
+        const regex = /(\d+(\.\d+)?)\s*(m3|cum|sqm|sq\.m|m2|m|mtr|nos|t|ton|kg)/i;
+        const match = item.activityDescription.match(regex);
+        
+        if (match) {
+            let val = parseFloat(match[1]);
+            let unit = match[3].toLowerCase();
+            const raw = match[0];
+
+            if (unit === 'cum') unit = 'm3';
+            if (unit === 'sqm' || unit === 'sq.m') unit = 'm2';
+            if (unit === 'mtr') unit = 'm';
+            if (unit === 't') unit = 'Ton';
+            if (type === 'Rebar' && unit === 'kg') { val = val / 1000; unit = 'Ton'; }
+
+            // Check duplicate by linking to report item ID
+            // We use a query to check existence first (not ideal for perf but safe)
+            const q = query(collection(db, QUANTITY_COLLECTION), where("originalReportItemId", "==", item.id));
+            const snap = await getDocs(q);
+            
+            if(snap.empty) {
+                const newQty: QuantityEntry = {
+                    id: crypto.randomUUID(),
+                    date: report.date,
+                    location: item.location,
+                    structure: structure,
+                    detailElement: element,
+                    detailLocation: chainage,
+                    itemType: type,
+                    description: item.activityDescription,
+                    quantityValue: val,
+                    quantityUnit: unit,
+                    originalRawString: raw,
+                    originalReportItemId: item.id,
+                    reportId: report.id,
+                    lastUpdated: new Date().toISOString(),
+                    updatedBy: user || 'Auto-Sync'
+                };
+                await setDoc(doc(db, QUANTITY_COLLECTION, newQty.id), newQty);
+                added++;
+            } else {
+                // Update existing if changed (Silent Update)
+                const existing = snap.docs[0].data() as QuantityEntry;
+                if(existing.quantityValue !== val || existing.location !== item.location || existing.structure !== structure) {
+                     await updateDoc(doc(db, QUANTITY_COLLECTION, existing.id), {
+                         quantityValue: val,
+                         quantityUnit: unit,
+                         location: item.location,
+                         structure: structure,
+                         description: item.activityDescription,
+                         lastUpdated: new Date().toISOString()
+                     });
+                }
+            }
+        }
+    }
+    return added;
+};
+
 
 // --- Quantities ---
 
 export const subscribeToQuantities = (onUpdate: (quantities: QuantityEntry[]) => void): Unsubscribe => {
   if (!db) return () => {};
-  // Order by date descending
   const q = query(collection(db, QUANTITY_COLLECTION), orderBy("date", "desc"));
-  
-  const unsubscribe = onSnapshot(q, (snapshot: any) => {
+  return onSnapshot(q, (snapshot: any) => {
     const items: QuantityEntry[] = [];
-    snapshot.forEach((doc: any) => {
-      items.push(doc.data() as QuantityEntry);
-    });
+    snapshot.forEach((doc: any) => items.push(doc.data() as QuantityEntry));
     onUpdate(items);
-  }, (error: any) => {
-    console.error("Error subscribing to quantities:", error);
   });
-
-  return unsubscribe;
 };
 
 export const addQuantity = async (quantity: QuantityEntry) => {
   if (!db) return;
-  try {
-    await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
-  } catch (e) {
-    console.error("Error adding quantity:", e);
-    throw e;
-  }
+  await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
 };
 
 export const updateQuantity = async (quantity: QuantityEntry, previousState: QuantityEntry, user: string) => {
   if(!db) return;
-  try {
-    // 1. Update the Quantity Document
-    await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
-    
-    // 2. Log Activity
-    await logActivity(user, "Edit Quantity", JSON.stringify({
-      before: previousState,
-      after: quantity
-    }), quantity.date);
-
-    // 3. REVERSE SYNC: If Location or Component (Structure) changed, update the original Report Item
-    if (quantity.reportId && quantity.originalReportItemId) {
-        const hasLocationChanged = quantity.location !== previousState.location;
-        const hasStructureChanged = quantity.structure !== previousState.structure;
-
-        if (hasLocationChanged || hasStructureChanged) {
+  await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
+  await logActivity(user, "Edit Quantity", JSON.stringify({ before: previousState, after: quantity }), quantity.date);
+  
+  // Reverse sync to Report Item if critical fields changed
+  if (quantity.reportId && quantity.originalReportItemId) {
+        if (quantity.location !== previousState.location || quantity.structure !== previousState.structure) {
             const reportRef = doc(db, REPORT_COLLECTION, quantity.reportId);
             const reportSnap = await getDoc(reportRef);
-
             if (reportSnap.exists()) {
                 const reportData = reportSnap.data() as DailyReport;
-                
-                // Map over entries to find and update the specific item
-                let itemUpdated = false;
                 const updatedEntries = reportData.entries.map((entry) => {
                     if (entry.id === quantity.originalReportItemId) {
-                        itemUpdated = true;
-                        return {
-                            ...entry,
-                            location: quantity.location,
-                            component: quantity.structure
-                        };
+                        return { ...entry, location: quantity.location, component: quantity.structure };
                     }
                     return entry;
                 });
-
-                if (itemUpdated) {
-                    await updateDoc(reportRef, { entries: updatedEntries });
-                    await logActivity(user, "Auto-Sync Report", `Updated Report Item from Quantity Edit: ${quantity.location} - ${quantity.structure}`, quantity.date);
-                }
+                await updateDoc(reportRef, { entries: updatedEntries });
             }
         }
     }
-
-  } catch (e) {
-    console.error("Error updating quantity:", e);
-    throw e;
-  }
 }
 
 export const deleteQuantity = async (quantity: QuantityEntry, user: string) => {
   if (!db) return;
-  try {
-     // 1. Move to Trash
-     const trashItem: TrashItem = {
+  const trashItem: TrashItem = {
       trashId: crypto.randomUUID(),
       originalId: quantity.id,
       type: 'quantity',
@@ -231,243 +304,99 @@ export const deleteQuantity = async (quantity: QuantityEntry, user: string) => {
       deletedAt: new Date().toISOString(),
       deletedBy: user,
       reportDate: quantity.date
-    };
-    await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
-
-    // 2. Delete from Collection
-    await deleteDoc(doc(db, QUANTITY_COLLECTION, quantity.id));
-  } catch(e) {
-    console.error("Error deleting quantity", e);
-    throw e;
-  }
+  };
+  await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
+  await deleteDoc(doc(db, QUANTITY_COLLECTION, quantity.id));
 }
 
-
-// --- Backup System (Robust Data Safety) ---
-
-export const savePermanentBackup = async (
-  date: string, 
-  rawInput: string, 
-  parsedItems: DPRItem[], 
-  user: string, 
-  reportIdContext: string
-): Promise<string | null> => {
+// --- Backup ---
+export const savePermanentBackup = async (date: string, rawInput: string, parsedItems: DPRItem[], user: string, reportIdContext: string): Promise<string | null> => {
   if (!db) return null;
-  try {
-    const backupId = crypto.randomUUID();
-    const backupEntry: BackupEntry = {
-      id: backupId,
-      date,
-      timestamp: new Date().toISOString(),
-      user: user || "Anonymous",
-      rawInput,
-      parsedItems,
-      reportIdContext
-    };
-    // This collection is intended to be append-only and never deleted by the app
-    await setDoc(doc(db, BACKUP_COLLECTION, backupId), backupEntry);
-    console.log("Permanent backup saved:", backupId);
-    return backupId;
-  } catch (e) {
-    console.error("Failed to save backup:", e);
-    return null;
-  }
+  const backupId = crypto.randomUUID();
+  const backupEntry: BackupEntry = { id: backupId, date, timestamp: new Date().toISOString(), user: user || "Anonymous", rawInput, parsedItems, reportIdContext };
+  await setDoc(doc(db, BACKUP_COLLECTION, backupId), backupEntry);
+  return backupId;
 };
 
-export const getBackups = async (
-  limitCount = 50, 
-  startDate?: string, 
-  endDate?: string
-): Promise<BackupEntry[]> => {
+export const getBackups = async (limitCount = 50, startDate?: string, endDate?: string): Promise<BackupEntry[]> => {
   if (!db) return [];
-  try {
-    let q = query(collection(db, BACKUP_COLLECTION), orderBy("timestamp", "desc"));
-    
-    if (startDate && endDate) {
-        // Note: Firestore string comparison works for ISO dates
-        q = query(collection(db, BACKUP_COLLECTION), 
-            where("date", ">=", startDate), 
-            where("date", "<=", endDate),
-            orderBy("date", "desc")
-        );
-    } else {
-        q = query(q, limit(limitCount));
-    }
-
-    const snapshot = await getDocs(q);
-    const backups: BackupEntry[] = [];
-    snapshot.forEach((doc: any) => {
-      backups.push(doc.data() as BackupEntry);
-    });
-    return backups;
-  } catch (e) {
-    console.error("Error fetching backups:", e);
-    return [];
+  let q = query(collection(db, BACKUP_COLLECTION), orderBy("timestamp", "desc"));
+  if (startDate && endDate) {
+      q = query(collection(db, BACKUP_COLLECTION), where("date", ">=", startDate), where("date", "<=", endDate), orderBy("date", "desc"));
+  } else {
+      q = query(q, limit(limitCount));
   }
+  const snapshot = await getDocs(q);
+  const backups: BackupEntry[] = [];
+  snapshot.forEach((doc: any) => backups.push(doc.data() as BackupEntry));
+  return backups;
 };
 
-// --- Trash / Soft Delete System ---
-
+// --- Trash ---
 export const moveReportToTrash = async (report: DailyReport, user: string): Promise<void> => {
   if (!db) return;
-  try {
-    // 1. Create Trash Item
-    const trashItem: TrashItem = {
-      trashId: crypto.randomUUID(),
-      originalId: report.id,
-      type: 'report',
-      content: report,
-      deletedAt: new Date().toISOString(),
-      deletedBy: user,
-      reportDate: report.date
-    };
-    await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
-
-    // 2. Delete Original
-    await deleteDoc(doc(db, REPORT_COLLECTION, report.id));
-  } catch (e) {
-    console.error("Error moving report to trash:", e);
-    throw e;
-  }
+  const trashItem: TrashItem = { trashId: crypto.randomUUID(), originalId: report.id, type: 'report', content: report, deletedAt: new Date().toISOString(), deletedBy: user, reportDate: report.date };
+  await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
+  await deleteDoc(doc(db, REPORT_COLLECTION, report.id));
 };
 
 export const moveItemToTrash = async (item: DPRItem, reportId: string, reportDate: string, user: string): Promise<void> => {
   if (!db) return;
-  try {
-    // 1. Create Trash Item (Note: We do not modify the original report here, that's done by the caller via saveReportToCloud)
-    const trashItem: TrashItem = {
-      trashId: crypto.randomUUID(),
-      originalId: item.id,
-      type: 'item',
-      content: item,
-      deletedAt: new Date().toISOString(),
-      deletedBy: user,
-      reportDate: reportDate,
-      reportId: reportId
-    };
-    await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
-  } catch (e) {
-    console.error("Error moving item to trash:", e);
-    throw e;
-  }
+  const trashItem: TrashItem = { trashId: crypto.randomUUID(), originalId: item.id, type: 'item', content: item, deletedAt: new Date().toISOString(), deletedBy: user, reportDate: reportDate, reportId: reportId };
+  await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
 };
 
 export const deleteReportFromCloud = async (id: string): Promise<void> => {
-  // Direct delete (legacy or permanent)
   if (!db) return;
-  try {
-    await deleteDoc(doc(db, REPORT_COLLECTION, id));
-  } catch (e) {
-    console.error("Error deleting document: ", e);
-    throw e;
-  }
+  await deleteDoc(doc(db, REPORT_COLLECTION, id));
 };
 
 export const subscribeToTrash = (onUpdate: (items: TrashItem[]) => void): Unsubscribe => {
   if (!db) return () => {};
-  
   const q = query(collection(db, TRASH_COLLECTION), orderBy("deletedAt", "desc"));
-  
-  const unsubscribe = onSnapshot(q, (snapshot: any) => {
+  return onSnapshot(q, (snapshot: any) => {
     const items: TrashItem[] = [];
-    snapshot.forEach((doc: any) => {
-      items.push(doc.data() as TrashItem);
-    });
+    snapshot.forEach((doc: any) => items.push(doc.data() as TrashItem));
     onUpdate(items);
-  }, (error: any) => {
-    console.error("Error subscribing to trash:", error);
   });
-
-  return unsubscribe;
 };
 
 export const restoreTrashItem = async (trashItem: TrashItem): Promise<void> => {
   if (!db) return;
-  
-  try {
-    if (trashItem.type === 'report') {
-      const report = trashItem.content as DailyReport;
-      await setDoc(doc(db, REPORT_COLLECTION, report.id), report);
-    } 
-    else if (trashItem.type === 'item') {
-      const item = trashItem.content as DPRItem;
-      const reportId = trashItem.reportId;
-      
-      if (!reportId) throw new Error("Missing report ID for item restoration");
-
-      const reportRef = doc(db, REPORT_COLLECTION, reportId);
-      const reportSnap = await getDoc(reportRef);
-
-      if (reportSnap.exists()) {
-        const reportData = reportSnap.data() as DailyReport;
-        if (!reportData.entries.some((e: any) => e.id === item.id)) {
-           await updateDoc(reportRef, {
-             entries: arrayUnion(item)
-           });
+  if (trashItem.type === 'report') {
+    const report = trashItem.content as DailyReport;
+    await setDoc(doc(db, REPORT_COLLECTION, report.id), report);
+  } else if (trashItem.type === 'item') {
+    const item = trashItem.content as DPRItem;
+    const reportId = trashItem.reportId;
+    if (reportId) {
+        const reportRef = doc(db, REPORT_COLLECTION, reportId);
+        const reportSnap = await getDoc(reportRef);
+        if (reportSnap.exists()) {
+             await updateDoc(reportRef, { entries: arrayUnion(item) });
         }
-      } else {
-        const newReport: DailyReport = {
-          id: reportId,
-          date: trashItem.reportDate,
-          lastUpdated: new Date().toISOString(),
-          projectTitle: "Restored Report",
-          entries: [item]
-        };
-        await setDoc(reportRef, newReport);
-      }
     }
-    else if (trashItem.type === 'quantity') {
-       const quantity = trashItem.content as QuantityEntry;
-       await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
-    }
-
-    // Remove from trash after successful restore
-    await deleteDoc(doc(db, TRASH_COLLECTION, trashItem.trashId));
-
-  } catch (error) {
-    console.error("Error restoring item:", error);
-    throw error;
+  } else if (trashItem.type === 'quantity') {
+      const quantity = trashItem.content as QuantityEntry;
+      await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
   }
+  await deleteDoc(doc(db, TRASH_COLLECTION, trashItem.trashId));
 };
 
-// --- Activity Logs ---
-
+// --- Logs ---
 export const logActivity = async (user: string, action: string, details: string, reportDate: string, relatedBackupId?: string) => {
   if (!db) return;
-  try {
-    const log: any = {
-      timestamp: new Date().toISOString(),
-      user: user || "Anonymous",
-      action,
-      details,
-      reportDate,
-    };
-    
-    if (relatedBackupId) {
-        log.relatedBackupId = relatedBackupId;
-    }
-
-    await addDoc(collection(db, LOG_COLLECTION), log);
-  } catch (e) {
-    console.error("Error logging activity:", e);
-  }
+  const log: any = { timestamp: new Date().toISOString(), user: user || "Anonymous", action, details, reportDate };
+  if (relatedBackupId) log.relatedBackupId = relatedBackupId;
+  await addDoc(collection(db, LOG_COLLECTION), log);
 };
 
 export const subscribeToLogs = (onUpdate: (logs: LogEntry[]) => void): Unsubscribe => {
   if (!db) return () => {};
-  
-  // Get last 100 logs
   const q = query(collection(db, LOG_COLLECTION), orderBy("timestamp", "desc"), limit(100));
-  
-  const unsubscribe = onSnapshot(q, (snapshot: any) => {
+  return onSnapshot(q, (snapshot: any) => {
     const logs: LogEntry[] = [];
-    snapshot.forEach((doc: any) => {
-      logs.push({ ...doc.data(), id: doc.id } as LogEntry);
-    });
+    snapshot.forEach((doc: any) => logs.push({ ...doc.data(), id: doc.id } as LogEntry));
     onUpdate(logs);
-  }, (error: any) => {
-    console.error("Error subscribing to logs:", error);
   });
-
-  return unsubscribe;
 };

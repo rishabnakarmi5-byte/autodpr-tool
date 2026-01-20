@@ -1,5 +1,7 @@
-import React from 'react';
-import { TabView } from '../types';
+
+import React, { useEffect, useState } from 'react';
+import { TabView, UserProfile } from '../types';
+import { subscribeToUserProfile } from '../services/firebaseService';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -10,6 +12,21 @@ interface LayoutProps {
 }
 
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user, onLogout }) => {
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+
+  useEffect(() => {
+    if(user?.uid) {
+        return subscribeToUserProfile(user.uid, (p) => setProfile(p));
+    }
+  }, [user]);
+
+  const getTimeGreeting = () => {
+      const hour = new Date().getHours();
+      if(hour < 12) return "Good Morning";
+      if(hour < 18) return "Good Afternoon";
+      return "Good Evening";
+  };
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-100 text-slate-800 font-sans relative">
       
@@ -22,15 +39,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
           DPR Maker
         </h1>
         <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center border border-indigo-500">
+            <button onClick={() => onTabChange(TabView.PROFILE)} className="w-8 h-8 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center border border-indigo-500">
                {user?.photoURL ? (
                  <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
                ) : (
                  <span className="text-white text-xs font-bold">{user?.displayName?.charAt(0) || <i className="fas fa-user"></i>}</span>
                )}
-            </div>
-             <button onClick={onLogout} className="text-slate-400 hover:text-white">
-                <i className="fas fa-sign-out-alt"></i>
             </button>
         </div>
       </div>
@@ -47,7 +61,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
           <p className="text-xs text-slate-500 mt-3 font-medium uppercase tracking-wider">Project Management</p>
         </div>
         
-        <nav className="flex-1 px-4 py-8 space-y-3">
+        <nav className="flex-1 px-4 py-8 space-y-3 overflow-y-auto">
           <NavButton 
             active={activeTab === TabView.INPUT} 
             onClick={() => onTabChange(TabView.INPUT)}
@@ -80,6 +94,18 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
             desc="Past records"
           />
 
+          <div className="pt-4 pb-2">
+             <div className="border-t border-slate-800"></div>
+          </div>
+
+          <NavButton 
+            active={activeTab === TabView.SETTINGS} 
+            onClick={() => onTabChange(TabView.SETTINGS)}
+            icon="fa-cog"
+            label="Project Settings"
+            desc="Hierarchy & Items"
+          />
+
           <NavButton 
             active={activeTab === TabView.LOGS} 
             onClick={() => onTabChange(TabView.LOGS)}
@@ -87,28 +113,24 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
             label="Activity Logs"
             desc="Audit trail"
           />
-
-          <NavButton 
-            active={activeTab === TabView.RECYCLE_BIN} 
-            onClick={() => onTabChange(TabView.RECYCLE_BIN)}
-            icon="fa-trash"
-            label="Recycle Bin"
-            desc="Deleted items"
-          />
         </nav>
 
         <div className="p-4 border-t border-slate-800 bg-slate-900/50">
-          <div className="flex items-center gap-3 mb-3">
-             <div className="w-10 h-10 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center border-2 border-indigo-500">
+          <div className="flex items-center gap-3 mb-3 cursor-pointer hover:bg-slate-800 p-2 rounded-lg transition-colors" onClick={() => onTabChange(TabView.PROFILE)}>
+             <div className="w-10 h-10 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center border-2 border-indigo-500 relative">
                {user?.photoURL ? (
                  <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
                ) : (
                  <span className="text-white font-bold">{user?.displayName?.charAt(0) || <i className="fas fa-user"></i>}</span>
                )}
+               <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-slate-900 rounded-full"></div>
              </div>
              <div className="overflow-hidden">
                 <p className="text-sm text-white font-medium truncate w-40">{user?.displayName || 'Guest User'}</p>
-                <p className="text-xs text-slate-500 truncate w-40">{user?.email}</p>
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] bg-indigo-900 text-indigo-300 px-1.5 rounded font-bold">Lvl {profile?.level || 1}</span>
+                    <p className="text-xs text-slate-500 truncate">{profile?.xp || 0} XP</p>
+                </div>
              </div>
           </div>
           <button 
@@ -118,7 +140,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
             <i className="fas fa-sign-out-alt"></i> Sign Out
           </button>
           
-          {/* Invisible Signature */}
           <div className="mt-4 text-center">
              <span className="text-white text-[1px] opacity-[0.01] select-none pointer-events-none">built by Rishab Nakarmi</span>
           </div>
@@ -127,10 +148,30 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto h-screen relative scroll-smooth pb-24 md:pb-0">
+        
+        {/* Desktop Greeting Header */}
+        <div className="hidden md:flex justify-between items-center px-10 py-6 bg-white border-b border-slate-200">
+           <div>
+              <h1 className="text-2xl font-bold text-slate-800">{getTimeGreeting()}, {user?.displayName?.split(' ')[0]}!</h1>
+              <p className="text-sm text-slate-500">Welcome back to the construction dashboard.</p>
+           </div>
+           <div className="flex gap-4">
+              <div className="text-right">
+                  <div className="text-xs font-bold text-slate-400 uppercase">Total Entries</div>
+                  <div className="text-xl font-bold text-indigo-600">{profile?.totalEntries || 0}</div>
+              </div>
+              <div className="w-px bg-slate-200 h-10"></div>
+              <div className="text-right">
+                  <div className="text-xs font-bold text-slate-400 uppercase">Level</div>
+                  <div className="text-xl font-bold text-green-600">{profile?.level || 1}</div>
+              </div>
+           </div>
+        </div>
+
         <div className="p-4 md:p-10 max-w-7xl mx-auto pb-20">
           {children}
         </div>
-        {/* Mobile invisible signature */}
+        
         <div className="md:hidden absolute bottom-24 left-1/2 transform -translate-x-1/2">
              <span className="text-white text-[1px] opacity-[0.01] select-none pointer-events-none">built by Rishab Nakarmi</span>
         </div>
@@ -157,10 +198,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
           label="Qty"
         />
         <MobileNavButton 
-          active={activeTab === TabView.HISTORY} 
-          onClick={() => onTabChange(TabView.HISTORY)}
-          icon="fa-clock-rotate-left"
-          label="History"
+          active={activeTab === TabView.SETTINGS} 
+          onClick={() => onTabChange(TabView.SETTINGS)}
+          icon="fa-cog"
+          label="Settings"
         />
       </div>
     </div>

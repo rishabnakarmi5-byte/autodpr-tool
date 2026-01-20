@@ -1,8 +1,8 @@
+
 import React, { useState } from 'react';
 import { parseConstructionData } from '../services/geminiService';
 import { DPRItem } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
-import { LOCATION_HIERARCHY } from '../utils/constants';
 
 interface InputSectionProps {
   currentDate: string;
@@ -11,11 +11,12 @@ interface InputSectionProps {
   onViewReport: () => void;
   entryCount: number;
   user: any;
+  hierarchy: Record<string, string[]>;
 }
 
 type InputMode = 'ai' | 'manual';
 
-export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateChange, onItemsAdded, onViewReport, entryCount, user }) => {
+export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateChange, onItemsAdded, onViewReport, entryCount, user, hierarchy }) => {
   const [mode, setMode] = useState<InputMode>('ai');
   
   // AI State
@@ -24,6 +25,14 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
+  // Warnings State
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [pendingItems, setPendingItems] = useState<DPRItem[]>([]);
+  const [showWarningModal, setShowWarningModal] = useState(false);
+
+  // Retry State
+  const [showRetryModal, setShowRetryModal] = useState(false);
+
   // AI Context State (Multi-select)
   const [aiLocations, setAiLocations] = useState<string[]>([]);
   const [aiComponents, setAiComponents] = useState<string[]>([]);
@@ -31,6 +40,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   // Manual State
   const [manualLoc, setManualLoc] = useState('');
   const [manualComp, setManualComp] = useState('');
+  const [manualElement, setManualElement] = useState('');
   const [manualChainage, setManualChainage] = useState('');
   const [manualDesc, setManualDesc] = useState('');
   const [manualNext, setManualNext] = useState('');
@@ -47,8 +57,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     setAiLocations(prev => {
         const isActive = prev.includes(loc);
         if (isActive) {
-            // Remove location and its components from selection
-            const componentsToRemove = LOCATION_HIERARCHY[loc] || [];
+            const componentsToRemove = hierarchy[loc] || [];
             setAiComponents(curr => curr.filter(c => !componentsToRemove.includes(c)));
             return prev.filter(l => l !== loc);
         } else {
@@ -64,14 +73,12 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   };
 
   const selectAllComponents = (loc: string) => {
-      const locationComps = LOCATION_HIERARCHY[loc] || [];
+      const locationComps = hierarchy[loc] || [];
       const allSelected = locationComps.every(c => aiComponents.includes(c));
       
       if (allSelected) {
-          // Deselect all for this location
           setAiComponents(prev => prev.filter(c => !locationComps.includes(c)));
       } else {
-          // Select all for this location
           setAiComponents(prev => {
               const newSet = new Set([...prev, ...locationComps]);
               return Array.from(newSet);
@@ -88,24 +95,53 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     setIsProcessing(true);
     setError(null);
     try {
-      const parsedData = await parseConstructionData(rawText, instructions, aiLocations, aiComponents);
+      const { items: parsedData, warnings: apiWarnings } = await parseConstructionData(rawText, instructions, aiLocations, aiComponents, hierarchy);
+      
       const newItems: DPRItem[] = parsedData.map(item => ({ 
         ...item, 
         id: crypto.randomUUID(),
+        chainageOrArea: (item.chainage || "") + (item.structuralElement ? " " + item.structuralElement : ""), // Fallback
         createdBy: user?.displayName || user?.email || 'Unknown' 
-      }));
+      })) as DPRItem[];
+
+      // Check for unclassified items
+      const unclassified = newItems.filter(i => i.location.includes("Unclassified") || i.location.includes("Needs Fix"));
       
-      onItemsAdded(newItems, rawText);
-      setRawText('');
-      setInstructions('');
-      setModalStep(1); // Start success flow
+      if (unclassified.length > 0) {
+          setShowRetryModal(true);
+          setPendingItems([]);
+          setWarnings([]);
+          setIsProcessing(false);
+          return;
+      }
+
+      if (apiWarnings.length > 0) {
+          setPendingItems(newItems);
+          setWarnings(apiWarnings);
+          setShowWarningModal(true);
+          setIsProcessing(false);
+          return;
+      }
+      
+      finalizeAdd(newItems);
       
     } catch (err: any) {
       console.error(err);
       setError("Failed to process text. Ensure your connection is stable.");
-    } finally {
       setIsProcessing(false);
     }
+  };
+
+  const finalizeAdd = (items: DPRItem[]) => {
+      onItemsAdded(items, rawText);
+      setRawText('');
+      setInstructions('');
+      setWarnings([]);
+      setPendingItems([]);
+      setShowWarningModal(false);
+      setShowRetryModal(false);
+      setIsProcessing(false);
+      setModalStep(1); // Start success flow
   };
 
   const handleManualAdd = () => {
@@ -118,21 +154,20 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           id: crypto.randomUUID(),
           location: manualLoc,
           component: manualComp,
-          chainageOrArea: manualChainage,
+          structuralElement: manualElement,
+          chainage: manualChainage,
+          chainageOrArea: `${manualElement} ${manualChainage}`.trim(),
           activityDescription: manualDesc,
           plannedNextActivity: manualNext,
           createdBy: user?.displayName || user?.email || 'Manual Input'
       };
 
       onItemsAdded([newItem], `Manual Entry: ${manualDesc}`);
-      
-      // Reset form
+      setManualElement('');
       setManualChainage('');
       setManualDesc('');
       setManualNext('');
       setError(null);
-      
-      // Keep location/component for rapid entry of similar items
       setModalStep(1);
   };
 
@@ -145,7 +180,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     onViewReport();
   };
 
-  // Helper to check validity of AI form
   const isAiFormValid = rawText.trim().length > 0 && aiLocations.length > 0 && aiComponents.length > 0;
 
   return (
@@ -187,11 +221,11 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
              <div className="flex items-center text-sm text-slate-600 gap-2">
                <i className="fas fa-check-circle text-green-500"></i> Cloud Sync Active
              </div>
-             <div className="flex items-center text-sm text-slate-400 gap-2">
-               <i className="fas fa-camera-slash"></i> Photos Disabled
-             </div>
              <div className="flex items-center text-sm text-indigo-600 gap-2 font-bold">
-               <i className="fas fa-shield-alt"></i> Backup Enabled
+               <i className="fas fa-magic"></i> AI Parsing v2.0
+             </div>
+             <div className="flex items-center text-sm text-slate-500 gap-2">
+               <i className="fas fa-layer-group"></i> 4-Level Hierarchy
              </div>
            </div>
         </div>
@@ -200,7 +234,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       {/* INPUT SECTION WRAPPER */}
       <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 overflow-hidden transition-all relative">
         
-        {/* Header with hidden toggle */}
+        {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
             <h3 className="font-bold text-slate-700 flex items-center gap-2">
                 {mode === 'ai' ? <i className="fab fa-whatsapp text-green-600 text-lg"></i> : <i className="fas fa-keyboard text-slate-500"></i>}
@@ -227,7 +261,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                        <i className="fas fa-map-marker-alt mr-1"></i> 1. Select Work Locations <span className="text-red-500">*</span>
                     </label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
-                        {Object.keys(LOCATION_HIERARCHY).map(loc => {
+                        {Object.keys(hierarchy).map(loc => {
                             const isSelected = aiLocations.includes(loc);
                             return (
                                 <button 
@@ -257,7 +291,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                         </label>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {aiLocations.map(loc => {
-                                const components = LOCATION_HIERARCHY[loc] || [];
+                                const components = hierarchy[loc] || [];
                                 const selectedCount = components.filter(c => aiComponents.includes(c)).length;
                                 const isAllSelected = selectedCount === components.length && components.length > 0;
 
@@ -296,10 +330,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                         </div>
                      </div>
                  )}
-                 
-                 <div className="text-[10px] text-indigo-600 italic mt-2">
-                     * Select all areas and components relevant to your update. This helps the AI assign items correctly.
-                 </div>
             </div>
 
             <div>
@@ -347,13 +377,10 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
             </div>
 
             <div className="flex justify-between items-center pt-2">
-                <p className="text-xs text-slate-400 hidden md:block">
-                    <i className="fas fa-shield-alt mr-1"></i> Data backed up automatically
-                </p>
                 <button
                 onClick={handleProcessAndAdd}
                 disabled={isProcessing || !isAiFormValid}
-                className={`flex items-center px-8 py-3.5 rounded-xl font-bold text-white shadow-lg shadow-indigo-500/30 transition-all transform
+                className={`flex items-center px-8 py-3.5 rounded-xl font-bold text-white shadow-lg shadow-indigo-500/30 transition-all transform ml-auto
                     ${isProcessing || !isAiFormValid
                     ? 'bg-slate-300 shadow-none cursor-not-allowed translate-y-0' 
                     : 'bg-green-600 hover:bg-green-700 hover:-translate-y-1 active:translate-y-0'
@@ -385,7 +412,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                             className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                         >
                             <option value="">Select Location...</option>
-                            {Object.keys(LOCATION_HIERARCHY).map(loc => (
+                            {Object.keys(hierarchy).map(loc => (
                                 <option key={loc} value={loc}>{loc}</option>
                             ))}
                         </select>
@@ -399,7 +426,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                             className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-50"
                         >
                             <option value="">Select Component...</option>
-                            {manualLoc && LOCATION_HIERARCHY[manualLoc]?.map(comp => (
+                            {manualLoc && hierarchy[manualLoc]?.map(comp => (
                                 <option key={comp} value={comp}>{comp}</option>
                             ))}
                         </select>
@@ -408,32 +435,41 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                      <div className="md:col-span-1">
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Chainage / Area</label>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Area / Element</label>
                         <input 
-                            value={manualChainage}
-                            onChange={e => setManualChainage(e.target.value)}
-                            placeholder="e.g. Ch 0 to 15m"
+                            value={manualElement}
+                            onChange={e => setManualElement(e.target.value)}
+                            placeholder="Raft, Wall, Slab"
                             className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                         />
                      </div>
-                     <div className="md:col-span-3">
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Activity Description <span className="text-red-500">*</span></label>
+                     <div className="md:col-span-1">
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Chainage / EL</label>
                         <input 
-                            value={manualDesc}
-                            onChange={e => setManualDesc(e.target.value)}
-                            placeholder="e.g. Concrete pouring of 45 m3..."
+                            value={manualChainage}
+                            onChange={e => setManualChainage(e.target.value)}
+                            placeholder="0+100"
+                            className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                     </div>
+                     <div className="md:col-span-2">
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Planned Next</label>
+                         <input 
+                            value={manualNext}
+                            onChange={e => setManualNext(e.target.value)}
+                            placeholder="What's next?"
                             className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                         />
                      </div>
                 </div>
 
                 <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Planned Next Activity</label>
-                    <input 
-                        value={manualNext}
-                        onChange={e => setManualNext(e.target.value)}
-                        placeholder="What's next?"
-                        className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Activity Description <span className="text-red-500">*</span></label>
+                    <textarea 
+                        value={manualDesc}
+                        onChange={e => setManualDesc(e.target.value)}
+                        placeholder="e.g. Concrete pouring of 45 m3..."
+                        className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none h-24"
                     />
                 </div>
 
@@ -457,7 +493,59 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
 
       </div>
 
-      {/* STEP 1: SUCCESS MODAL */}
+      {/* WARNING MODAL (C25 Default) */}
+      {showWarningModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center border border-slate-200">
+                  <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white shadow-lg">
+                      <i className="fas fa-exclamation-triangle text-yellow-600 text-3xl"></i>
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-800 mb-2">Review Auto-Correction</h3>
+                  <div className="bg-yellow-50 text-yellow-800 text-sm p-4 rounded-xl text-left mb-6 border border-yellow-200 max-h-40 overflow-y-auto">
+                      <ul className="list-disc pl-4 space-y-2">
+                          {warnings.map((w, i) => <li key={i}>{w}</li>)}
+                      </ul>
+                  </div>
+                  <div className="flex gap-3">
+                      <button onClick={() => finalizeAdd(pendingItems)} className="flex-1 bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700">Confirm Use of C25</button>
+                      <button onClick={() => { setShowWarningModal(false); setIsProcessing(false); }} className="flex-1 bg-white text-slate-600 border border-slate-300 font-bold py-3 rounded-xl hover:bg-slate-50">Cancel & Edit</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* RETRY MODAL (Unclassified) */}
+      {showRetryModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 text-center border border-slate-200">
+                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white shadow-lg">
+                      <i className="fas fa-map-signs text-red-600 text-3xl"></i>
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-800 mb-2">Ambiguous Locations</h3>
+                  <p className="text-slate-500 mb-4 text-sm">
+                      The AI couldn't confidently map some items to your Project Hierarchy.
+                      Please review the text and add specific Location names from the selection list.
+                  </p>
+                  
+                  <textarea 
+                      value={rawText}
+                      onChange={e => setRawText(e.target.value)}
+                      className="w-full p-3 border border-red-200 rounded-xl bg-red-50 text-sm font-mono mb-4 h-32 focus:ring-2 focus:ring-red-400 outline-none"
+                  />
+
+                  <div className="flex gap-3">
+                      <button onClick={handleProcessAndAdd} className="flex-1 bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 shadow-lg">
+                          Retry Parsing
+                      </button>
+                      <button onClick={() => { setShowRetryModal(false); }} className="px-4 text-slate-400 hover:text-slate-600 font-bold text-sm">
+                          Skip
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* SUCCESS MODAL */}
       {modalStep === 1 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center border border-slate-200 relative">
@@ -467,18 +555,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
               
               <h3 className="text-xl font-bold text-slate-800 mb-1">Entry Added!</h3>
               <p className="text-slate-600 mb-6 text-sm">
-                 Item successfully added to the daily report.
+                 Report updated and Quantities auto-synced.
               </p>
               
-              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mb-6 text-left shadow-inner">
-                 <ul className="space-y-3 text-sm text-slate-700">
-                    <li className="flex items-start gap-3">
-                       <i className="fab fa-whatsapp text-green-500 mt-1 text-lg flex-shrink-0"></i>
-                       <span className="font-bold">Don't forget to send photos in WhatsApp!</span>
-                    </li>
-                 </ul>
-              </div>
-
               <div className="flex gap-3">
                   <button 
                       onClick={() => setModalStep(0)}
@@ -497,7 +576,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         </div>
       )}
 
-      {/* STEP 2: ANNOUNCEMENT MODAL */}
+      {/* ANNOUNCEMENT MODAL */}
       {modalStep === 2 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
            <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl shadow-2xl max-w-md w-full p-8 text-center border border-white/20 relative text-white">

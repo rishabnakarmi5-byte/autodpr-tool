@@ -1,9 +1,12 @@
 
+
 export interface DPRItem {
   id: string;
   location: string;
   component?: string; // Sub-location (e.g. Barrage, Powerhouse Main Building)
-  chainageOrArea: string;
+  structuralElement?: string; // New: Area (e.g. Raft, Wall)
+  chainage?: string; // New: Chainage or Elevation
+  chainageOrArea: string; // Legacy/Fallback: Combined string
   activityDescription: string;
   plannedNextActivity: string;
   createdBy?: string; // Track who added this item
@@ -65,13 +68,33 @@ export interface QuantityEntry {
   updatedBy: string;
 }
 
+export interface ProjectSettings {
+  projectName: string;
+  projectDescription: string;
+  locationHierarchy: Record<string, string[]>;
+  customItems: string[];
+}
+
+export interface UserProfile {
+  uid: string;
+  displayName: string;
+  email: string;
+  totalEntries: number;
+  totalDays: number; // Days active
+  level: number;
+  xp: number;
+  joinedDate: string;
+}
+
 export enum TabView {
   INPUT = 'input',
   VIEW_REPORT = 'view_report',
   QUANTITY = 'quantity',
   HISTORY = 'history',
   LOGS = 'logs',
-  RECYCLE_BIN = 'recycle_bin'
+  RECYCLE_BIN = 'recycle_bin',
+  SETTINGS = 'settings',
+  PROFILE = 'profile'
 }
 
 declare global {

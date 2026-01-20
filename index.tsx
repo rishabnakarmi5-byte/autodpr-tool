@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Layout } from './components/Layout';
@@ -7,12 +8,12 @@ import { ReportTable } from './components/ReportTable';
 import { ActivityLogs } from './components/ActivityLogs';
 import { RecycleBin } from './components/RecycleBin';
 import { QuantityView } from './components/QuantityView';
-import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory } from './services/firebaseService';
-import { DailyReport, DPRItem, TabView, LogEntry, TrashItem } from './types';
-import { getLocationPriority } from './utils/constants';
+import { ProjectSettingsView } from './components/ProjectSettings';
+import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, syncQuantitiesFromItems, getProjectSettings, saveProjectSettings, incrementUserStats } from './services/firebaseService';
+import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings } from './types';
+import { getLocationPriority, LOCATION_HIERARCHY } from './utils/constants';
 
 const App = () => {
-  // --- STATE ---
   const [user, setUser] = useState<any | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   
@@ -26,20 +27,17 @@ const App = () => {
   const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date().toISOString().split('T')[0]);
   const [currentEntries, setCurrentEntries] = useState<DPRItem[]>([]);
-  const [isSaving, setIsSaving] = useState(false);
-  
-  // Undo Stack State
   const [undoStack, setUndoStack] = useState<DPRItem[][]>([]);
-
-  // --- PERSISTENCE & SYNC ---
+  
+  // Settings State
+  const [settings, setSettings] = useState<ProjectSettings | null>(null);
+  const [hierarchy, setHierarchy] = useState(LOCATION_HIERARCHY);
 
   useEffect(() => {
     const unsubscribeAuth = subscribeToAuth((u) => {
       setUser(u);
       setAuthLoading(false);
-      if (u) {
-        logActivity(u.displayName || u.email || 'Unknown', "Session Active", "User authenticated via Google", "N/A");
-      }
+      if (u) logActivity(u.displayName || u.email || 'Unknown', "Session Active", "User authenticated via Google", "N/A");
     });
     return () => unsubscribeAuth();
   }, []);
@@ -48,137 +46,68 @@ const App = () => {
     localStorage.setItem('activeTab', activeTab);
   }, [activeTab]);
 
-  // Sync Reports from Firebase
   useEffect(() => {
-    const unsubscribe = subscribeToReports((data) => {
-      setReports(data);
-    });
+    const unsubscribe = subscribeToReports((data) => setReports(data));
     return () => unsubscribe();
   }, []);
 
-  // Sync Logs from Firebase
   useEffect(() => {
     const unsubscribe = subscribeToLogs((data) => setLogs(data));
     return () => unsubscribe();
   }, []);
 
-  // Sync Trash Items
   useEffect(() => {
     const unsubscribe = subscribeToTrash((data) => setTrashItems(data));
     return () => unsubscribe();
   }, []);
 
-  // When reports update or date changes, ensure the active view reflects the date's report
+  // Load Settings
+  useEffect(() => {
+      getProjectSettings().then(s => {
+          if(s) {
+              setSettings(s);
+              if(s.locationHierarchy) setHierarchy(s.locationHierarchy);
+          }
+      });
+  }, []);
+
   useEffect(() => {
     const existingReport = reports.find(r => r.date === currentDate);
-
     if (existingReport) {
-      // Always sync the ID if it doesn't match
-      if (currentReportId !== existingReport.id) {
-         setCurrentReportId(existingReport.id);
-      }
-      // Only update entries if they are different (to avoid loop, though JSON.stringify is heavy, it works for this scale)
-      if (JSON.stringify(existingReport.entries) !== JSON.stringify(currentEntries)) {
-         setCurrentEntries(existingReport.entries);
-      }
+      if (currentReportId !== existingReport.id) setCurrentReportId(existingReport.id);
+      if (JSON.stringify(existingReport.entries) !== JSON.stringify(currentEntries)) setCurrentEntries(existingReport.entries);
     } else {
-      // No report exists for this date yet.
-      // If our currentReportId belongs to a DIFFERENT date, reset.
       const isIdBelongingToOtherDate = reports.some(r => r.id === currentReportId && r.date !== currentDate);
-      
       if (isIdBelongingToOtherDate || !currentReportId) {
-         // Don't generate ID here to avoid phantom IDs. 
-         // We generate ID only when saving for the first time or creating explicit new.
          setCurrentReportId(null); 
          setCurrentEntries([]);
       }
     }
   }, [currentDate, reports]);
   
-  // Clear Undo stack when changing dates/reports
-  useEffect(() => {
-      setUndoStack([]);
-  }, [currentDate, currentReportId]);
+  useEffect(() => setUndoStack([]), [currentDate, currentReportId]);
 
-
-  // --- HANDLERS ---
-
-  const handleLogin = async () => {
-    try {
-      await signInWithGoogle();
-    } catch (error) {
-      alert("Failed to sign in via Google. Please check your internet connection.");
-    }
-  };
-
+  const handleLogin = async () => { try { await signInWithGoogle(); } catch (error) { alert("Failed to sign in."); } };
   const getUserName = () => user?.displayName || user?.email || 'Anonymous';
-
-  const handleSelectReport = (id: string) => {
-    const report = reports.find(r => r.id === id);
-    if (report) {
-      setCurrentDate(report.date);
-      setActiveTab(TabView.VIEW_REPORT);
-    }
-  };
-
-  const handleCreateNew = () => {
-    setCurrentDate(new Date().toISOString().split('T')[0]);
-    setActiveTab(TabView.INPUT);
-  };
+  const handleSelectReport = (id: string) => { const r = reports.find(r => r.id === id); if (r) { setCurrentDate(r.date); setActiveTab(TabView.VIEW_REPORT); } };
+  const handleCreateNew = () => { setCurrentDate(new Date().toISOString().split('T')[0]); setActiveTab(TabView.INPUT); };
   
   const handleTabChange = (tab: TabView) => {
-      if (tab === TabView.INPUT) {
-          const today = new Date().toISOString().split('T')[0];
-          setCurrentDate(today);
-      }
+      if (tab === TabView.INPUT) setCurrentDate(new Date().toISOString().split('T')[0]);
       setActiveTab(tab);
-  };
-
-  const handleViewReport = () => {
-    setActiveTab(TabView.VIEW_REPORT);
   };
 
   const saveCurrentState = async (entries: DPRItem[], date: string, reportId: string | null) => {
     const id = reportId || crypto.randomUUID();
     if (!reportId) setCurrentReportId(id);
-    
-    setIsSaving(true);
     const report: DailyReport = {
-      id,
-      date,
-      lastUpdated: new Date().toISOString(),
-      projectTitle: "Bhotekoshi Hydroelectric Project",
-      entries
+      id, date, lastUpdated: new Date().toISOString(), projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project", entries
     };
-    
     try {
       await saveReportToCloud(report);
-      // Auto-Backup State History
       await saveReportHistory(report);
-    } catch (e) {
-      console.error("Failed to save", e);
-    } finally {
-      setTimeout(() => setIsSaving(false), 500);
-    }
-  };
-
-  // --- UNDO SYSTEM ---
-  const captureUndoState = (entries: DPRItem[]) => {
-      // Keep last 20 states
-      setUndoStack(prev => [...prev.slice(-19), entries]);
-  };
-
-  const handleUndo = async () => {
-      if (undoStack.length === 0) return;
-      
-      const previousState = undoStack[undoStack.length - 1];
-      const newStack = undoStack.slice(0, -1);
-      
-      setUndoStack(newStack);
-      setCurrentEntries(previousState);
-      await saveCurrentState(previousState, currentDate, currentReportId);
-      
-      logActivity(getUserName(), "Undo", "Reverted report to previous state", currentDate);
+      return report;
+    } catch (e) { console.error("Failed to save", e); return null; }
   };
 
   const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
@@ -186,202 +115,126 @@ const App = () => {
     const effectiveReportId = existingReportOnServer ? existingReportOnServer.id : (currentReportId || crypto.randomUUID());
     const baseEntries = existingReportOnServer ? existingReportOnServer.entries : currentEntries;
 
-    // Capture state before adding
-    captureUndoState(baseEntries);
-
-    // 1. Save to Permanent Backup (Independent of report logic)
-    // We capture the ID of this backup to link it in the logs
+    setUndoStack(prev => [...prev.slice(-19), baseEntries]);
     const backupId = await savePermanentBackup(currentDate, rawText, newItems, getUserName(), effectiveReportId);
 
-    // 2. Merge items
     let updatedEntries = [...baseEntries, ...newItems];
-
-    // 3. Sort items
-    updatedEntries.sort((a, b) => {
-      return getLocationPriority(a.location) - getLocationPriority(b.location);
-    });
+    updatedEntries.sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
     
-    // 4. Update State & Save Report
     setCurrentReportId(effectiveReportId);
-    setCurrentEntries(updatedEntries); // Optimistic update
+    setCurrentEntries(updatedEntries);
     
-    await saveCurrentState(updatedEntries, currentDate, effectiveReportId);
+    const savedReport = await saveCurrentState(updatedEntries, currentDate, effectiveReportId);
     
-    // 5. Log with link to backup
-    logActivity(
-      getUserName(), 
-      "Report Updated", 
-      `Added ${newItems.length} items`, 
-      currentDate,
-      backupId || undefined
-    );
+    // One Shot Sync: Quantities
+    if (savedReport) {
+        await syncQuantitiesFromItems(newItems, savedReport, getUserName());
+        await incrementUserStats(user?.uid, newItems.length);
+    }
+    
+    logActivity(getUserName(), "Report Updated", `Added ${newItems.length} items`, currentDate, backupId || undefined);
   };
 
   const handleUpdateItem = (id: string, field: keyof DPRItem, value: string) => {
-    // Note: We don't capture undo on every keystroke/blur for individual edits to avoid spamming the stack, 
-    // but you could add it here if desired. For now, major actions like Normalize/Delete use it.
-    // Uncomment next line to enable granular undo:
-    // captureUndoState(currentEntries); 
-
-    const updatedEntries = currentEntries.map(item => 
-      item.id === id ? { ...item, [field]: value } : item
-    );
+    const updatedEntries = currentEntries.map(item => item.id === id ? { ...item, [field]: value } : item);
     setCurrentEntries(updatedEntries);
     saveCurrentState(updatedEntries, currentDate, currentReportId);
-    
-    const item = currentEntries.find(i => i.id === id);
     logActivity(getUserName(), "Updated Item", `Changed ${field}`, currentDate);
   };
 
-  const handleUpdateAllEntries = (newEntries: DPRItem[]) => {
-    captureUndoState(currentEntries); // Capture before bulk update (Normalization)
-
-    setCurrentEntries(newEntries);
-    saveCurrentState(newEntries, currentDate, currentReportId);
-    logActivity(getUserName(), "Normalized Report", `Bulk updated ${newEntries.length} items to standard hierarchy`, currentDate);
-  };
-
   const handleDeleteItem = async (id: string) => {
-    captureUndoState(currentEntries); // Capture before delete
-
+    setUndoStack(prev => [...prev.slice(-19), currentEntries]);
     const item = currentEntries.find(i => i.id === id);
     if (!item || !currentReportId) return;
-
     await moveItemToTrash(item, currentReportId, currentDate, getUserName());
-
     const updatedEntries = currentEntries.filter(item => item.id !== id);
     setCurrentEntries(updatedEntries);
     saveCurrentState(updatedEntries, currentDate, currentReportId);
-    
     logActivity(getUserName(), "Deleted Item", `Deleted entry for ${item?.location}`, currentDate);
   };
 
-  const handleDateChange = (date: string) => {
-    setCurrentDate(date);
-    logActivity(getUserName(), "Changed Date", `Switched view to ${date}`, date);
+  const handleUndo = async () => {
+      if (undoStack.length === 0) return;
+      const previousState = undoStack[undoStack.length - 1];
+      setUndoStack(undoStack.slice(0, -1));
+      setCurrentEntries(previousState);
+      await saveCurrentState(previousState, currentDate, currentReportId);
+      logActivity(getUserName(), "Undo", "Reverted report state", currentDate);
   };
 
-  const handleDeleteReport = async (id: string) => {
-    const reportToDelete = reports.find(r => r.id === id);
-    if (reportToDelete) {
-      await moveReportToTrash(reportToDelete, getUserName());
-      logActivity(getUserName(), "Deleted Report", `Deleted entire report ID: ${id}`, "N/A");
-      
-      if (currentReportId === id) {
-         setCurrentEntries([]);
-      }
-    }
-  };
-
-  const handleRestore = async (item: TrashItem) => {
-    await restoreTrashItem(item);
-    logActivity(getUserName(), "Restored Item", `Restored ${item.type} from trash bin`, item.reportDate);
+  const handleSaveSettings = async (s: ProjectSettings) => {
+      setSettings(s);
+      setHierarchy(s.locationHierarchy);
+      await saveProjectSettings(s);
   };
 
   const currentReport: DailyReport = {
-    id: currentReportId || 'temp',
-    date: currentDate,
-    lastUpdated: new Date().toISOString(),
-    projectTitle: "Bhotekoshi Hydroelectric Project", 
-    entries: currentEntries
+    id: currentReportId || 'temp', date: currentDate, lastUpdated: new Date().toISOString(), projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project", entries: currentEntries
   };
 
   if (authLoading) {
     return (
-      <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-100">
-        <div className="spinner"></div>
-        <div className="text-slate-500 font-medium mt-4">Verifying Identity...</div>
+      <div className="h-screen w-full flex items-center justify-center bg-slate-50">
+          <div className="flex flex-col items-center">
+            <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p className="text-slate-500 font-medium animate-pulse">Initializing...</p>
+          </div>
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
-         <div className="bg-white rounded-3xl p-8 md:p-12 max-w-md w-full shadow-2xl text-center">
-             <div className="w-20 h-20 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-indigo-500/30">
-                <i className="fas fa-hard-hat text-white text-3xl"></i>
-             </div>
-             <h1 className="text-3xl font-bold text-slate-800 mb-2">Construction DPR Maker</h1>
-             <p className="text-slate-500 mb-8">Professional Construction Management</p>
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 relative overflow-hidden">
+         {/* Decorative Background */}
+         <div className="absolute inset-0 z-0 opacity-10">
+             <div className="absolute top-0 left-0 w-96 h-96 bg-indigo-400 rounded-full blur-[100px] -translate-x-1/2 -translate-y-1/2"></div>
+             <div className="absolute bottom-0 right-0 w-96 h-96 bg-blue-400 rounded-full blur-[100px] translate-x-1/2 translate-y-1/2"></div>
+         </div>
+
+         <div className="bg-white p-8 md:p-12 rounded-3xl shadow-2xl border border-slate-100 max-w-md w-full relative z-10 text-center">
              
+             <div className="w-24 h-24 bg-gradient-to-br from-indigo-600 to-blue-700 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-indigo-200 rotate-3 hover:rotate-6 transition-transform">
+                <i className="fas fa-hard-hat text-4xl text-white"></i>
+             </div>
+
+             <h1 className="text-3xl font-extrabold text-slate-800 mb-2 tracking-tight">DPR Maker</h1>
+             <p className="text-slate-500 mb-8 leading-relaxed">
+                Construction Daily Progress Reporting<br/>
+                <span className="text-xs font-medium text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full mt-2 inline-block">Project Management Suite</span>
+             </p>
+
              <button 
-               onClick={handleLogin}
-               className="w-full bg-white border border-slate-200 text-slate-700 font-bold py-4 px-6 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all flex items-center justify-center gap-3 shadow-sm group"
+                 onClick={handleLogin}
+                 className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 px-6 rounded-xl transition-all transform hover:-translate-y-1 shadow-lg flex items-center justify-center gap-3 group relative overflow-hidden"
              >
-               <img src="https://www.google.com/favicon.ico" alt="Google" className="w-6 h-6" />
-               Sign in with Google
-               <i className="fas fa-arrow-right opacity-0 group-hover:opacity-100 transition-opacity ml-auto text-slate-400"></i>
+                 <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+                 <i className="fab fa-google text-lg"></i>
+                 <span>Sign In with Google</span>
              </button>
              
-             <p className="mt-8 text-xs text-slate-400">
-               Secured by Firebase Authentication. <br/>
-               Access is restricted to authorized site personnel.
-             </p>
+             <div className="mt-8 flex items-center justify-center gap-2 text-xs text-slate-400">
+                <i className="fas fa-shield-alt"></i> Secure Authentication
+             </div>
+         </div>
+         
+         <div className="mt-8 text-slate-400 text-xs text-center z-10">
+            &copy; {new Date().getFullYear()} Construction Management System
          </div>
       </div>
     );
   }
 
   return (
-    <>
-      <Layout activeTab={activeTab} onTabChange={handleTabChange} user={user} onLogout={logoutUser}>
-        
-        <div className={`fixed top-4 right-4 z-50 transition-all duration-300 transform ${isSaving ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0 pointer-events-none'}`}>
-          <div className="bg-white/90 backdrop-blur text-indigo-600 px-4 py-2 rounded-full shadow-lg border border-indigo-100 flex items-center gap-2 text-sm font-bold">
-             <i className="fas fa-circle-notch fa-spin"></i> Saving changes...
-          </div>
-        </div>
-
-        {activeTab === TabView.INPUT && (
-          <InputSection 
-            currentDate={currentDate}
-            onDateChange={handleDateChange}
-            onItemsAdded={handleItemsAdded}
-            onViewReport={handleViewReport}
-            entryCount={currentEntries.length}
-            user={user}
-          />
-        )}
-
-        {activeTab === TabView.VIEW_REPORT && (
-          <ReportTable 
-            report={currentReport}
-            onDeleteItem={handleDeleteItem}
-            onUpdateItem={handleUpdateItem}
-            onUpdateAllEntries={handleUpdateAllEntries}
-            onUndo={handleUndo}
-            canUndo={undoStack.length > 0}
-          />
-        )}
-
-        {activeTab === TabView.QUANTITY && (
-          <QuantityView reports={reports} user={user} />
-        )}
-
-        {activeTab === TabView.HISTORY && (
-          <HistoryList 
-            reports={reports}
-            currentReportId={currentReportId || ''}
-            onSelectReport={handleSelectReport}
-            onDeleteReport={handleDeleteReport}
-            onCreateNew={handleCreateNew}
-          />
-        )}
-
-        {activeTab === TabView.LOGS && (
-          <ActivityLogs logs={logs} />
-        )}
-        
-        {activeTab === TabView.RECYCLE_BIN && (
-          <RecycleBin 
-            logs={logs} 
-            trashItems={trashItems}
-            onRestore={handleRestore}
-          />
-        )}
-      </Layout>
-    </>
+    <Layout activeTab={activeTab} onTabChange={handleTabChange} user={user} onLogout={logoutUser}>
+        {activeTab === TabView.INPUT && <InputSection currentDate={currentDate} onDateChange={setCurrentDate} onItemsAdded={handleItemsAdded} onViewReport={() => setActiveTab(TabView.VIEW_REPORT)} entryCount={currentEntries.length} user={user} hierarchy={hierarchy} />}
+        {activeTab === TabView.VIEW_REPORT && <ReportTable report={currentReport} onDeleteItem={handleDeleteItem} onUpdateItem={handleUpdateItem} onUndo={handleUndo} canUndo={undoStack.length > 0} hierarchy={hierarchy} />}
+        {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} />}
+        {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={handleSelectReport} onDeleteReport={async (id) => { await moveReportToTrash(reports.find(r => r.id === id)!, getUserName()); }} onCreateNew={handleCreateNew} />}
+        {activeTab === TabView.LOGS && <ActivityLogs logs={logs} />}
+        {activeTab === TabView.RECYCLE_BIN && <RecycleBin logs={logs} trashItems={trashItems} onRestore={async (item) => { await restoreTrashItem(item); }} />}
+        {activeTab === TabView.SETTINGS && <ProjectSettingsView currentSettings={settings} onSave={handleSaveSettings} />}
+    </Layout>
   );
 };
 
