@@ -1,4 +1,3 @@
-
 import * as _app from "firebase/app";
 import * as _firestore from "firebase/firestore";
 import * as _auth from "firebase/auth";
@@ -17,9 +16,17 @@ const firebaseConfig = {
   measurementId: process.env.measurementId
 };
 
-let app = initializeApp(firebaseConfig);
-let db = getFirestore(app);
-let auth = getAuth(app);
+let app: any;
+let db: any;
+let auth: any;
+
+try {
+    app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    auth = getAuth(app);
+} catch (error) {
+    console.error("Firebase init failed:", error);
+}
 
 const REPORT_COLLECTION = "daily_reports";
 const LOG_COLLECTION = "activity_logs";
@@ -34,7 +41,10 @@ export const getOrUpdateProfile = async (user: any): Promise<UserProfile> => {
   const docRef = doc(db, PROFILES_COLLECTION, user.uid);
   const snap = await getDoc(docRef);
   if (snap.exists()) {
-    return snap.data() as UserProfile;
+    const data = snap.data();
+    // Calculate level in case it's not set
+    const level = Math.floor((data.exp || 0) / 100) + 1;
+    return { ...data, level } as UserProfile;
   } else {
     const profile: UserProfile = {
       uid: user.uid,
@@ -58,19 +68,25 @@ export const incrementUserStats = async (uid: string, itemsCount: number) => {
     entryCount: increment(itemsCount),
     exp: increment(expGain)
   });
-  // Check level up logic after gain
+  
   const snap = await getDoc(docRef);
-  const data = snap.data();
-  const nextLevel = Math.floor(data.exp / 100) + 1;
-  if (nextLevel > data.level) {
-    await updateDoc(docRef, { level: nextLevel });
+  if (snap.exists()) {
+    const data = snap.data();
+    const nextLevel = Math.floor(data.exp / 100) + 1;
+    if (nextLevel > (data.level || 1)) {
+      await updateDoc(docRef, { level: nextLevel });
+    }
   }
 };
 
 // --- Settings ---
-export const subscribeToSettings = (callback: (settings: ProjectSettings) => void) => {
+export const subscribeToSettings = (callback: (settings: ProjectSettings | null) => void) => {
   return onSnapshot(doc(db, SETTINGS_COLLECTION, "global_config"), (snap: any) => {
-    if (snap.exists()) callback(snap.data() as ProjectSettings);
+    if (snap.exists()) {
+      callback(snap.data() as ProjectSettings);
+    } else {
+      callback(null); // Explicitly notify it doesn't exist to allow fallbacks
+    }
   });
 };
 
@@ -78,7 +94,7 @@ export const saveProjectSettings = async (settings: ProjectSettings) => {
   await setDoc(doc(db, SETTINGS_COLLECTION, "global_config"), settings);
 };
 
-// --- Reports, Quantities, Logs, etc (Inherited from previous state) ---
+// --- Auth ---
 export const signInWithGoogle = async () => {
   const provider = new GoogleAuthProvider();
   const result = await signInWithPopup(auth, provider);
@@ -87,6 +103,7 @@ export const signInWithGoogle = async () => {
 export const logoutUser = () => signOut(auth);
 export const subscribeToAuth = (cb: any) => onAuthStateChanged(auth, cb);
 
+// --- Core Data Subscriptions ---
 export const subscribeToReports = (onUpdate: any) => onSnapshot(query(collection(db, REPORT_COLLECTION), orderBy("date", "desc")), (snap: any) => onUpdate(snap.docs.map((d: any) => d.data())));
 export const saveReportToCloud = (report: any) => setDoc(doc(db, REPORT_COLLECTION, report.id), report);
 
