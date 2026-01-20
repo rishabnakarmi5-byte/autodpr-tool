@@ -493,21 +493,21 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
 
       </div>
 
-      {/* WARNING MODAL (C25 Default) */}
+      {/* WARNING MODAL (Default / Chainage Missing) */}
       {showWarningModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
               <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center border border-slate-200">
                   <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white shadow-lg">
                       <i className="fas fa-exclamation-triangle text-yellow-600 text-3xl"></i>
                   </div>
-                  <h3 className="text-xl font-bold text-slate-800 mb-2">Review Auto-Correction</h3>
+                  <h3 className="text-xl font-bold text-slate-800 mb-2">Review Suggestions</h3>
                   <div className="bg-yellow-50 text-yellow-800 text-sm p-4 rounded-xl text-left mb-6 border border-yellow-200 max-h-40 overflow-y-auto">
                       <ul className="list-disc pl-4 space-y-2">
                           {warnings.map((w, i) => <li key={i}>{w}</li>)}
                       </ul>
                   </div>
                   <div className="flex gap-3">
-                      <button onClick={() => finalizeAdd(pendingItems)} className="flex-1 bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700">Confirm Use of C25</button>
+                      <button onClick={() => finalizeAdd(pendingItems)} className="flex-1 bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700">Proceed Anyway</button>
                       <button onClick={() => { setShowWarningModal(false); setIsProcessing(false); }} className="flex-1 bg-white text-slate-600 border border-slate-300 font-bold py-3 rounded-xl hover:bg-slate-50">Cancel & Edit</button>
                   </div>
               </div>

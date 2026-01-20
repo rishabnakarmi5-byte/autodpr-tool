@@ -165,12 +165,21 @@ export const parseConstructionData = async (
       // Infer warnings locally if model didn't catch them
       const warnings: string[] = result.warnings || [];
       
-      // Check for Concrete grade default
       processedItems.forEach((item: any) => {
          const desc = item.activityDescription.toLowerCase();
+         const loc = (item.location || "").toLowerCase();
+
+         // 1. Concrete Grade Check
          if ((desc.includes('concrete') || desc.includes('concreting') || desc.includes('plum')) && 
              !desc.match(/c\d{2}|grade|m\d{2}/i)) {
              warnings.push(`Item "${item.activityDescription.substring(0, 20)}..." detected as Concrete but no Grade specified. Defaulting to C25.`);
+         }
+
+         // 2. Missing Chainage/Elevation Check (Skip for Headworks)
+         if (!loc.includes('headworks')) {
+             if (!item.chainage || item.chainage.trim() === '') {
+                 warnings.push(`Item "${item.activityDescription.substring(0, 20)}..." at ${item.location} is missing Chainage or Elevation details.`);
+             }
          }
       });
 

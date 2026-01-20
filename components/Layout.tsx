@@ -2,7 +2,6 @@
 import React, { useEffect, useState } from 'react';
 import { TabView, UserProfile, UserMood } from '../types';
 import { subscribeToUserProfile, subscribeToUserMoods, saveUserMood } from '../services/firebaseService';
-import { getMoodMessage } from '../services/geminiService';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -20,11 +19,74 @@ const MOODS = [
   { label: 'Sad', icon: '😢', color: 'bg-blue-100 text-blue-700 border-blue-200' }
 ];
 
+// Pre-defined messages to ensure instant response
+const MOOD_RESPONSES: Record<string, string[]> = {
+  'Happy': [
+      "That's the spirit! Keep crushing it!",
+      "Awesome energy! The site is lucky to have you.",
+      "Love to see it! Keep the momentum going.",
+      "Great vibes lead to great construction!",
+      "Fantastic! Let's build something amazing today.",
+      "Smiling makes the concrete cure faster (not really, but feels like it)!",
+      "High energy today! Let's get things done.",
+      "You're on fire! Keep up the great work.",
+      "Positivity is contagious. Spread it around!",
+      "Glad you're feeling good! Enjoy the shift."
+  ],
+  'Excited': [
+      "Let's gooo! Big progress incoming!",
+      "Channel that energy into the project!",
+      "Hyped! Let's make today productive.",
+      "Excitement builds empires (and dams)!",
+      "Love the enthusiasm! Let's tackle the hard stuff.",
+      "Can't stop, won't stop! Full speed ahead.",
+      "That's what I like to hear! Let's roll.",
+      "Energy levels critical! In a good way!",
+      "Let's turn that excitement into results!",
+      "Boom! Let's knock out some targets."
+  ],
+  'Tired': [
+      "Hang in there. One step at a time.",
+      "Construction is a marathon, not a sprint. Pace yourself.",
+      "Coffee first, then concrete.",
+      "It's been a long haul. You're doing great.",
+      "Take a deep breath. You got this.",
+      "Fatigue is temporary, glory is forever (or at least until the defect liability period).",
+      "Power through, but don't forget to rest later.",
+      "Rough day? Tomorrow is a new pour.",
+      "Stay safe. Watch your step when you're tired.",
+      "Almost there. Keep pushing."
+  ],
+  'Frustrated': [
+      "Deep breath. Problems are just solutions waiting to happen.",
+      "Construction without chaos isn't construction. You'll handle it.",
+      "Shake it off. Focus on what you can control.",
+      "Don't let the site get to you. You're the boss.",
+      "Frustration happens. Solving it makes you an engineer.",
+      "Walk it off, re-group, and attack the problem.",
+      "Is it the machine or the operator? Doesn't matter, fix it and move on.",
+      "Some days are stones, some days are diamonds.",
+      "Keep your cool. Cooler heads prevail.",
+      "Let's turn that frustration into fuel."
+  ],
+  'Sad': [
+      "Sending good vibes your way.",
+      "It's okay to have off days. Be kind to yourself.",
+      "Head up. You're doing important work.",
+      "Tough times don't last, tough engineers do.",
+      "Hope your day gets brighter.",
+      "We appreciate you. Hang in there.",
+      "Take it easy on yourself today.",
+      "The sun will rise again tomorrow.",
+      "Just focus on one task at a time.",
+      "Here's to a better tomorrow."
+  ]
+};
+
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user, onLogout }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [todaysMood, setTodaysMood] = useState<UserMood | null>(null);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
-  const [isProcessingMood, setIsProcessingMood] = useState(false);
 
   useEffect(() => {
     if(user?.uid) {
@@ -34,7 +96,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
             const today = new Date().toDateString();
             const found = moods.find(m => new Date(m.timestamp).toDateString() === today);
             setTodaysMood(found || null);
-            if (found && found.note && !aiMessage) {
+            if (found && found.note) {
                 setAiMessage(found.note); // Restore note if exists locally
             }
         });
@@ -46,25 +108,14 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
   }, [user]);
 
   const handleMoodSelect = async (mood: any) => {
-      setIsProcessingMood(true);
-      try {
-          // 1. Get AI Response
-          const userName = user?.displayName?.split(' ')[0] || 'Engineer';
-          const message = await getMoodMessage(mood.label, userName);
-          setAiMessage(message);
-          
-          // 2. Save to DB
-          if (user?.uid) {
-              await saveUserMood(user.uid, mood.label, message);
-          }
-      } catch (error) {
-          console.error("Failed to generate/save mood message:", error);
-          setAiMessage("Thanks for checking in! Keep up the good work.");
-          if (user?.uid) {
-              await saveUserMood(user.uid, mood.label, "Thanks for checking in!");
-          }
-      } finally {
-          setIsProcessingMood(false);
+      // Pick a random message immediately
+      const messages = MOOD_RESPONSES[mood.label] || MOOD_RESPONSES['Happy'];
+      const randomMsg = messages[Math.floor(Math.random() * messages.length)];
+      
+      setAiMessage(randomMsg);
+      
+      if (user?.uid) {
+          await saveUserMood(user.uid, mood.label, randomMsg);
       }
   };
 
@@ -74,6 +125,44 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
       if(hour < 18) return "Good Afternoon";
       return "Good Evening";
   };
+
+  const MoodSection = () => (
+      <div className="mb-6 md:mb-0">
+          {!todaysMood ? (
+            <div className="animate-fade-in">
+                <p className="text-xs text-slate-500 mb-2 font-medium uppercase tracking-wide">How are you feeling today?</p>
+                <div className="flex gap-2 flex-wrap">
+                    {MOODS.map(m => (
+                        <button 
+                        key={m.label} 
+                        onClick={() => handleMoodSelect(m)}
+                        className={`px-3 py-2 rounded-lg border text-xs font-bold transition-all hover:-translate-y-0.5 hover:shadow-sm flex items-center gap-1.5 bg-white border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-600`}
+                        >
+                            <span className="text-base">{m.icon}</span> {m.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+        ) : (
+            <div className="animate-fade-in flex flex-col md:flex-row items-start gap-4">
+                {/* Mood Indicator */}
+                <div className="bg-indigo-50 px-3 py-2 rounded-lg border border-indigo-100 flex items-center gap-2 shadow-sm">
+                    <span className="text-xl">{MOODS.find(m => m.label === todaysMood.mood)?.icon}</span>
+                    <span className="text-xs font-bold text-indigo-900">{todaysMood.mood}</span>
+                </div>
+
+                {/* AI Response Bubble */}
+                {aiMessage && (
+                    <div className="relative bg-white border border-slate-200 p-3 rounded-2xl rounded-tl-none shadow-sm max-w-full md:max-w-md animate-fade-in">
+                        <p className="text-sm text-slate-700 italic">"{aiMessage}"</p>
+                        {/* Arrow */}
+                        <div className="absolute top-0 -left-2 w-3 h-3 bg-white border-l border-t border-slate-200 transform -rotate-45"></div>
+                    </div>
+                )}
+            </div>
+        )}
+      </div>
+  );
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-100 text-slate-800 font-sans relative">
@@ -201,45 +290,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
         <div className="hidden md:flex justify-between items-center px-10 py-6 bg-white border-b border-slate-200">
            <div className="flex-1 max-w-2xl">
               <h1 className="text-2xl font-bold text-slate-800">{getTimeGreeting()}, {user?.displayName?.split(' ')[0]}!</h1>
-              
-              {/* Mood Tracker Section */}
-              {!todaysMood ? (
-                  <div className="mt-3 animate-fade-in">
-                      <p className="text-xs text-slate-500 mb-2 font-medium uppercase tracking-wide">How are you feeling today?</p>
-                      <div className="flex gap-2">
-                          {isProcessingMood ? (
-                              <span className="text-xs text-indigo-500 flex items-center"><i className="fas fa-circle-notch fa-spin mr-2"></i> Generating uplifting message...</span>
-                          ) : (
-                              MOODS.map(m => (
-                                  <button 
-                                    key={m.label} 
-                                    onClick={() => handleMoodSelect(m)}
-                                    className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all hover:-translate-y-0.5 hover:shadow-sm flex items-center gap-1.5 bg-white border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-600`}
-                                  >
-                                      <span>{m.icon}</span> {m.label}
-                                  </button>
-                              ))
-                          )}
-                      </div>
-                  </div>
-              ) : (
-                  <div className="mt-4 animate-fade-in flex items-start gap-4">
-                      {/* Mood Indicator */}
-                      <div className="bg-indigo-50 px-3 py-2 rounded-lg border border-indigo-100 flex items-center gap-2 shadow-sm">
-                          <span className="text-xl">{MOODS.find(m => m.label === todaysMood.mood)?.icon}</span>
-                          <span className="text-xs font-bold text-indigo-900">{todaysMood.mood}</span>
-                      </div>
-
-                      {/* AI Response Bubble */}
-                      {aiMessage && (
-                          <div className="relative bg-white border border-slate-200 p-3 rounded-2xl rounded-tl-none shadow-sm max-w-md">
-                              <p className="text-sm text-slate-700 italic">"{aiMessage}"</p>
-                              {/* Arrow */}
-                              <div className="absolute top-0 -left-2 w-3 h-3 bg-white border-l border-t border-slate-200 transform -rotate-45"></div>
-                          </div>
-                      )}
-                  </div>
-              )}
+              <div className="mt-3">
+                <MoodSection />
+              </div>
            </div>
 
            <div className="flex gap-4">
@@ -254,8 +307,16 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
               </div>
            </div>
         </div>
+        
+        {/* Mobile Mood Check (Inside Content) */}
+        <div className="md:hidden px-4 pt-4">
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                 <h2 className="text-lg font-bold text-slate-800 mb-2">{getTimeGreeting()}, {user?.displayName?.split(' ')[0]}!</h2>
+                 <MoodSection />
+            </div>
+        </div>
 
-        <div className="p-4 md:p-10 max-w-7xl mx-auto pb-20">
+        <div className="p-4 md:p-10 max-w-7xl mx-auto pb-24 md:pb-20">
           {children}
         </div>
         
@@ -264,33 +325,57 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
         </div>
       </main>
 
-      {/* Mobile Bottom Navigation */}
-      <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-slate-200 flex justify-around items-center py-3 z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] safe-area-pb">
-        <MobileNavButton 
-          active={activeTab === TabView.INPUT} 
-          onClick={() => onTabChange(TabView.INPUT)}
-          icon="fa-pen-to-square"
-          label="Input"
-        />
-        <MobileNavButton 
-          active={activeTab === TabView.VIEW_REPORT} 
-          onClick={() => onTabChange(TabView.VIEW_REPORT)}
-          icon="fa-file-invoice"
-          label="Report"
-        />
-        <MobileNavButton 
-          active={activeTab === TabView.QUANTITY} 
-          onClick={() => onTabChange(TabView.QUANTITY)}
-          icon="fa-calculator"
-          label="Qty"
-        />
-        <MobileNavButton 
-          active={activeTab === TabView.SETTINGS} 
-          onClick={() => onTabChange(TabView.SETTINGS)}
-          icon="fa-cog"
-          label="Settings"
-        />
+      {/* Mobile Bottom Navigation (Scrollable) */}
+      <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-slate-200 z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] safe-area-pb">
+        <div className="flex overflow-x-auto no-scrollbar py-3 px-2 gap-4">
+            <MobileNavButton 
+            active={activeTab === TabView.INPUT} 
+            onClick={() => onTabChange(TabView.INPUT)}
+            icon="fa-pen-to-square"
+            label="Input"
+            />
+            <MobileNavButton 
+            active={activeTab === TabView.VIEW_REPORT} 
+            onClick={() => onTabChange(TabView.VIEW_REPORT)}
+            icon="fa-file-invoice"
+            label="Report"
+            />
+            <MobileNavButton 
+            active={activeTab === TabView.QUANTITY} 
+            onClick={() => onTabChange(TabView.QUANTITY)}
+            icon="fa-calculator"
+            label="Qty"
+            />
+            <MobileNavButton 
+            active={activeTab === TabView.HISTORY} 
+            onClick={() => onTabChange(TabView.HISTORY)}
+            icon="fa-clock-rotate-left"
+            label="History"
+            />
+            <MobileNavButton 
+            active={activeTab === TabView.LOGS} 
+            onClick={() => onTabChange(TabView.LOGS)}
+            icon="fa-list-check"
+            label="Logs"
+            />
+            <MobileNavButton 
+            active={activeTab === TabView.SETTINGS} 
+            onClick={() => onTabChange(TabView.SETTINGS)}
+            icon="fa-cog"
+            label="Settings"
+            />
+            <MobileNavButton 
+            active={activeTab === TabView.PROFILE} 
+            onClick={() => onTabChange(TabView.PROFILE)}
+            icon="fa-user"
+            label="Profile"
+            />
+        </div>
       </div>
+      <style>{`
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
     </div>
   );
 };
@@ -319,14 +404,14 @@ const NavButton = ({ active, onClick, icon, label, desc }: any) => (
 const MobileNavButton = ({ active, onClick, icon, label }: any) => (
   <button
     onClick={onClick}
-    className={`flex flex-col items-center justify-center w-full space-y-1 ${
+    className={`flex flex-col items-center justify-center min-w-[60px] space-y-1 ${
       active ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'
     }`}
   >
     <div className={`text-lg transition-transform ${active ? '-translate-y-1' : ''}`}>
        <i className={`fas ${icon}`}></i>
     </div>
-    <span className={`text-[10px] font-medium ${active ? 'font-bold' : ''}`}>{label}</span>
+    <span className={`text-[10px] font-medium whitespace-nowrap ${active ? 'font-bold' : ''}`}>{label}</span>
     {active && <div className="w-1 h-1 bg-indigo-600 rounded-full mt-1"></div>}
   </button>
 );

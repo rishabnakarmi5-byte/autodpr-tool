@@ -19,13 +19,16 @@ interface ReportTableProps {
 export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, onUpdateItem, onUpdateAllEntries, onUndo, canUndo, onRedo, canRedo, onNormalize, hierarchy }) => {
   
   const [entries, setEntries] = useState<DPRItem[]>(report.entries);
+  
+  // Layout Controls
   const [fontSize, setFontSize] = useState<number>(11);
+  const [descWidthPercent, setDescWidthPercent] = useState<number>(45); // Default 45%
+  const [rowMinHeight, setRowMinHeight] = useState<number>(0); // 0 = auto
+
   const [isExporting, setIsExporting] = useState(false);
   const [isDragMode, setIsDragMode] = useState(false);
   
   // Paper Settings
-  const [paperSize, setPaperSize] = useState<'a4' | 'a3'>('a4');
-  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [zoom, setZoom] = useState(1);
 
   // Drag and Drop State
@@ -39,20 +42,24 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   useEffect(() => {
     setEntries(report.entries);
   }, [report]);
-
-  // Paper CSS Mapping
-  const paperStyles = {
-      a4: { w: '210mm', h: '297mm' },
-      a3: { w: '297mm', h: '420mm' }
-  };
   
-  const currentDimensions = orientation === 'portrait' 
-      ? paperStyles[paperSize] 
-      : { w: paperStyles[paperSize].h, h: paperStyles[paperSize].w };
+  // Dynamic Grid Template Calculation
+  // We fix Location/Component/Area/Next to specific ratios around the adjustable Description width
+  // Base ratios (approx): Loc 12, Comp 14, Area 14, Next 15 => Total 55% fixed-ish logic
+  // To make it fully dynamic while keeping headers aligned, we use percentages.
+  // We'll give fixed min-widths in % to others and let Description take the rest, or adjust properly.
+  
+  // Let's use a simpler approach: 
+  // Description is user controlled [descWidthPercent]%.
+  // The remaining [100 - descWidthPercent]% is distributed among the other 4 columns.
+  // Dist ratios: Loc(0.22), Comp(0.25), Area(0.25), Next(0.28) of the remainder.
+  const remainder = 100 - descWidthPercent;
+  const colLoc = Math.floor(remainder * 0.22);
+  const colComp = Math.floor(remainder * 0.25);
+  const colArea = Math.floor(remainder * 0.25);
+  const colNext = remainder - colLoc - colComp - colArea; // Remainder to Next
 
-  // Strict Grid Template for Header and Body alignment
-  // Location | Component | Area/CH | Description | Next Plan
-  const gridTemplate = '12% 14% 14% 45% 15%';
+  const gridTemplate = `${colLoc}% ${colComp}% ${colArea}% ${descWidthPercent}% ${colNext}%`;
 
   const handlePrint = () => {
     window.print();
@@ -149,7 +156,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     <div className="flex flex-col h-full space-y-6 animate-fade-in relative">
       
       {/* Action Bar */}
-      <div className="flex flex-col xl:flex-row justify-between items-center bg-white p-4 rounded-2xl shadow-lg shadow-slate-200/50 border border-slate-100 gap-4">
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center bg-white p-4 rounded-2xl shadow-lg shadow-slate-200/50 border border-slate-100 gap-4">
         <div className="flex gap-4 items-center">
            <div>
               <h2 className="text-xl font-bold text-slate-800">Final Report</h2>
@@ -175,20 +182,50 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         </div>
 
         {/* Controls */}
-        <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto justify-end">
+        <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto justify-end">
           
-          <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-lg border border-slate-200">
-             <button onClick={() => setOrientation(o => o === 'portrait' ? 'landscape' : 'portrait')} className="text-slate-500 hover:text-indigo-600 px-2" title="Orientation">
-                 <i className={`fas fa-${orientation === 'portrait' ? 'file' : 'file-image'}`}></i>
-             </button>
-             <div className="w-px h-4 bg-slate-300"></div>
-             <i className="fas fa-text-height text-slate-400 text-xs pl-1"></i>
-             <input 
-                 type="range" min="8" max="14" step="1" value={fontSize} 
-                 onChange={e => setFontSize(parseInt(e.target.value))}
-                 className="w-16"
-                 title="Font Size"
-             />
+          {/* Layout Controls */}
+          <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200">
+             
+             {/* Text Size */}
+             <div className="flex items-center gap-1 px-2 border-r border-slate-200">
+                <i className="fas fa-text-height text-slate-400 text-xs"></i>
+                <input 
+                    type="range" min="8" max="14" step="1" value={fontSize} 
+                    onChange={e => setFontSize(parseInt(e.target.value))}
+                    className="w-16"
+                    title="Font Size"
+                />
+             </div>
+
+             {/* Description Width */}
+             <div className="flex items-center gap-1 px-2 border-r border-slate-200">
+                <i className="fas fa-arrows-left-right text-slate-400 text-xs" title="Description Column Width"></i>
+                <input 
+                    type="range" min="30" max="70" step="1" value={descWidthPercent} 
+                    onChange={e => setDescWidthPercent(parseInt(e.target.value))}
+                    className="w-16 accent-indigo-500"
+                    title="Adjust Description Width"
+                />
+             </div>
+
+             {/* Row Height */}
+             <div className="flex items-center gap-1 px-2">
+                <i className="fas fa-arrows-up-down text-slate-400 text-xs" title="Row Height"></i>
+                <input 
+                    type="range" min="0" max="50" step="5" value={rowMinHeight} 
+                    onChange={e => setRowMinHeight(parseInt(e.target.value))}
+                    className="w-16 accent-indigo-500"
+                    title="Increase Row Spacing"
+                />
+                <button 
+                    onClick={() => setRowMinHeight(0)} 
+                    className="ml-1 text-[10px] font-bold bg-white border border-slate-300 px-1.5 rounded hover:bg-slate-100"
+                    title="Auto Fit Height to Text"
+                >
+                    Auto
+                </button>
+             </div>
           </div>
 
           <button
@@ -207,7 +244,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               onClick={handlePrint}
               className="flex items-center justify-center px-4 py-1.5 bg-slate-900 text-white font-bold rounded-lg hover:bg-black transition-all shadow-md text-sm"
             >
-              <i className="fas fa-print mr-2"></i> Print
+              <i className="fas fa-print mr-2"></i>
           </button>
           
           <button 
@@ -238,8 +275,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
           id="printable-report"
           className="report-page bg-white p-[15mm] shadow-2xl text-left relative mb-8 transition-all duration-300 origin-top mx-auto"
           style={{ 
-              width: currentDimensions.w, 
-              minHeight: currentDimensions.h, 
+              width: '210mm', // Force A4 width for preview
+              minHeight: '297mm',
               transform: `scale(${zoom})`,
               transformOrigin: 'top center'
           }}
@@ -291,7 +328,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   `}
                   style={{ 
                       gridTemplateColumns: gridTemplate,
-                      fontSize: `${fontSize}px` 
+                      fontSize: `${fontSize}px`,
+                      minHeight: rowMinHeight > 0 ? `${rowMinHeight}px` : 'auto'
                   }}
                 >
                     {/* Delete Button (Floating Left) */}
@@ -352,8 +390,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                       }}
                       onBlur={(e) => handleBlur(item.id, 'structuralElement', e.target.value)}
                       className="w-full h-full bg-transparent resize-none outline-none font-medium text-slate-700 whitespace-pre-wrap break-words overflow-hidden"
-                      // Use a ref or simple auto-resize trick if needed, but flex grid cell handles height.
-                      // Setting 100% height on textarea inside a grid cell works if cell expands.
                       style={{ minHeight: '1.5em' }}
                       onInput={(e) => {
                           e.currentTarget.style.height = 'auto';
