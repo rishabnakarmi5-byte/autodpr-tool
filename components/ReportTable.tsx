@@ -20,8 +20,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   
   const [entries, setEntries] = useState<DPRItem[]>(report.entries);
   const [fontSize, setFontSize] = useState<number>(11);
-  const [rowPadding, setRowPadding] = useState<number>(6); // px
-  const [descColWidth, setDescColWidth] = useState<number>(40); // Percentage for description column
   const [isExporting, setIsExporting] = useState(false);
   const [isDragMode, setIsDragMode] = useState(false);
   
@@ -52,15 +50,9 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
       ? paperStyles[paperSize] 
       : { w: paperStyles[paperSize].h, h: paperStyles[paperSize].w };
 
-  // Dynamic Grid Template
-  // We allocate fixed percentages to specific columns, and the rest adjust.
-  // Location (~12%), Component (~12%), Area/CH (~12%), Next (~14%)
-  // Description takes the rest (variable)
-  const otherColsTotal = 12 + 12 + 12 + 14; 
-  const currentDescWidth = Math.max(20, Math.min(60, descColWidth));
-  
-  // Normalize grid template columns
-  const gridTemplate = `12fr 12fr 12fr ${currentDescWidth}fr 14fr`;
+  // Strict Grid Template for Header and Body alignment
+  // Location | Component | Area/CH | Description | Next Plan
+  const gridTemplate = '12% 14% 14% 45% 15%';
 
   const handlePrint = () => {
     window.print();
@@ -199,28 +191,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
              />
           </div>
 
-          {/* Row Height Control */}
-          <div className="flex items-center gap-1 bg-slate-50 p-1.5 rounded-lg border border-slate-200">
-             <span className="text-[10px] font-bold text-slate-400 uppercase px-1">Row Height</span>
-             <button onClick={() => setRowPadding(p => Math.max(2, p - 2))} className="w-6 h-6 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center">
-                <i className="fas fa-minus text-[10px]"></i>
-             </button>
-             <button onClick={() => setRowPadding(p => Math.min(20, p + 2))} className="w-6 h-6 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center">
-                <i className="fas fa-plus text-[10px]"></i>
-             </button>
-          </div>
-
-          {/* Column Width Control */}
-          <div className="flex items-center gap-1 bg-slate-50 p-1.5 rounded-lg border border-slate-200">
-             <span className="text-[10px] font-bold text-slate-400 uppercase px-1">Desc. Width</span>
-             <button onClick={() => setDescColWidth(w => Math.max(20, w - 5))} className="w-6 h-6 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center">
-                <i className="fas fa-compress-alt text-[10px]"></i>
-             </button>
-             <button onClick={() => setDescColWidth(w => Math.min(60, w + 5))} className="w-6 h-6 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center">
-                <i className="fas fa-expand-alt text-[10px]"></i>
-             </button>
-          </div>
-
           <button
              onClick={() => setIsDragMode(!isDragMode)}
              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 border transition-colors ${
@@ -289,11 +259,12 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
             </div>
           </div>
 
-          {/* Table */}
-          <div className="border-2 border-black">
-            {/* Table Header */}
+          {/* Table Container - Standard CSS Grid */}
+          <div className="border-2 border-black text-xs">
+            
+            {/* Header Row */}
             <div 
-                className="grid border-b-2 border-black bg-gray-200 divide-x-2 divide-black font-bold text-center text-xs uppercase tracking-wide"
+                className="grid border-b-2 border-black bg-gray-200 divide-x-2 divide-black font-bold text-center uppercase tracking-wide"
                 style={{ gridTemplateColumns: gridTemplate }}
             >
               <div className="p-2 flex items-center justify-center">Location</div>
@@ -303,6 +274,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               <div className="p-2 flex items-center justify-center">Next Plan</div>
             </div>
 
+            {/* Data Rows */}
             {entries.length === 0 ? (
                <div className="p-12 text-center text-gray-400 italic">-- No Data --</div>
             ) : (
@@ -313,11 +285,14 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   onDragStart={(e) => onDragStart(e, index)}
                   onDragEnter={(e) => onDragEnter(e, index)}
                   onDragEnd={onDragEnd}
-                  className={`grid divide-x divide-black text-xs leading-relaxed group hover:bg-blue-50/10 transition-colors relative
+                  className={`grid divide-x divide-black leading-relaxed group hover:bg-blue-50/10 transition-colors relative
                     ${index !== entries.length - 1 ? 'border-b border-black' : ''}
                     ${isDragMode ? 'cursor-move' : ''}
                   `}
-                  style={{ gridTemplateColumns: gridTemplate }}
+                  style={{ 
+                      gridTemplateColumns: gridTemplate,
+                      fontSize: `${fontSize}px` 
+                  }}
                 >
                     {/* Delete Button (Floating Left) */}
                     <div className="no-print absolute -left-8 top-2 opacity-0 group-hover:opacity-100 transition-opacity z-50">
@@ -330,7 +305,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                     </div>
 
                   {/* Location */}
-                  <div className="relative border-r border-black last:border-0" style={{ padding: `${rowPadding}px` }}>
+                  <div className="relative p-1.5 flex items-center">
                     {editingLocationId === item.id ? (
                       <div className="absolute top-0 left-0 z-30 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48">
                          <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
@@ -342,16 +317,14 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                          </div>
                       </div>
                     ) : (
-                      <div className="relative w-full h-full" onClick={() => setEditingLocationId(item.id)}>
-                         <div className={`w-full h-full whitespace-pre-wrap cursor-pointer font-bold ${item.location.includes('Needs Fix') ? 'text-red-500' : ''}`} style={{ fontSize: `${fontSize}px` }}>
-                            {item.location}
-                        </div>
+                      <div className="w-full h-full whitespace-pre-wrap break-words font-bold cursor-pointer" onClick={() => setEditingLocationId(item.id)}>
+                         <span className={item.location.includes('Needs Fix') ? 'text-red-500' : ''}>{item.location}</span>
                       </div>
                     )}
                   </div>
 
                   {/* Component */}
-                  <div className="relative border-r border-black last:border-0" style={{ padding: `${rowPadding}px` }}>
+                  <div className="relative p-1.5 flex items-center">
                     {editingComponentId === item.id ? (
                       <div className="absolute top-0 left-0 z-20 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48">
                          <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
@@ -363,50 +336,61 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                          </div>
                       </div>
                     ) : (
-                      <div className="relative w-full h-full" onClick={() => setEditingComponentId(item.id)}>
-                        <div className="w-full h-full whitespace-pre-wrap cursor-pointer" style={{ fontSize: `${fontSize}px` }}>
-                            {item.component || item.component}
-                        </div>
+                      <div className="w-full h-full whitespace-pre-wrap break-words cursor-pointer" onClick={() => setEditingComponentId(item.id)}>
+                        {item.component || item.component}
                       </div>
                     )}
                   </div>
 
                   {/* Merged Area / CH */}
-                  <div className="relative border-r border-black last:border-0" style={{ padding: `${rowPadding}px` }}>
+                  <div className="relative p-1.5">
                      <textarea
-                      // Concatenate Area and Chainage for display
                       value={item.structuralElement || item.chainage ? `${item.structuralElement || ''} ${item.chainage || ''}`.trim() : item.chainageOrArea}
-                      // Note: Editing here is tricky because we have one field but two data points.
-                      // For now, allow editing the 'structuralElement' as a general 'Details' field if they type here.
                       onChange={(e) => {
                           handleLocalChange(item.id, 'structuralElement', e.target.value);
-                          handleLocalChange(item.id, 'chainage', ''); // Clear chainage if manually edited here to avoid duplication
+                          handleLocalChange(item.id, 'chainage', ''); 
                       }}
                       onBlur={(e) => handleBlur(item.id, 'structuralElement', e.target.value)}
-                      className="w-full h-full bg-transparent resize-none outline-none font-medium text-slate-700"
-                      style={{ fontSize: `${fontSize}px` }}
+                      className="w-full h-full bg-transparent resize-none outline-none font-medium text-slate-700 whitespace-pre-wrap break-words overflow-hidden"
+                      // Use a ref or simple auto-resize trick if needed, but flex grid cell handles height.
+                      // Setting 100% height on textarea inside a grid cell works if cell expands.
+                      style={{ minHeight: '1.5em' }}
+                      onInput={(e) => {
+                          e.currentTarget.style.height = 'auto';
+                          e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
+                      }}
                     />
                   </div>
 
                   {/* Description */}
-                  <div className="relative border-r border-black last:border-0" style={{ padding: `${rowPadding}px` }}>
+                  <div className="relative p-1.5">
                      <textarea
                       value={item.activityDescription}
                       onChange={(e) => handleLocalChange(item.id, 'activityDescription', e.target.value)}
                       onBlur={(e) => handleBlur(item.id, 'activityDescription', e.target.value)}
-                      className="w-full h-full bg-transparent resize-none outline-none whitespace-pre-wrap"
-                      style={{ fontSize: `${fontSize}px` }}
+                      className="w-full h-full bg-transparent resize-none outline-none whitespace-pre-wrap break-words overflow-hidden"
+                      style={{ minHeight: '1.5em' }}
+                      onInput={(e) => {
+                          e.currentTarget.style.height = 'auto';
+                          e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
+                      }}
+                      // Initialize height on render
+                      ref={el => { if(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
                     />
                   </div>
 
                   {/* Next */}
-                  <div className="relative" style={{ padding: `${rowPadding}px` }}>
+                  <div className="relative p-1.5">
                      <textarea
                       value={item.plannedNextActivity}
                       onChange={(e) => handleLocalChange(item.id, 'plannedNextActivity', e.target.value)}
                       onBlur={(e) => handleBlur(item.id, 'plannedNextActivity', e.target.value)}
-                      className="w-full h-full bg-transparent resize-none outline-none"
-                      style={{ fontSize: `${fontSize}px` }}
+                      className="w-full h-full bg-transparent resize-none outline-none whitespace-pre-wrap break-words overflow-hidden"
+                      style={{ minHeight: '1.5em' }}
+                      onInput={(e) => {
+                          e.currentTarget.style.height = 'auto';
+                          e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px';
+                      }}
                     />
                   </div>
                 </div>

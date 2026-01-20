@@ -223,14 +223,21 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                       </div>
                   </div>
               ) : (
-                  <div className="mt-3 animate-fade-in flex items-start gap-3">
-                      <div className="bg-indigo-50 px-3 py-2 rounded-lg border border-indigo-100 inline-flex items-center gap-2">
+                  <div className="mt-4 animate-fade-in flex items-start gap-4">
+                      {/* Mood Indicator */}
+                      <div className="bg-indigo-50 px-3 py-2 rounded-lg border border-indigo-100 flex items-center gap-2 shadow-sm">
                           <span className="text-xl">{MOODS.find(m => m.label === todaysMood.mood)?.icon}</span>
-                          <div>
-                              <p className="text-xs font-bold text-indigo-900">You're feeling {todaysMood.mood}</p>
-                              {aiMessage && <p className="text-xs text-indigo-600 italic mt-0.5 max-w-md">"{aiMessage}"</p>}
-                          </div>
+                          <span className="text-xs font-bold text-indigo-900">{todaysMood.mood}</span>
                       </div>
+
+                      {/* AI Response Bubble */}
+                      {aiMessage && (
+                          <div className="relative bg-white border border-slate-200 p-3 rounded-2xl rounded-tl-none shadow-sm max-w-md">
+                              <p className="text-sm text-slate-700 italic">"{aiMessage}"</p>
+                              {/* Arrow */}
+                              <div className="absolute top-0 -left-2 w-3 h-3 bg-white border-l border-t border-slate-200 transform -rotate-45"></div>
+                          </div>
+                      )}
                   </div>
               )}
            </div>
