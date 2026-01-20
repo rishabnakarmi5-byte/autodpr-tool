@@ -1,8 +1,10 @@
+
 import React, { useState } from 'react';
 import { parseConstructionData } from '../services/geminiService';
-import { DPRItem } from '../types';
+import { DPRItem, QuantityEntry } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
-import { LOCATION_HIERARCHY } from '../utils/constants';
+import { identifyItemType, parseQuantityDetails } from '../utils/constants';
+import { incrementUserStats, addQuantity } from '../services/firebaseService';
 
 interface InputSectionProps {
   currentDate: string;
@@ -11,523 +13,143 @@ interface InputSectionProps {
   onViewReport: () => void;
   entryCount: number;
   user: any;
+  hierarchy: Record<string, string[]>;
 }
 
-type InputMode = 'ai' | 'manual';
-
-export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateChange, onItemsAdded, onViewReport, entryCount, user }) => {
-  const [mode, setMode] = useState<InputMode>('ai');
-  
-  // AI State
+export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateChange, onItemsAdded, onViewReport, entryCount, user, hierarchy }) => {
+  const [mode, setMode] = useState<'ai' | 'manual'>('ai');
   const [rawText, setRawText] = useState('');
-  const [instructions, setInstructions] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  // AI Context State (Multi-select)
   const [aiLocations, setAiLocations] = useState<string[]>([]);
   const [aiComponents, setAiComponents] = useState<string[]>([]);
-
-  // Manual State
-  const [manualLoc, setManualLoc] = useState('');
-  const [manualComp, setManualComp] = useState('');
-  const [manualChainage, setManualChainage] = useState('');
-  const [manualDesc, setManualDesc] = useState('');
-  const [manualNext, setManualNext] = useState('');
   
-  // Modal State: 0 = closed, 1 = success, 2 = announcement
-  const [modalStep, setModalStep] = useState<number>(0);
-  
-  const dateObj = new Date(currentDate);
-  const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  const nepaliDate = getNepaliDate(currentDate);
+  // Review Modal State
+  const [reviewItems, setReviewItems] = useState<DPRItem[] | null>(null);
+  const [showWarning, setShowWarning] = useState(false);
 
-  // Toggle Handlers
-  const toggleLocation = (loc: string) => {
-    setAiLocations(prev => {
-        const isActive = prev.includes(loc);
-        if (isActive) {
-            // Remove location and its components from selection
-            const componentsToRemove = LOCATION_HIERARCHY[loc] || [];
-            setAiComponents(curr => curr.filter(c => !componentsToRemove.includes(c)));
-            return prev.filter(l => l !== loc);
-        } else {
-            return [...prev, loc];
-        }
-    });
-  };
-
-  const toggleComponent = (comp: string) => {
-    setAiComponents(prev => 
-        prev.includes(comp) ? prev.filter(c => c !== comp) : [...prev, comp]
-    );
-  };
-
-  const selectAllComponents = (loc: string) => {
-      const locationComps = LOCATION_HIERARCHY[loc] || [];
-      const allSelected = locationComps.every(c => aiComponents.includes(c));
-      
-      if (allSelected) {
-          // Deselect all for this location
-          setAiComponents(prev => prev.filter(c => !locationComps.includes(c)));
-      } else {
-          // Select all for this location
-          setAiComponents(prev => {
-              const newSet = new Set([...prev, ...locationComps]);
-              return Array.from(newSet);
-          });
-      }
-  };
-
-  const handleProcessAndAdd = async () => {
-    if (!rawText.trim() || aiLocations.length === 0 || aiComponents.length === 0) {
-        setError("Please select at least one Location and Component, and enter text.");
-        return;
-    }
-    
+  const handleProcess = async () => {
+    if (!rawText.trim() || aiLocations.length === 0) return;
     setIsProcessing(true);
-    setError(null);
     try {
-      const parsedData = await parseConstructionData(rawText, instructions, aiLocations, aiComponents);
-      const newItems: DPRItem[] = parsedData.map(item => ({ 
-        ...item, 
+      const parsedData = await parseConstructionData(rawText, "", aiLocations, aiComponents);
+      const itemsWithMeta = parsedData.map(item => ({
+        ...item,
         id: crypto.randomUUID(),
-        createdBy: user?.displayName || user?.email || 'Unknown' 
-      }));
+        createdBy: user.displayName,
+        isDefaulted: item.activityDescription.toLowerCase().includes('concrete') && !/\b(c10|c15|c20|c30|c35)\b/i.test(item.activityDescription)
+      })) as DPRItem[];
+
+      // Check for missing hierarchy fields
+      const hasMissing = itemsWithMeta.some(i => !i.location || !i.component || !i.chainageOrArea);
+      if (hasMissing) setShowWarning(true);
       
-      onItemsAdded(newItems, rawText);
-      setRawText('');
-      setInstructions('');
-      setModalStep(1); // Start success flow
-      
-    } catch (err: any) {
-      console.error(err);
-      setError("Failed to process text. Ensure your connection is stable.");
+      setReviewItems(itemsWithMeta);
+    } catch (e) {
+      alert("Error parsing data. Try again.");
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleManualAdd = () => {
-      if(!manualLoc || !manualComp || !manualDesc) {
-          setError("Location, Component, and Description are required.");
-          return;
-      }
-
-      const newItem: DPRItem = {
+  const handleFinalSubmit = async () => {
+    if (!reviewItems) return;
+    
+    // Auto-Sync Quantities logic
+    for (const item of reviewItems) {
+      const regex = /(\d+(\.\d+)?)\s*(m3|cum|sqm|sq\.m|m|mtr|nos|t|ton)/i;
+      const match = item.activityDescription.match(regex);
+      if (match) {
+        const details = parseQuantityDetails(item.location, item.component, item.chainageOrArea, item.activityDescription);
+        const newQty: QuantityEntry = {
           id: crypto.randomUUID(),
-          location: manualLoc,
-          component: manualComp,
-          chainageOrArea: manualChainage,
-          activityDescription: manualDesc,
-          plannedNextActivity: manualNext,
-          createdBy: user?.displayName || user?.email || 'Manual Input'
-      };
+          date: currentDate,
+          location: item.location,
+          structure: details.structure,
+          detailElement: details.detailElement,
+          detailLocation: details.detailLocation,
+          itemType: identifyItemType(item.activityDescription),
+          description: item.activityDescription,
+          quantityValue: parseFloat(match[1]),
+          quantityUnit: match[3],
+          originalRawString: match[0],
+          originalReportItemId: item.id,
+          lastUpdated: new Date().toISOString(),
+          updatedBy: user.displayName
+        };
+        await addQuantity(newQty);
+      }
+    }
 
-      onItemsAdded([newItem], `Manual Entry: ${manualDesc}`);
-      
-      // Reset form
-      setManualChainage('');
-      setManualDesc('');
-      setManualNext('');
-      setError(null);
-      
-      // Keep location/component for rapid entry of similar items
-      setModalStep(1);
-  };
-
-  const handleNextModal = () => {
-    setModalStep(2);
-  };
-
-  const handleCloseAll = () => {
-    setModalStep(0);
+    await incrementUserStats(user.uid, reviewItems.length);
+    onItemsAdded(reviewItems, rawText);
+    setReviewItems(null);
+    setRawText('');
     onViewReport();
   };
 
-  // Helper to check validity of AI form
-  const isAiFormValid = rawText.trim().length > 0 && aiLocations.length > 0 && aiComponents.length > 0;
-
   return (
-    <div className="space-y-8 animate-fade-in relative">
-      
-      {/* Dashboard Header */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 bg-gradient-to-r from-indigo-600 to-indigo-800 rounded-2xl p-6 text-white shadow-xl shadow-indigo-200 relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-10">
-            <i className="fas fa-calendar-alt text-9xl"></i>
-          </div>
-          <div className="relative z-10">
-            <h2 className="text-indigo-100 text-sm font-semibold uppercase tracking-wider mb-1">Active Report</h2>
-            <div className="flex flex-col mb-2">
-               <h1 className="text-3xl font-bold">{formattedDate}</h1>
-               <h2 className="text-lg text-indigo-200 font-medium mt-1">{nepaliDate}</h2>
-            </div>
-            <div className="flex items-center gap-4 mt-4">
-               <div className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-lg border border-white/10">
-                 <span className="text-xs text-indigo-100 block">Total Entries</span>
-                 <span className="text-xl font-bold">{entryCount}</span>
-               </div>
-               <div className="flex-1">
-                 <label className="text-xs text-indigo-200 block mb-1">Change Date</label>
-                 <input 
-                  type="date" 
-                  value={currentDate}
-                  onChange={(e) => onDateChange(e.target.value)}
-                  className="bg-white/10 border border-white/20 text-white text-sm rounded px-3 py-1.5 focus:outline-none focus:bg-white/20 w-full md:w-auto"
-                />
-               </div>
-            </div>
-          </div>
-        </div>
+    <div className="space-y-6 animate-fade-in">
+      <div className="bg-white rounded-2xl p-6 shadow-xl border border-slate-100">
+         <div className="flex justify-between items-center mb-6">
+            <h3 className="text-xl font-bold flex items-center gap-2"><i className="fab fa-whatsapp text-green-500"></i> Smart Progress Entry</h3>
+            <input type="date" value={currentDate} onChange={e => onDateChange(e.target.value)} className="text-sm p-2 border rounded-lg bg-slate-50" />
+         </div>
+         
+         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+           {Object.keys(hierarchy).map(loc => (
+             <button key={loc} onClick={() => setAiLocations(prev => prev.includes(loc) ? prev.filter(l => l !== loc) : [...prev, loc])} className={`p-3 rounded-xl border text-xs font-bold transition-all ${aiLocations.includes(loc) ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                {loc}
+             </button>
+           ))}
+         </div>
 
-        <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-lg shadow-slate-200/50 flex flex-col justify-center relative overflow-hidden">
-           <h3 className="text-slate-500 text-sm font-medium mb-2">System Status</h3>
-           <div className="space-y-2">
-             <div className="flex items-center text-sm text-slate-600 gap-2">
-               <i className="fas fa-check-circle text-green-500"></i> Cloud Sync Active
-             </div>
-             <div className="flex items-center text-sm text-slate-400 gap-2">
-               <i className="fas fa-camera-slash"></i> Photos Disabled
-             </div>
-             <div className="flex items-center text-sm text-indigo-600 gap-2 font-bold">
-               <i className="fas fa-shield-alt"></i> Backup Enabled
-             </div>
-           </div>
-        </div>
-      </div>
-
-      {/* INPUT SECTION WRAPPER */}
-      <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 overflow-hidden transition-all relative">
-        
-        {/* Header with hidden toggle */}
-        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
-            <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                {mode === 'ai' ? <i className="fab fa-whatsapp text-green-600 text-lg"></i> : <i className="fas fa-keyboard text-slate-500"></i>}
-                {mode === 'ai' ? 'Progress Entry' : 'Manual Entry'}
-            </h3>
-            <button 
-                onClick={() => setMode(mode === 'ai' ? 'manual' : 'ai')}
-                className="text-xs text-slate-400 hover:text-indigo-600 hover:bg-white border border-transparent hover:border-slate-200 px-3 py-1.5 rounded-full transition-all"
-            >
-                {mode === 'ai' ? 'Switch to Manual' : 'Back to Smart Entry'}
+         <textarea value={rawText} onChange={e => setRawText(e.target.value)} placeholder="Paste site update here..." className="w-full h-40 p-4 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm leading-relaxed" />
+         
+         <div className="mt-6 flex justify-end">
+            <button onClick={handleProcess} disabled={isProcessing || !rawText} className="bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all">
+               {isProcessing ? <i className="fas fa-spinner fa-spin mr-2"></i> : <i className="fas fa-wand-magic-sparkles mr-2"></i>}
+               Analyze Progress
             </button>
-        </div>
-        
-        {/* AI MODE */}
-        {mode === 'ai' && (
-            <div className="p-6 md:p-8 space-y-6 animate-fade-in">
-            
-            {/* Multi-Select Context */}
-            <div className="bg-indigo-50/50 p-5 rounded-xl border border-indigo-100 space-y-4">
-                 
-                 {/* 1. Location Selection */}
-                 <div>
-                    <label className="block text-xs font-bold text-indigo-800 uppercase mb-2">
-                       <i className="fas fa-map-marker-alt mr-1"></i> 1. Select Work Locations <span className="text-red-500">*</span>
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
-                        {Object.keys(LOCATION_HIERARCHY).map(loc => {
-                            const isSelected = aiLocations.includes(loc);
-                            return (
-                                <button 
-                                    key={loc}
-                                    onClick={() => toggleLocation(loc)}
-                                    className={`text-left px-3 py-2 rounded-lg text-xs font-medium border transition-all flex items-center gap-2 ${
-                                        isSelected 
-                                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' 
-                                        : 'bg-white text-slate-600 border-indigo-200 hover:border-indigo-400'
-                                    }`}
-                                >
-                                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${isSelected ? 'bg-white border-white' : 'border-slate-300'}`}>
-                                        {isSelected && <i className="fas fa-check text-indigo-600 text-[10px]"></i>}
-                                    </div>
-                                    {loc}
-                                </button>
-                            );
-                        })}
-                    </div>
-                 </div>
-
-                 {/* 2. Component Selection (Conditional) */}
-                 {aiLocations.length > 0 && (
-                     <div className="animate-fade-in">
-                        <label className="block text-xs font-bold text-indigo-800 uppercase mb-2 mt-4">
-                           <i className="fas fa-layer-group mr-1"></i> 2. Select Components <span className="text-red-500">*</span>
-                        </label>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {aiLocations.map(loc => {
-                                const components = LOCATION_HIERARCHY[loc] || [];
-                                const selectedCount = components.filter(c => aiComponents.includes(c)).length;
-                                const isAllSelected = selectedCount === components.length && components.length > 0;
-
-                                return (
-                                    <div key={loc} className="bg-white border border-indigo-100 rounded-lg p-3">
-                                        <div className="flex justify-between items-center mb-2 pb-2 border-b border-slate-100">
-                                            <span className="text-xs font-bold text-indigo-900">{loc}</span>
-                                            <button 
-                                                onClick={() => selectAllComponents(loc)}
-                                                className="text-[10px] text-indigo-500 hover:text-indigo-700 font-bold"
-                                            >
-                                                {isAllSelected ? 'Deselect All' : 'Select All'}
-                                            </button>
-                                        </div>
-                                        <div className="flex flex-wrap gap-2">
-                                            {components.map(comp => {
-                                                const isSelected = aiComponents.includes(comp);
-                                                return (
-                                                    <button
-                                                        key={comp}
-                                                        onClick={() => toggleComponent(comp)}
-                                                        className={`text-xs px-2 py-1 rounded border transition-colors ${
-                                                            isSelected
-                                                            ? 'bg-indigo-100 text-indigo-700 border-indigo-200 font-bold'
-                                                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-indigo-300'
-                                                        }`}
-                                                    >
-                                                        {comp}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                     </div>
-                 )}
-                 
-                 <div className="text-[10px] text-indigo-600 italic mt-2">
-                     * Select all areas and components relevant to your update. This helps the AI assign items correctly.
-                 </div>
-            </div>
-
-            <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Paste Site Engineer's Update</label>
-                <div className="relative group">
-                    <textarea
-                    value={rawText}
-                    onChange={(e) => setRawText(e.target.value)}
-                    placeholder="Paste text here... e.g., 'Apron concreting 45m3 done. Bifurcation excavation in progress...'"
-                    className="w-full h-40 p-5 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-all resize-none font-mono text-sm leading-relaxed"
-                    />
-                    <div className="absolute top-4 right-4 flex gap-2">
-                        {rawText && (
-                        <button 
-                            onClick={() => setRawText('')}
-                            className="p-1.5 text-slate-400 hover:text-red-500 transition-colors bg-white rounded shadow-sm border border-slate-200"
-                            title="Clear text"
-                        >
-                            <i className="fas fa-times"></i>
-                        </button>
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <div className="flex items-center gap-2 mb-1 cursor-pointer" onClick={() => {
-                    const el = document.getElementById('extra-instructions');
-                    if(el) el.classList.toggle('hidden');
-                }}>
-                    <i className="fas fa-chevron-right text-xs text-slate-400"></i>
-                    <label className="text-xs font-bold text-slate-600 uppercase tracking-wide cursor-pointer select-none">
-                        Advanced Instructions
-                    </label>
-                </div>
-                <div id="extra-instructions" className="hidden mt-2">
-                    <input
-                        type="text"
-                        value={instructions}
-                        onChange={(e) => setInstructions(e.target.value)}
-                        placeholder="e.g. 'Split separate locations into different rows'"
-                        className="w-full p-2 border border-slate-300 rounded text-sm bg-white focus:outline-none focus:border-indigo-400"
-                    />
-                </div>
-            </div>
-
-            <div className="flex justify-between items-center pt-2">
-                <p className="text-xs text-slate-400 hidden md:block">
-                    <i className="fas fa-shield-alt mr-1"></i> Data backed up automatically
-                </p>
-                <button
-                onClick={handleProcessAndAdd}
-                disabled={isProcessing || !isAiFormValid}
-                className={`flex items-center px-8 py-3.5 rounded-xl font-bold text-white shadow-lg shadow-indigo-500/30 transition-all transform
-                    ${isProcessing || !isAiFormValid
-                    ? 'bg-slate-300 shadow-none cursor-not-allowed translate-y-0' 
-                    : 'bg-green-600 hover:bg-green-700 hover:-translate-y-1 active:translate-y-0'
-                    }`}
-                >
-                {isProcessing ? (
-                    <span><i className="fas fa-circle-notch fa-spin mr-2"></i> Processing...</span> 
-                ) : (
-                    <span><i className="fas fa-wand-magic-sparkles mr-2"></i> Analyze & Add to Report</span>
-                )}
-                </button>
-            </div>
-            </div>
-        )}
-
-        {/* MANUAL MODE */}
-        {mode === 'manual' && (
-            <div className="p-6 md:p-8 space-y-4 animate-fade-in bg-slate-50/30">
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Location <span className="text-red-500">*</span></label>
-                        <select 
-                            value={manualLoc} 
-                            onChange={e => {
-                                setManualLoc(e.target.value);
-                                setManualComp(''); // Reset component when location changes
-                            }}
-                            className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                        >
-                            <option value="">Select Location...</option>
-                            {Object.keys(LOCATION_HIERARCHY).map(loc => (
-                                <option key={loc} value={loc}>{loc}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Component <span className="text-red-500">*</span></label>
-                        <select 
-                            value={manualComp} 
-                            onChange={e => setManualComp(e.target.value)}
-                            disabled={!manualLoc}
-                            className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-50"
-                        >
-                            <option value="">Select Component...</option>
-                            {manualLoc && LOCATION_HIERARCHY[manualLoc]?.map(comp => (
-                                <option key={comp} value={comp}>{comp}</option>
-                            ))}
-                        </select>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                     <div className="md:col-span-1">
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Chainage / Area</label>
-                        <input 
-                            value={manualChainage}
-                            onChange={e => setManualChainage(e.target.value)}
-                            placeholder="e.g. Ch 0 to 15m"
-                            className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                        />
-                     </div>
-                     <div className="md:col-span-3">
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Activity Description <span className="text-red-500">*</span></label>
-                        <input 
-                            value={manualDesc}
-                            onChange={e => setManualDesc(e.target.value)}
-                            placeholder="e.g. Concrete pouring of 45 m3..."
-                            className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                        />
-                     </div>
-                </div>
-
-                <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Planned Next Activity</label>
-                    <input 
-                        value={manualNext}
-                        onChange={e => setManualNext(e.target.value)}
-                        placeholder="What's next?"
-                        className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                    />
-                </div>
-
-                <div className="pt-4 flex justify-end">
-                    <button
-                        onClick={handleManualAdd}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-indigo-200 transition-all flex items-center"
-                    >
-                        <i className="fas fa-plus-circle mr-2"></i> Add Entry
-                    </button>
-                </div>
-
-            </div>
-        )}
-        
-        {error && (
-            <div className="mx-6 mb-6 p-4 bg-red-50 text-red-700 rounded-xl text-sm flex items-center border border-red-100 animate-pulse">
-              <i className="fas fa-exclamation-triangle mr-3 text-lg"></i> {error}
-            </div>
-        )}
-
+         </div>
       </div>
 
-      {/* STEP 1: SUCCESS MODAL */}
-      {modalStep === 1 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
-           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center border border-slate-200 relative">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white shadow-lg">
-                 <i className="fas fa-check text-green-600 text-3xl"></i>
+      {reviewItems && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
+           <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+              <div className="p-6 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                 <div>
+                    <h3 className="text-xl font-bold">Review Parsed Data</h3>
+                    <p className="text-xs text-slate-500">AI has extracted {reviewItems.length} items. Check for accuracy.</p>
+                 </div>
+                 <button onClick={() => setReviewItems(null)} className="text-slate-400 hover:text-slate-600"><i className="fas fa-times text-xl"></i></button>
               </div>
-              
-              <h3 className="text-xl font-bold text-slate-800 mb-1">Entry Added!</h3>
-              <p className="text-slate-600 mb-6 text-sm">
-                 Item successfully added to the daily report.
-              </p>
-              
-              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mb-6 text-left shadow-inner">
-                 <ul className="space-y-3 text-sm text-slate-700">
-                    <li className="flex items-start gap-3">
-                       <i className="fab fa-whatsapp text-green-500 mt-1 text-lg flex-shrink-0"></i>
-                       <span className="font-bold">Don't forget to send photos in WhatsApp!</span>
-                    </li>
-                 </ul>
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                 {showWarning && (
+                   <div className="bg-red-50 p-4 rounded-xl border border-red-100 flex items-center gap-3 text-red-700">
+                      <i className="fas fa-exclamation-triangle text-xl"></i>
+                      <p className="text-sm font-medium">Some fields (Location/Component) couldn't be inferred. Please verify before adding.</p>
+                   </div>
+                 )}
+                 {reviewItems.map((item, idx) => (
+                   <div key={idx} className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <div className="col-span-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Location</label><input className="w-full p-2 text-xs border rounded bg-white" value={item.location} onChange={e => setReviewItems(prev => prev!.map((it, i) => i === idx ? {...it, location: e.target.value} : it))} /></div>
+                      <div className="col-span-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Component</label><input className="w-full p-2 text-xs border rounded bg-white" value={item.component} onChange={e => setReviewItems(prev => prev!.map((it, i) => i === idx ? {...it, component: e.target.value} : it))} /></div>
+                      <div className="col-span-2"><label className="text-[10px] font-bold text-slate-400 uppercase">Description</label><input className="w-full p-2 text-xs border rounded bg-white" value={item.activityDescription} onChange={e => setReviewItems(prev => prev!.map((it, i) => i === idx ? {...it, activityDescription: e.target.value} : it))} /></div>
+                      {item.isDefaulted && <p className="col-span-4 text-[10px] text-amber-600 italic"><i className="fas fa-info-circle"></i> Grade not specified. Defaulted to <strong>C25 Concrete</strong>. Edit if needed.</p>}
+                   </div>
+                 ))}
               </div>
-
-              <div className="flex gap-3">
-                  <button 
-                      onClick={() => setModalStep(0)}
-                      className="flex-1 bg-white text-slate-700 border border-slate-300 font-bold py-3 rounded-xl hover:bg-slate-50 transition-colors"
-                  >
-                      Add More
-                  </button>
-                  <button 
-                      onClick={handleNextModal}
-                      className="flex-1 bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-black transition-colors shadow-lg"
-                  >
-                      Done
-                  </button>
+              <div className="p-6 bg-slate-50 border-t border-slate-200 flex gap-3">
+                 <button onClick={() => { setReviewItems(null); setShowWarning(false); }} className="flex-1 bg-white border border-slate-300 py-3 rounded-xl font-bold text-slate-700 hover:bg-slate-50 transition-all">
+                    Retry Parsing
+                 </button>
+                 <button onClick={handleFinalSubmit} className="flex-[2] bg-indigo-600 py-3 rounded-xl font-bold text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
+                    <i className="fas fa-check-double"></i> Confirm & Sync Everything
+                 </button>
               </div>
            </div>
         </div>
       )}
-
-      {/* STEP 2: ANNOUNCEMENT MODAL */}
-      {modalStep === 2 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
-           <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl shadow-2xl max-w-md w-full p-8 text-center border border-white/20 relative text-white">
-              
-              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-6 backdrop-blur-md">
-                 <i className="fas fa-bullhorn text-yellow-300 text-3xl animate-bounce"></i>
-              </div>
-              
-              <h3 className="text-2xl font-bold mb-2">Check Quantities!</h3>
-              
-              <div className="bg-white/10 backdrop-blur-md rounded-xl p-5 mb-8 text-left border border-white/10">
-                 <p className="text-indigo-100 mb-4 leading-relaxed">
-                   The <strong className="text-white border-b border-white/50">Quantities Page</strong> syncs automatically.
-                 </p>
-                 <p className="text-indigo-100 leading-relaxed text-sm">
-                   <i className="fas fa-hand-point-right mr-2 text-yellow-300"></i>
-                   Please verify the locations and chainages in the Quantity Tab after finishing here.
-                 </p>
-              </div>
-
-              <button 
-                  onClick={handleCloseAll}
-                  className="w-full bg-white text-indigo-700 font-bold py-3 rounded-xl hover:bg-indigo-50 transition-colors shadow-lg flex items-center justify-center"
-              >
-                  Go to Report
-              </button>
-           </div>
-        </div>
-      )}
-
     </div>
   );
 };

@@ -2,11 +2,12 @@
 export interface DPRItem {
   id: string;
   location: string;
-  component?: string; // Sub-location (e.g. Barrage, Powerhouse Main Building)
+  component?: string;
   chainageOrArea: string;
   activityDescription: string;
   plannedNextActivity: string;
-  createdBy?: string; // Track who added this item
+  createdBy?: string;
+  isDefaulted?: boolean; // Flag if AI defaulted to C25
 }
 
 export interface DailyReport {
@@ -22,19 +23,20 @@ export interface LogEntry {
   timestamp: string;
   user: string;
   action: string;
-  details: string; // Can be a simple string or JSON stringified object
+  details: string;
   reportDate: string;
+  relatedBackupId?: string;
 }
 
 export interface TrashItem {
   trashId: string;
-  originalId: string; // ID of the report or the item
+  originalId: string;
   type: 'report' | 'item' | 'quantity';
-  content: DailyReport | DPRItem | QuantityEntry; // The actual data to restore
+  content: DailyReport | DPRItem | QuantityEntry;
   deletedAt: string;
   deletedBy: string;
   reportDate: string;
-  reportId?: string; // If it's an item, we need to know which report it belonged to
+  reportId?: string;
 }
 
 export interface BackupEntry {
@@ -51,18 +53,38 @@ export interface QuantityEntry {
   id: string;
   date: string;
   location: string;
-  structure: string; // Component (e.g., Barrage, Weir)
-  detailElement?: string; // "Area" (e.g., Raft, Wall, Kicker)
-  detailLocation?: string; // "Chainage / EL" (e.g., Ch 100, EL 1177)
-  itemType: string; // E.g., "C25 Concrete", "Rebar", "Formwork"
+  structure: string;
+  detailElement?: string;
+  detailLocation?: string;
+  itemType: string;
   description: string;
-  quantityValue: number; // Parsed number
-  quantityUnit: string; // Parsed unit
-  originalRawString: string; // The full "35.6 m3" string
-  originalReportItemId?: string; // Link to source report item (to prevent duplicates)
+  quantityValue: number;
+  quantityUnit: string;
+  originalRawString: string;
+  originalReportItemId?: string;
   reportId?: string;
   lastUpdated: string;
   updatedBy: string;
+}
+
+export interface ProjectSettings {
+  id: string;
+  projectName: string;
+  description: string;
+  adminEmail: string;
+  hierarchy: Record<string, string[]>;
+  itemTypes: string[];
+}
+
+export interface UserProfile {
+  uid: string;
+  displayName: string;
+  email: string;
+  photoURL?: string;
+  joinDate: string;
+  entryCount: number;
+  exp: number;
+  level: number;
 }
 
 export enum TabView {
@@ -71,7 +93,9 @@ export enum TabView {
   QUANTITY = 'quantity',
   HISTORY = 'history',
   LOGS = 'logs',
-  RECYCLE_BIN = 'recycle_bin'
+  RECYCLE_BIN = 'recycle_bin',
+  SETTINGS = 'settings',
+  PROFILE = 'profile'
 }
 
 declare global {
