@@ -47,15 +47,25 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
 
   const handleMoodSelect = async (mood: any) => {
       setIsProcessingMood(true);
-      // 1. Get AI Response
-      const message = await getMoodMessage(mood.label, user?.displayName?.split(' ')[0] || 'Engineer');
-      setAiMessage(message);
-      
-      // 2. Save to DB
-      if (user?.uid) {
-          await saveUserMood(user.uid, mood.label, message);
+      try {
+          // 1. Get AI Response
+          const userName = user?.displayName?.split(' ')[0] || 'Engineer';
+          const message = await getMoodMessage(mood.label, userName);
+          setAiMessage(message);
+          
+          // 2. Save to DB
+          if (user?.uid) {
+              await saveUserMood(user.uid, mood.label, message);
+          }
+      } catch (error) {
+          console.error("Failed to generate/save mood message:", error);
+          setAiMessage("Thanks for checking in! Keep up the good work.");
+          if (user?.uid) {
+              await saveUserMood(user.uid, mood.label, "Thanks for checking in!");
+          }
+      } finally {
+          setIsProcessingMood(false);
       }
-      setIsProcessingMood(false);
   };
 
   const getTimeGreeting = () => {
@@ -198,7 +208,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                       <p className="text-xs text-slate-500 mb-2 font-medium uppercase tracking-wide">How are you feeling today?</p>
                       <div className="flex gap-2">
                           {isProcessingMood ? (
-                              <span className="text-xs text-indigo-500"><i className="fas fa-circle-notch fa-spin mr-1"></i> Saving mood...</span>
+                              <span className="text-xs text-indigo-500 flex items-center"><i className="fas fa-circle-notch fa-spin mr-2"></i> Generating uplifting message...</span>
                           ) : (
                               MOODS.map(m => (
                                   <button 
@@ -218,7 +228,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                           <span className="text-xl">{MOODS.find(m => m.label === todaysMood.mood)?.icon}</span>
                           <div>
                               <p className="text-xs font-bold text-indigo-900">You're feeling {todaysMood.mood}</p>
-                              {aiMessage && <p className="text-xs text-indigo-600 italic mt-0.5">"{aiMessage}"</p>}
+                              {aiMessage && <p className="text-xs text-indigo-600 italic mt-0.5 max-w-md">"{aiMessage}"</p>}
                           </div>
                       </div>
                   </div>

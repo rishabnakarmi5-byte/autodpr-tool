@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { DailyReport, DPRItem, QuantityEntry } from '../types';
-import { addQuantity } from '../services/firebaseService';
+import { DailyReport, DPRItem } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 
 interface ReportTableProps {
@@ -20,13 +19,14 @@ interface ReportTableProps {
 export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, onUpdateItem, onUpdateAllEntries, onUndo, canUndo, onRedo, canRedo, onNormalize, hierarchy }) => {
   
   const [entries, setEntries] = useState<DPRItem[]>(report.entries);
-  const [fontSize, setFontSize] = useState<number>(12);
-  const [rowHeight, setRowHeight] = useState<'normal' | 'compact'>('normal');
+  const [fontSize, setFontSize] = useState<number>(11);
+  const [rowPadding, setRowPadding] = useState<number>(6); // px
+  const [descColWidth, setDescColWidth] = useState<number>(40); // Percentage for description column
   const [isExporting, setIsExporting] = useState(false);
   const [isDragMode, setIsDragMode] = useState(false);
   
   // Paper Settings
-  const [paperSize, setPaperSize] = useState<'a4' | 'a3' | 'a2' | 'a1'>('a4');
+  const [paperSize, setPaperSize] = useState<'a4' | 'a3'>('a4');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [zoom, setZoom] = useState(1);
 
@@ -45,28 +45,25 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   // Paper CSS Mapping
   const paperStyles = {
       a4: { w: '210mm', h: '297mm' },
-      a3: { w: '297mm', h: '420mm' },
-      a2: { w: '420mm', h: '594mm' },
-      a1: { w: '594mm', h: '841mm' }
+      a3: { w: '297mm', h: '420mm' }
   };
   
   const currentDimensions = orientation === 'portrait' 
       ? paperStyles[paperSize] 
       : { w: paperStyles[paperSize].h, h: paperStyles[paperSize].w };
 
+  // Dynamic Grid Template
+  // We allocate fixed percentages to specific columns, and the rest adjust.
+  // Location (~12%), Component (~12%), Area/CH (~12%), Next (~14%)
+  // Description takes the rest (variable)
+  const otherColsTotal = 12 + 12 + 12 + 14; 
+  const currentDescWidth = Math.max(20, Math.min(60, descColWidth));
+  
+  // Normalize grid template columns
+  const gridTemplate = `12fr 12fr 12fr ${currentDescWidth}fr 14fr`;
+
   const handlePrint = () => {
-    // Inject print styles dynamically
-    const style = document.createElement('style');
-    style.innerHTML = `@page { size: ${paperSize.toUpperCase()} ${orientation}; margin: 0; }`;
-    style.id = 'print-style-override';
-    document.head.appendChild(style);
-    
     window.print();
-    
-    setTimeout(() => {
-        const el = document.getElementById('print-style-override');
-        if(el) el.remove();
-    }, 1000);
   };
 
   const handleDownloadJPG = async () => {
@@ -74,12 +71,18 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
       const input = document.getElementById('printable-report');
       if (input && window.html2canvas) {
           try {
+              // Temporarily reset transform for clean capture
+              const originalTransform = input.style.transform;
+              input.style.transform = 'none';
+              
               const canvas = await window.html2canvas(input, { scale: 2, backgroundColor: '#ffffff' });
               const imgData = canvas.toDataURL('image/jpeg', 0.9);
               const link = document.createElement('a');
               link.href = imgData;
               link.download = `DPR_${report.date}.jpg`;
               link.click();
+              
+              input.style.transform = originalTransform;
           } catch(e) {
               console.error(e);
               alert("Failed to capture image.");
@@ -150,98 +153,89 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
        setEditingComponentId(null);
   };
 
-  const rowPaddingClass = rowHeight === 'normal' ? 'p-1.5' : 'p-0.5';
-
   return (
     <div className="flex flex-col h-full space-y-6 animate-fade-in relative">
       
       {/* Action Bar */}
-      <div className="flex flex-col xl:flex-row justify-between items-center bg-white p-6 rounded-2xl shadow-lg shadow-slate-200/50 border border-slate-100 gap-6">
+      <div className="flex flex-col xl:flex-row justify-between items-center bg-white p-4 rounded-2xl shadow-lg shadow-slate-200/50 border border-slate-100 gap-4">
         <div className="flex gap-4 items-center">
            <div>
               <h2 className="text-xl font-bold text-slate-800">Final Report</h2>
-              <p className="text-sm text-slate-500 mt-1">
-                Drag rows to reorder.
-              </p>
-           </div>
-           
-           <div className="flex gap-2">
-             {canUndo && (
-               <button onClick={onUndo} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600" title="Undo">
-                  <i className="fas fa-undo"></i>
-               </button>
-             )}
-             {canRedo && (
-               <button onClick={onRedo} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600" title="Redo">
-                  <i className="fas fa-redo"></i>
-               </button>
-             )}
+              <div className="flex gap-2 text-xs">
+                 {canUndo && (
+                   <button onClick={onUndo} className="hover:text-indigo-600 font-bold" title="Undo"><i className="fas fa-undo"></i> Undo</button>
+                 )}
+                 {canRedo && (
+                   <button onClick={onRedo} className="hover:text-indigo-600 font-bold" title="Redo"><i className="fas fa-redo"></i> Redo</button>
+                 )}
+              </div>
            </div>
 
            {onNormalize && (
                <button 
                   onClick={onNormalize} 
-                  className="bg-purple-100 text-purple-700 hover:bg-purple-200 px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-2"
+                  className="bg-purple-50 text-purple-700 hover:bg-purple-100 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 border border-purple-200"
                   title="Re-parse Chainage & Area fields based on text"
                >
-                  <i className="fas fa-sync-alt"></i> Sync/Normalize
+                  <i className="fas fa-sync-alt"></i> Sync
                </button>
            )}
         </div>
 
         {/* Controls */}
-        <div className="flex flex-col md:flex-row items-center gap-4 w-full xl:w-auto">
+        <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto justify-end">
           
-          <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200">
-             <select 
-                value={paperSize} 
-                onChange={(e) => setPaperSize(e.target.value as any)}
-                className="bg-transparent text-sm font-bold text-slate-700 outline-none"
-             >
-                 <option value="a4">A4</option>
-                 <option value="a3">A3</option>
-                 <option value="a2">A2</option>
-                 <option value="a1">A1</option>
-             </select>
-             <button onClick={() => setOrientation(o => o === 'portrait' ? 'landscape' : 'portrait')} className="text-slate-500 hover:text-indigo-600">
+          <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-lg border border-slate-200">
+             <button onClick={() => setOrientation(o => o === 'portrait' ? 'landscape' : 'portrait')} className="text-slate-500 hover:text-indigo-600 px-2" title="Orientation">
                  <i className={`fas fa-${orientation === 'portrait' ? 'file' : 'file-image'}`}></i>
              </button>
-          </div>
-          
-          {/* Font Size Control (Replacing old Zoom) */}
-          <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200" title="Text Size">
-             <i className="fas fa-text-height text-slate-400 text-xs"></i>
+             <div className="w-px h-4 bg-slate-300"></div>
+             <i className="fas fa-text-height text-slate-400 text-xs pl-1"></i>
              <input 
-                 type="range" min="8" max="16" step="1" value={fontSize} 
+                 type="range" min="8" max="14" step="1" value={fontSize} 
                  onChange={e => setFontSize(parseInt(e.target.value))}
-                 className="w-20"
+                 className="w-16"
+                 title="Font Size"
              />
-             <span className="text-xs font-mono w-4">{fontSize}</span>
           </div>
 
           {/* Row Height Control */}
-          <button 
-             onClick={() => setRowHeight(h => h === 'normal' ? 'compact' : 'normal')}
-             className="px-3 py-2 rounded-xl text-sm font-bold border flex items-center gap-2 bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-             title="Toggle Row Height"
-          >
-             <i className={`fas ${rowHeight === 'normal' ? 'fa-align-justify' : 'fa-align-justify fa-rotate-90'}`}></i>
-          </button>
+          <div className="flex items-center gap-1 bg-slate-50 p-1.5 rounded-lg border border-slate-200">
+             <span className="text-[10px] font-bold text-slate-400 uppercase px-1">Row Height</span>
+             <button onClick={() => setRowPadding(p => Math.max(2, p - 2))} className="w-6 h-6 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center">
+                <i className="fas fa-minus text-[10px]"></i>
+             </button>
+             <button onClick={() => setRowPadding(p => Math.min(20, p + 2))} className="w-6 h-6 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center">
+                <i className="fas fa-plus text-[10px]"></i>
+             </button>
+          </div>
+
+          {/* Column Width Control */}
+          <div className="flex items-center gap-1 bg-slate-50 p-1.5 rounded-lg border border-slate-200">
+             <span className="text-[10px] font-bold text-slate-400 uppercase px-1">Desc. Width</span>
+             <button onClick={() => setDescColWidth(w => Math.max(20, w - 5))} className="w-6 h-6 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center">
+                <i className="fas fa-compress-alt text-[10px]"></i>
+             </button>
+             <button onClick={() => setDescColWidth(w => Math.min(60, w + 5))} className="w-6 h-6 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex items-center justify-center">
+                <i className="fas fa-expand-alt text-[10px]"></i>
+             </button>
+          </div>
 
           <button
              onClick={() => setIsDragMode(!isDragMode)}
-             className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 border w-full md:w-auto justify-center transition-colors ${
+             className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 border transition-colors ${
                isDragMode 
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' 
+                ? 'bg-indigo-600 text-white border-indigo-600' 
                 : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
              }`}
+             title="Reorder Rows"
           >
-             {isDragMode ? <i className="fas fa-check"></i> : <i className="fas fa-arrows-up-down"></i>}
+             <i className="fas fa-arrows-up-down"></i>
           </button>
 
           <button 
               onClick={handlePrint}
-              className="flex items-center justify-center px-4 py-2 bg-slate-900 text-white font-bold rounded-xl hover:bg-black transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
+              className="flex items-center justify-center px-4 py-1.5 bg-slate-900 text-white font-bold rounded-lg hover:bg-black transition-all shadow-md text-sm"
             >
               <i className="fas fa-print mr-2"></i> Print
           </button>
@@ -249,15 +243,15 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
           <button 
               onClick={handleDownloadJPG}
               disabled={isExporting}
-              className="flex items-center justify-center px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
+              className="flex items-center justify-center px-3 py-1.5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-all shadow-md text-sm"
             >
-              {isExporting ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-image mr-2"></i>} JPG
+              {isExporting ? <i className="fas fa-circle-notch fa-spin"></i> : 'JPG'}
           </button>
         </div>
       </div>
 
       {/* Floating Zoom Control */}
-      <div className="fixed bottom-6 right-6 z-50 bg-white shadow-xl rounded-full border border-slate-200 p-2 flex items-center gap-2 animate-fade-in">
+      <div className="fixed bottom-6 right-6 z-50 bg-white shadow-xl rounded-full border border-slate-200 p-2 flex items-center gap-2 animate-fade-in no-print">
           <button onClick={() => setZoom(z => Math.max(0.5, z - 0.1))} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-600">
               <i className="fas fa-minus"></i>
           </button>
@@ -268,15 +262,16 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
       </div>
 
       {/* Printable Area Wrapper */}
-      <div className="overflow-auto bg-slate-200/50 p-4 md:p-8 rounded-2xl border border-slate-200 text-center flex justify-center">
+      <div className="overflow-auto bg-slate-200/50 p-4 md:p-8 rounded-2xl border border-slate-200 text-center flex justify-center no-print-padding">
         
         <div 
           id="printable-report"
-          className="report-page bg-white p-[15mm] shadow-2xl text-left relative mb-8 transition-all duration-300 origin-top"
+          className="report-page bg-white p-[15mm] shadow-2xl text-left relative mb-8 transition-all duration-300 origin-top mx-auto"
           style={{ 
               width: currentDimensions.w, 
               minHeight: currentDimensions.h, 
-              transform: `scale(${zoom})`
+              transform: `scale(${zoom})`,
+              transformOrigin: 'top center'
           }}
         >
           {/* Header */}
@@ -296,13 +291,16 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
 
           {/* Table */}
           <div className="border-2 border-black">
-            <div className="grid grid-cols-12 border-b-2 border-black bg-gray-200 divide-x-2 divide-black font-bold text-center text-xs uppercase tracking-wide">
-              <div className="col-span-2 p-2 flex items-center justify-center">Location</div>
-              <div className="col-span-2 p-2 flex items-center justify-center">Component</div>
-              <div className="col-span-1 p-2 flex items-center justify-center">Area</div>
-              <div className="col-span-1 p-2 flex items-center justify-center">CH / EL</div>
-              <div className="col-span-4 p-2 flex items-center justify-center">Activity Description</div>
-              <div className="col-span-2 p-2 flex items-center justify-center">Next Plan</div>
+            {/* Table Header */}
+            <div 
+                className="grid border-b-2 border-black bg-gray-200 divide-x-2 divide-black font-bold text-center text-xs uppercase tracking-wide"
+                style={{ gridTemplateColumns: gridTemplate }}
+            >
+              <div className="p-2 flex items-center justify-center">Location</div>
+              <div className="p-2 flex items-center justify-center">Component</div>
+              <div className="p-2 flex items-center justify-center">Area / CH</div>
+              <div className="p-2 flex items-center justify-center">Activity Description</div>
+              <div className="p-2 flex items-center justify-center">Next Plan</div>
             </div>
 
             {entries.length === 0 ? (
@@ -315,10 +313,11 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   onDragStart={(e) => onDragStart(e, index)}
                   onDragEnter={(e) => onDragEnter(e, index)}
                   onDragEnd={onDragEnd}
-                  className={`grid grid-cols-12 divide-x divide-black text-xs leading-relaxed group hover:bg-blue-50/10 transition-colors relative
+                  className={`grid divide-x divide-black text-xs leading-relaxed group hover:bg-blue-50/10 transition-colors relative
                     ${index !== entries.length - 1 ? 'border-b border-black' : ''}
                     ${isDragMode ? 'cursor-move' : ''}
                   `}
+                  style={{ gridTemplateColumns: gridTemplate }}
                 >
                     {/* Delete Button (Floating Left) */}
                     <div className="no-print absolute -left-8 top-2 opacity-0 group-hover:opacity-100 transition-opacity z-50">
@@ -331,7 +330,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                     </div>
 
                   {/* Location */}
-                  <div className={`col-span-2 ${rowPaddingClass} relative`}>
+                  <div className="relative border-r border-black last:border-0" style={{ padding: `${rowPadding}px` }}>
                     {editingLocationId === item.id ? (
                       <div className="absolute top-0 left-0 z-30 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48">
                          <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
@@ -344,7 +343,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                       </div>
                     ) : (
                       <div className="relative w-full h-full" onClick={() => setEditingLocationId(item.id)}>
-                         <div className={`w-full h-full min-h-[24px] whitespace-pre-wrap cursor-pointer font-bold ${item.location.includes('Needs Fix') ? 'text-red-500' : ''}`} style={{ fontSize: `${fontSize}px` }}>
+                         <div className={`w-full h-full whitespace-pre-wrap cursor-pointer font-bold ${item.location.includes('Needs Fix') ? 'text-red-500' : ''}`} style={{ fontSize: `${fontSize}px` }}>
                             {item.location}
                         </div>
                       </div>
@@ -352,7 +351,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   </div>
 
                   {/* Component */}
-                  <div className={`col-span-2 ${rowPaddingClass} relative`}>
+                  <div className="relative border-r border-black last:border-0" style={{ padding: `${rowPadding}px` }}>
                     {editingComponentId === item.id ? (
                       <div className="absolute top-0 left-0 z-20 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48">
                          <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
@@ -365,42 +364,32 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                       </div>
                     ) : (
                       <div className="relative w-full h-full" onClick={() => setEditingComponentId(item.id)}>
-                        <div className="w-full h-full min-h-[24px] whitespace-pre-wrap cursor-pointer" style={{ fontSize: `${fontSize}px` }}>
+                        <div className="w-full h-full whitespace-pre-wrap cursor-pointer" style={{ fontSize: `${fontSize}px` }}>
                             {item.component || item.component}
                         </div>
                       </div>
                     )}
                   </div>
 
-                  {/* Area */}
-                  <div className={`col-span-1 ${rowPaddingClass} relative`}>
+                  {/* Merged Area / CH */}
+                  <div className="relative border-r border-black last:border-0" style={{ padding: `${rowPadding}px` }}>
                      <textarea
-                      value={item.structuralElement || ''}
-                      onChange={(e) => handleLocalChange(item.id, 'structuralElement', e.target.value)}
-                      onBlur={(e) => handleBlur(item.id, 'structuralElement', e.target.value)}
-                      className="w-full h-full bg-transparent resize-none outline-none font-medium text-indigo-700"
-                      style={{ fontSize: `${fontSize}px` }}
-                      placeholder="Area"
-                    />
-                  </div>
-
-                  {/* CH / EL */}
-                  <div className={`col-span-1 ${rowPaddingClass} relative`}>
-                     <textarea
-                      // Fallback to legacy string if chainage is empty
-                      value={item.chainage || item.chainageOrArea || ''}
+                      // Concatenate Area and Chainage for display
+                      value={item.structuralElement || item.chainage ? `${item.structuralElement || ''} ${item.chainage || ''}`.trim() : item.chainageOrArea}
+                      // Note: Editing here is tricky because we have one field but two data points.
+                      // For now, allow editing the 'structuralElement' as a general 'Details' field if they type here.
                       onChange={(e) => {
-                          handleLocalChange(item.id, 'chainage', e.target.value);
+                          handleLocalChange(item.id, 'structuralElement', e.target.value);
+                          handleLocalChange(item.id, 'chainage', ''); // Clear chainage if manually edited here to avoid duplication
                       }}
-                      onBlur={(e) => handleBlur(item.id, 'chainage', e.target.value)}
-                      className="w-full h-full bg-transparent resize-none outline-none font-mono text-[10px]"
+                      onBlur={(e) => handleBlur(item.id, 'structuralElement', e.target.value)}
+                      className="w-full h-full bg-transparent resize-none outline-none font-medium text-slate-700"
                       style={{ fontSize: `${fontSize}px` }}
-                      placeholder="Ch/EL"
                     />
                   </div>
 
                   {/* Description */}
-                  <div className={`col-span-4 ${rowPaddingClass} relative`}>
+                  <div className="relative border-r border-black last:border-0" style={{ padding: `${rowPadding}px` }}>
                      <textarea
                       value={item.activityDescription}
                       onChange={(e) => handleLocalChange(item.id, 'activityDescription', e.target.value)}
@@ -411,7 +400,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   </div>
 
                   {/* Next */}
-                  <div className={`col-span-2 ${rowPaddingClass} relative`}>
+                  <div className="relative" style={{ padding: `${rowPadding}px` }}>
                      <textarea
                       value={item.plannedNextActivity}
                       onChange={(e) => handleLocalChange(item.id, 'plannedNextActivity', e.target.value)}
@@ -432,6 +421,46 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
 
       </div>
 
+      <style>{`
+         @media print {
+            body * {
+                visibility: hidden;
+            }
+            #printable-report, #printable-report * {
+                visibility: visible;
+            }
+            #printable-report {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                margin: 0 !important;
+                padding: 10mm !important;
+                width: 100% !important;
+                height: auto !important;
+                transform: none !important;
+                box-shadow: none !important;
+                border: none !important;
+                background: white !important;
+                overflow: visible !important;
+            }
+            .no-print {
+                display: none !important;
+            }
+            /* Reset parent containers */
+            html, body, #root {
+                margin: 0;
+                padding: 0;
+                background: white;
+                height: auto;
+                overflow: visible;
+            }
+            .no-print-padding {
+                padding: 0 !important;
+                background: white !important;
+                border: none !important;
+            }
+         }
+      `}</style>
     </div>
   );
 };
