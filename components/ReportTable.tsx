@@ -51,7 +51,11 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               const canvas = await window.html2canvas(input, { 
                   scale: 2, 
                   backgroundColor: '#ffffff',
-                  useCORS: true
+                  useCORS: true,
+                  ignoreElements: (element) => {
+                      // Explicitly ignore elements marked for exclusion
+                      return element.hasAttribute('data-html2canvas-ignore');
+                  }
               });
               const imgData = canvas.toDataURL('image/jpeg', 0.9);
               const link = document.createElement('a');
@@ -117,13 +121,13 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                <i className="fas fa-file-contract text-xl"></i>
            </div>
            <div>
-              <h2 className="text-lg font-bold text-slate-800 leading-tight">Final Report</h2>
-              <div className="flex gap-3 text-xs text-slate-500 font-medium mt-1">
+              <h2 className="text-2xl font-bold text-slate-800 leading-none">Final Report</h2>
+              <div className="flex gap-3 text-xs text-slate-500 font-medium mt-1 font-sans">
                  {canUndo && (
-                   <button onClick={onUndo} className="hover:text-indigo-600 flex items-center gap-1"><i className="fas fa-undo"></i> Undo</button>
+                   <button onClick={onUndo} className="hover:text-indigo-600 flex items-center gap-1 font-bold"><i className="fas fa-undo"></i> Undo</button>
                  )}
                  {canRedo && (
-                   <button onClick={onRedo} className="hover:text-indigo-600 flex items-center gap-1"><i className="fas fa-redo"></i> Redo</button>
+                   <button onClick={onRedo} className="hover:text-indigo-600 flex items-center gap-1 font-bold"><i className="fas fa-redo"></i> Redo</button>
                  )}
               </div>
            </div>
@@ -135,10 +139,10 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
             <button 
                 onClick={handleSyncQuantities}
                 disabled={isSyncing}
-                className="flex items-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-700 font-bold rounded-xl text-xs hover:bg-emerald-100 transition-colors border border-emerald-200"
+                className="flex items-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-lg hover:bg-emerald-100 transition-colors border border-emerald-200"
                 title="Manually Add these items to Quantities Tab"
             >
-                <i className={`fas fa-sync-alt ${isSyncing ? 'fa-spin' : ''}`}></i>
+                <i className={`fas fa-sync-alt ${isSyncing ? 'fa-spin' : ''} text-sm`}></i>
                 {isSyncing ? 'Syncing...' : 'Sync Qty'}
             </button>
 
@@ -146,10 +150,10 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
             {onNormalize && (
                <button 
                   onClick={onNormalize} 
-                  className="flex items-center gap-2 px-3 py-2 bg-purple-50 text-purple-700 font-bold rounded-xl text-xs hover:bg-purple-100 transition-colors border border-purple-200"
+                  className="flex items-center gap-2 px-3 py-2 bg-purple-50 text-purple-700 rounded-xl text-lg hover:bg-purple-100 transition-colors border border-purple-200"
                   title="Refine formatting"
                >
-                  <i className="fas fa-magic"></i> Auto-Format
+                  <i className="fas fa-magic text-sm"></i> Auto-Format
                </button>
             )}
 
@@ -157,25 +161,25 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
 
             {/* View Controls */}
             <div className="hidden lg:flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
-                 <button onClick={() => setFontSize(Math.max(8, fontSize - 1))} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white text-slate-500"><i className="fas fa-minus text-xs"></i></button>
-                 <span className="text-xs font-bold w-4 text-center">{fontSize}</span>
-                 <button onClick={() => setFontSize(Math.min(16, fontSize + 1))} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white text-slate-500"><i className="fas fa-plus text-xs"></i></button>
+                 <button onClick={() => setFontSize(Math.max(8, fontSize - 1))} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white text-slate-500"><i className="fas fa-minus text-xs"></i></button>
+                 <span className="text-sm font-bold w-6 text-center font-sans">{fontSize}</span>
+                 <button onClick={() => setFontSize(Math.min(16, fontSize + 1))} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white text-slate-500"><i className="fas fa-plus text-xs"></i></button>
             </div>
 
             {/* Actions */}
             <button 
                 onClick={handlePrint}
-                className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-900 transition-all shadow-md text-xs"
+                className="flex items-center gap-2 px-5 py-2 bg-slate-800 text-white rounded-xl hover:bg-slate-900 transition-all shadow-md text-lg"
             >
-                <i className="fas fa-print"></i> Print
+                <i className="fas fa-print text-sm"></i> Print
             </button>
             
             <button 
                 onClick={handleDownloadJPG}
                 disabled={isExporting}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md text-xs shadow-indigo-200"
+                className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-md text-lg shadow-indigo-200"
             >
-                {isExporting ? <i className="fas fa-circle-notch fa-spin"></i> : <><i className="fas fa-image"></i> JPG</>}
+                {isExporting ? <i className="fas fa-circle-notch fa-spin text-sm"></i> : <><i className="fas fa-image text-sm"></i> JPG</>}
             </button>
         </div>
       </div>
@@ -185,7 +189,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
          {entries.length === 0 ? (
              <div className="text-center p-8 text-slate-400 bg-white rounded-2xl border border-dashed border-slate-200">
                  <i className="fas fa-ghost text-4xl mb-3 opacity-20"></i>
-                 <p>No entries yet.</p>
+                 <p className="font-sans">No entries yet.</p>
              </div>
          ) : (
             entries.map(item => (
@@ -193,16 +197,16 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                     {/* Header: Location & Component */}
                     <div className="flex justify-between items-start mb-3 border-b border-slate-50 pb-2">
                         <div>
-                            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">Location</div>
-                            <div className="text-sm font-bold text-indigo-700">{item.location}</div>
-                            {item.component && <div className="text-xs text-slate-500 font-medium">{item.component}</div>}
+                            <div className="text-sm text-slate-400 uppercase tracking-wider mb-0.5 font-display">Location</div>
+                            <div className="text-lg text-indigo-700 font-display tracking-wide">{item.location}</div>
+                            {item.component && <div className="text-sm text-slate-500 font-medium font-sans">{item.component}</div>}
                         </div>
                         <div className="text-right">
                             <button 
                                     onClick={() => handleDeleteClick(item)} 
                                     className="bg-red-50 text-red-500 p-2 rounded-lg hover:bg-red-100 transition-colors"
                             >
-                                    <i className="fas fa-trash-alt"></i>
+                                    <i className="fas fa-trash-alt text-sm"></i>
                             </button>
                         </div>
                     </div>
@@ -210,9 +214,9 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                     {/* Body: Area/Chainage */}
                     <div className="grid grid-cols-2 gap-4 mb-3">
                         <div className="bg-slate-50 p-2 rounded-lg">
-                            <div className="text-[10px] font-bold text-slate-400 uppercase">Area / Element</div>
+                            <div className="text-sm text-slate-400 uppercase font-display">Area / Element</div>
                             <input 
-                                className="w-full bg-transparent text-sm font-medium text-slate-700 outline-none"
+                                className="w-full bg-transparent text-sm font-medium text-slate-700 outline-none font-sans"
                                 value={item.structuralElement || ''}
                                 placeholder="N/A"
                                 onChange={(e) => handleLocalChange(item.id, 'structuralElement', e.target.value)}
@@ -220,9 +224,9 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                             />
                         </div>
                         <div className="bg-slate-50 p-2 rounded-lg">
-                            <div className="text-[10px] font-bold text-slate-400 uppercase">Chainage / EL</div>
+                            <div className="text-sm text-slate-400 uppercase font-display">Chainage / EL</div>
                             <input 
-                                className="w-full bg-transparent text-sm font-medium text-slate-700 outline-none"
+                                className="w-full bg-transparent text-sm font-medium text-slate-700 outline-none font-sans"
                                 value={item.chainage || ''}
                                 placeholder="N/A"
                                 onChange={(e) => handleLocalChange(item.id, 'chainage', e.target.value)}
@@ -233,9 +237,9 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
 
                     {/* Description */}
                     <div className="mb-3">
-                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Activity Description</div>
+                        <div className="text-sm text-slate-400 uppercase mb-1 font-display">Activity Description</div>
                         <textarea
-                                className="w-full text-sm text-slate-800 outline-none resize-none bg-transparent"
+                                className="w-full text-sm text-slate-800 outline-none resize-none bg-transparent font-sans"
                                 rows={3}
                                 value={item.activityDescription}
                                 onChange={(e) => handleLocalChange(item.id, 'activityDescription', e.target.value)}
@@ -245,9 +249,9 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
 
                     {/* Next Plan */}
                     <div>
-                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Next Plan</div>
+                        <div className="text-sm text-slate-400 uppercase mb-1 font-display">Next Plan</div>
                         <input
-                                className="w-full text-sm text-slate-600 outline-none bg-transparent border-b border-dashed border-slate-200 focus:border-indigo-300 pb-1"
+                                className="w-full text-sm text-slate-600 outline-none bg-transparent border-b border-dashed border-slate-200 focus:border-indigo-300 pb-1 font-sans"
                                 value={item.plannedNextActivity}
                                 onChange={(e) => handleLocalChange(item.id, 'plannedNextActivity', e.target.value)}
                                 onBlur={(e) => handleBlur(item.id, 'plannedNextActivity', e.target.value)}
@@ -281,49 +285,54 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         >
           {/* Paper Header */}
           <div className="border-b-2 border-slate-900 pb-4 mb-6">
-            <h1 className="text-3xl font-extrabold text-center uppercase tracking-widest text-slate-900 mb-2 font-serif">Daily Progress Report</h1>
-            <div className="flex justify-between items-end mt-8 text-sm font-serif">
-              <div className="space-y-1">
-                <p><span className="font-bold">Project:</span> {report.projectTitle}</p>
-                <p><span className="font-bold">Contractor:</span> Bhugol Infrastructure Company Pvt. Ltd.</p>
+            <h1 className="text-5xl text-center uppercase tracking-widest text-slate-900 mb-2 font-display">Daily Progress Report</h1>
+            <div className="flex justify-between items-end mt-6 text-sm">
+              <div className="space-y-1 font-sans">
+                <p><span className="font-bold text-slate-900 uppercase font-display text-base">Project:</span> {report.projectTitle}</p>
+                <p><span className="font-bold text-slate-900 uppercase font-display text-base">Contractor:</span> Bhugol Infrastructure Company Pvt. Ltd.</p>
               </div>
-              <div className="text-right space-y-1">
-                <p className="text-lg font-bold">{report.date}</p>
+              <div className="text-right space-y-1 font-sans">
+                <p className="text-xl font-display">{report.date}</p>
                 <p className="text-slate-600 italic">{getNepaliDate(report.date)}</p>
               </div>
             </div>
           </div>
 
           {/* Paper Table */}
-          <table className="w-full border-collapse border border-slate-900 text-xs table-fixed">
+          <table className="w-full border-collapse border border-slate-900 text-xs table-fixed font-sans">
               <thead>
-                  <tr className="bg-slate-100 border-b border-slate-900 text-slate-900 uppercase tracking-wide">
-                      <th className="border-r border-slate-900 p-2 w-[12%]">Location</th>
-                      <th className="border-r border-slate-900 p-2 w-[14%]">Component</th>
-                      <th className="border-r border-slate-900 p-2 w-[14%]">Area / CH</th>
-                      <th className="border-r border-slate-900 p-2 w-[45%]">Activity Description</th>
-                      <th className="border-r border-slate-900 p-2 w-[15%]">Next Plan</th>
-                      <th className="p-1 w-[20px] no-print"></th> {/* Actions */}
+                  <tr className="bg-slate-100 border-b border-slate-900 text-slate-900 tracking-wide font-display text-base">
+                      <th className="border-r border-slate-900 p-2 w-[12%] text-left font-normal">Location</th>
+                      <th className="border-r border-slate-900 p-2 w-[14%] text-left font-normal">Component</th>
+                      <th className="border-r border-slate-900 p-2 w-[14%] text-left font-normal">Area / CH</th>
+                      <th className="border-r border-slate-900 p-2 w-[45%] text-left font-normal">Activity Description</th>
+                      <th className="border-r border-slate-900 p-2 w-[15%] text-left font-normal">Next Plan</th>
+                      <th 
+                          className="p-1 w-[25px] no-print text-center font-normal" 
+                          data-html2canvas-ignore="true"
+                      >
+                         <i className="fas fa-cog text-xs opacity-30"></i>
+                      </th>
                   </tr>
               </thead>
               <tbody style={{ fontSize: `${fontSize}px` }}>
                   {entries.length === 0 ? (
-                      <tr><td colSpan={6} className="p-8 text-center italic text-slate-400">No Data Available</td></tr>
+                      <tr><td colSpan={6} className="p-8 text-center italic text-slate-400 font-display text-xl">No Data Available</td></tr>
                   ) : (
                       entries.map((item) => (
                           <tr key={item.id} className="group border-b border-slate-900 hover:bg-blue-50/20 align-top">
                               {/* Location */}
-                              <td className="border-r border-slate-900 p-1.5 relative">
+                              <td className="border-r border-slate-900 p-1.5 relative font-bold text-slate-800">
                                 {editingLocationId === item.id ? (
                                     <div className="absolute top-0 left-0 z-50 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48 no-print">
                                         {Object.keys(hierarchy).map(loc => (
-                                            <button key={loc} onClick={() => applyLocation(item.id, loc)} className="block w-full text-left text-xs p-1 hover:bg-indigo-50 rounded">{loc}</button>
+                                            <button key={loc} onClick={() => applyLocation(item.id, loc)} className="block w-full text-left text-xs p-1 hover:bg-indigo-50 rounded font-sans">{loc}</button>
                                         ))}
                                     </div>
                                 ) : (
                                     <div 
                                         onClick={() => setEditingLocationId(item.id)}
-                                        className={`font-bold cursor-pointer whitespace-pre-wrap ${item.location.includes('Needs Fix') ? 'text-red-600' : ''}`}
+                                        className={`cursor-pointer whitespace-pre-wrap ${item.location.includes('Needs Fix') ? 'text-red-600' : ''}`}
                                     >
                                         {item.location}
                                     </div>
@@ -335,11 +344,11 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                                  {editingComponentId === item.id ? (
                                     <div className="absolute top-0 left-0 z-50 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48 no-print">
                                         {(hierarchy[item.location] || []).map(sub => (
-                                            <button key={sub} onClick={() => applyComponent(item.id, sub)} className="block w-full text-left text-xs p-1 hover:bg-indigo-50 rounded">{sub}</button>
+                                            <button key={sub} onClick={() => applyComponent(item.id, sub)} className="block w-full text-left text-xs p-1 hover:bg-indigo-50 rounded font-sans">{sub}</button>
                                         ))}
                                     </div>
                                 ) : (
-                                    <div onClick={() => setEditingComponentId(item.id)} className="cursor-pointer whitespace-pre-wrap">
+                                    <div onClick={() => setEditingComponentId(item.id)} className="cursor-pointer whitespace-pre-wrap font-medium text-slate-700">
                                         {item.component}
                                     </div>
                                 )}
@@ -348,7 +357,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                               {/* Area / CH */}
                               <td className="border-r border-slate-900 p-1.5">
                                   <textarea 
-                                      className="w-full bg-transparent resize-none outline-none font-medium overflow-hidden"
+                                      className="w-full bg-transparent resize-none outline-none font-medium overflow-hidden font-sans text-slate-900"
                                       value={item.structuralElement || item.chainage ? `${item.structuralElement || ''} ${item.chainage || ''}`.trim() : item.chainageOrArea}
                                       onChange={(e) => { handleLocalChange(item.id, 'structuralElement', e.target.value); handleLocalChange(item.id, 'chainage', ''); }}
                                       onBlur={(e) => handleBlur(item.id, 'structuralElement', e.target.value)}
@@ -359,7 +368,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                               {/* Description */}
                               <td className="border-r border-slate-900 p-1.5">
                                   <textarea 
-                                      className="w-full bg-transparent resize-none outline-none overflow-hidden leading-relaxed"
+                                      className="w-full bg-transparent resize-none outline-none overflow-hidden leading-relaxed font-sans text-slate-900"
                                       value={item.activityDescription}
                                       onChange={(e) => handleLocalChange(item.id, 'activityDescription', e.target.value)}
                                       onBlur={(e) => handleBlur(item.id, 'activityDescription', e.target.value)}
@@ -370,7 +379,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                               {/* Next Plan */}
                               <td className="border-r border-slate-900 p-1.5">
                                   <textarea 
-                                      className="w-full bg-transparent resize-none outline-none overflow-hidden"
+                                      className="w-full bg-transparent resize-none outline-none overflow-hidden font-sans text-slate-900"
                                       value={item.plannedNextActivity}
                                       onChange={(e) => handleLocalChange(item.id, 'plannedNextActivity', e.target.value)}
                                       onBlur={(e) => handleBlur(item.id, 'plannedNextActivity', e.target.value)}
@@ -378,14 +387,17 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                                   />
                               </td>
 
-                              {/* Action (Delete) - No Print */}
-                              <td className="p-1 align-middle text-center no-print">
+                              {/* Action (Delete) - No Print & HTML2Canvas Ignore */}
+                              <td 
+                                  className="p-1 align-middle text-center no-print"
+                                  data-html2canvas-ignore="true"
+                              >
                                   <button 
                                     onClick={() => handleDeleteClick(item)}
-                                    className="text-slate-300 hover:text-red-500 transition-colors"
+                                    className="text-slate-300 hover:text-red-500 transition-colors w-full h-full flex items-center justify-center"
                                     title="Delete Row"
                                   >
-                                      <i className="fas fa-times"></i>
+                                      <i className="fas fa-times text-xs"></i>
                                   </button>
                               </td>
                           </tr>
@@ -393,10 +405,10 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   )}
               </tbody>
           </table>
-
-          <div className="mt-8 pt-8 border-t border-slate-900 flex justify-between text-[10px] uppercase font-bold text-slate-500">
-             <div>Site Engineer</div>
-             <div>Project Manager</div>
+          
+          {/* Clean footer without signatures */}
+          <div className="mt-4 text-right">
+             <span className="text-[10px] text-slate-400 font-sans tracking-tight">Generated via Construction DPR Maker</span>
           </div>
         </div>
       </div>

@@ -130,13 +130,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
       <div className="mb-6 md:mb-0">
           {!todaysMood ? (
             <div className="animate-fade-in">
-                <p className="text-xs text-slate-500 mb-2 font-medium uppercase tracking-wide">How are you feeling today?</p>
+                <p className="text-xs text-slate-500 mb-2 font-medium uppercase tracking-wide font-display">How are you feeling today?</p>
                 <div className="flex gap-2 flex-wrap">
                     {MOODS.map(m => (
                         <button 
                         key={m.label} 
                         onClick={() => handleMoodSelect(m)}
-                        className={`px-3 py-2 rounded-lg border text-xs font-bold transition-all hover:-translate-y-0.5 hover:shadow-sm flex items-center gap-1.5 bg-white border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-600`}
+                        className={`px-3 py-2 rounded-lg border text-sm font-bold transition-all hover:-translate-y-0.5 hover:shadow-sm flex items-center gap-1.5 bg-white border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-600 font-display uppercase tracking-wide`}
                         >
                             <span className="text-base">{m.icon}</span> {m.label}
                         </button>
@@ -144,12 +144,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                 </div>
             </div>
         ) : (
-            <div className="animate-fade-in flex flex-col items-start gap-4">
+            <div className="animate-fade-in flex flex-col items-start gap-3">
                 <div className="flex items-center gap-3">
                    {/* Mood Indicator */}
                     <div className="bg-indigo-50 px-3 py-2 rounded-lg border border-indigo-100 flex items-center gap-2 shadow-sm">
                         <span className="text-xl">{MOODS.find(m => m.label === todaysMood.mood)?.icon}</span>
-                        <span className="text-xs font-bold text-indigo-900">{todaysMood.mood}</span>
+                        <span className="text-sm font-bold text-indigo-900 font-display uppercase tracking-wide">{todaysMood.mood}</span>
                     </div>
                     {/* Allow Update */}
                     <div className="flex gap-1">
@@ -168,10 +168,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
 
                 {/* AI Response Bubble */}
                 {aiMessage && (
-                    <div className="relative bg-white border border-slate-200 p-3 rounded-2xl rounded-tl-none shadow-sm max-w-full md:max-w-md animate-fade-in">
-                        <p className="text-sm text-slate-700 italic">"{aiMessage}"</p>
+                    <div className="relative bg-white border border-indigo-200 p-3 rounded-2xl rounded-tl-none shadow-md max-w-full md:max-w-md animate-fade-in">
+                        <p className="text-sm text-indigo-800 font-medium font-sans">"{aiMessage}"</p>
                         {/* Arrow */}
-                        <div className="absolute top-0 -left-2 w-3 h-3 bg-white border-l border-t border-slate-200 transform -rotate-45"></div>
+                        <div className="absolute top-0 -left-2 w-3 h-3 bg-white border-l border-t border-indigo-200 transform -rotate-45"></div>
                     </div>
                 )}
             </div>
@@ -184,11 +184,11 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
       
       {/* Mobile Header */}
       <div className="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center shadow-md sticky top-0 z-50">
-        <h1 className="font-bold text-lg flex items-center">
+        <h1 className="font-bold text-xl flex items-center font-display tracking-widest">
           <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center mr-2">
             <i className="fas fa-hard-hat text-white text-sm"></i>
           </div>
-          DPR Maker
+          DPR MAKER
         </h1>
         <div className="flex items-center gap-3">
             <button onClick={() => onTabChange(TabView.PROFILE)} className="w-8 h-8 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center border border-indigo-500">
@@ -204,13 +204,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col w-72 bg-slate-900 text-slate-300 min-h-screen shadow-2xl sticky top-0 h-screen z-10">
         <div className="p-8 border-b border-slate-800">
-          <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-3">
+          <h1 className="text-3xl font-bold tracking-widest text-white flex items-center gap-3 font-display">
              <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
                 <i className="fas fa-hard-hat text-white text-lg"></i>
              </div>
-             Construction<br/>DPR Maker
+             DPR MAKER
           </h1>
-          <p className="text-xs text-slate-500 mt-3 font-medium uppercase tracking-wider">Project Management</p>
+          <p className="text-xs text-slate-500 mt-3 font-bold uppercase tracking-wider font-display">Construction Management</p>
         </div>
         
         <nav className="flex-1 px-4 py-8 space-y-3 overflow-y-auto">
@@ -278,16 +278,16 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-slate-900 rounded-full"></div>
              </div>
              <div className="overflow-hidden">
-                <p className="text-sm text-white font-medium truncate w-40">{user?.displayName || 'Guest User'}</p>
+                <p className="text-sm text-white font-medium truncate w-40 font-display tracking-wide uppercase">{user?.displayName || 'Guest User'}</p>
                 <div className="flex items-center gap-2">
-                    <span className="text-[10px] bg-indigo-900 text-indigo-300 px-1.5 rounded font-bold">Lvl {profile?.level || 1}</span>
+                    <span className="text-[10px] bg-indigo-900 text-indigo-300 px-1.5 rounded font-bold font-display">Lvl {profile?.level || 1}</span>
                     <p className="text-xs text-slate-500 truncate">{profile?.xp || 0} XP</p>
                 </div>
              </div>
           </div>
           <button 
             onClick={onLogout}
-            className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white py-2 rounded-lg text-xs font-bold transition-colors"
+            className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white py-3 rounded-lg text-sm font-bold transition-colors font-display tracking-wide uppercase"
           >
             <i className="fas fa-sign-out-alt"></i> Sign Out
           </button>
@@ -304,21 +304,21 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
         {/* Desktop Greeting Header with Mood Check */}
         <div className="hidden md:flex justify-between items-center px-10 py-6 bg-white border-b border-slate-200">
            <div className="flex-1 max-w-2xl">
-              <h1 className="text-2xl font-bold text-slate-800">{getTimeGreeting()}, {user?.displayName?.split(' ')[0]}!</h1>
+              <h1 className="text-3xl font-bold text-slate-800 font-display tracking-wide uppercase">{getTimeGreeting()}, {user?.displayName?.split(' ')[0]}!</h1>
               <div className="mt-3">
                 <MoodSection />
               </div>
            </div>
 
-           <div className="flex gap-4">
+           <div className="flex gap-8">
               <div className="text-right">
-                  <div className="text-xs font-bold text-slate-400 uppercase">Total Entries</div>
-                  <div className="text-xl font-bold text-indigo-600">{profile?.totalEntries || 0}</div>
+                  <div className="text-xs font-bold text-slate-400 uppercase font-display tracking-wider">Total Entries</div>
+                  <div className="text-3xl font-bold text-indigo-600 font-display">{profile?.totalEntries || 0}</div>
               </div>
               <div className="w-px bg-slate-200 h-10"></div>
               <div className="text-right">
-                  <div className="text-xs font-bold text-slate-400 uppercase">Level</div>
-                  <div className="text-xl font-bold text-green-600">{profile?.level || 1}</div>
+                  <div className="text-xs font-bold text-slate-400 uppercase font-display tracking-wider">Level</div>
+                  <div className="text-3xl font-bold text-green-600 font-display">{profile?.level || 1}</div>
               </div>
            </div>
         </div>
@@ -326,7 +326,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
         {/* Mobile Mood Check (Inside Content) */}
         <div className="md:hidden px-4 pt-4">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-                 <h2 className="text-lg font-bold text-slate-800 mb-2">{getTimeGreeting()}, {user?.displayName?.split(' ')[0]}!</h2>
+                 <h2 className="text-2xl font-bold text-slate-800 mb-2 font-display uppercase">{getTimeGreeting()}, {user?.displayName?.split(' ')[0]}!</h2>
                  <MoodSection />
             </div>
         </div>
@@ -410,8 +410,8 @@ const NavButton = ({ active, onClick, icon, label, desc }: any) => (
       <i className={`fas ${icon}`}></i>
     </div>
     <div>
-      <p className={`font-semibold ${active ? 'text-indigo-400' : 'text-slate-200'}`}>{label}</p>
-      <p className="text-xs text-slate-500 group-hover:text-slate-400">{desc}</p>
+      <p className={`font-bold text-lg font-display tracking-wide uppercase ${active ? 'text-indigo-400' : 'text-slate-200'}`}>{label}</p>
+      <p className="text-xs text-slate-500 group-hover:text-slate-400 font-sans">{desc}</p>
     </div>
   </button>
 );
@@ -426,7 +426,7 @@ const MobileNavButton = ({ active, onClick, icon, label }: any) => (
     <div className={`text-lg transition-transform ${active ? '-translate-y-1' : ''}`}>
        <i className={`fas ${icon}`}></i>
     </div>
-    <span className={`text-[10px] font-medium whitespace-nowrap ${active ? 'font-bold' : ''}`}>{label}</span>
+    <span className={`text-[10px] font-bold whitespace-nowrap font-display tracking-wide uppercase ${active ? 'text-indigo-700' : ''}`}>{label}</span>
     {active && <div className="w-1 h-1 bg-indigo-600 rounded-full mt-1"></div>}
   </button>
 );

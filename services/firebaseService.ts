@@ -94,13 +94,13 @@ const updateUserProfile = async (user: any) => {
     }
 }
 
-export const incrementUserStats = async (uid: string, entriesCount: number) => {
+export const incrementUserStats = async (uid: string, entriesCount: number, extraXp: number = 0) => {
     if(!db || !uid) return;
     const userRef = doc(db, USER_COLLECTION, uid);
     try {
         await updateDoc(userRef, {
             totalEntries: increment(entriesCount),
-            xp: increment(entriesCount * 10) // 10 XP per entry
+            xp: increment((entriesCount * 10) + extraXp) // 10 XP per entry + extra
         });
     } catch(e) {
         console.error("Failed to update stats", e);
@@ -406,12 +406,6 @@ export const subscribeToLogs = (onUpdate: (logs: LogEntry[]) => void): Unsubscri
 export const saveUserMood = async (uid: string, mood: UserMood['mood'], note?: string) => {
   if (!db) return;
   
-  // Check if a mood entry already exists for today
-  // Since timestamps differ, we need to check string equality of the date part
-  // However, firestore querying by derived date string is hard without storing it.
-  // We will assume we fetch recent moods in the component and can pass the ID if it exists,
-  // OR we just do a query here. Let's do a query here for robustness.
-  
   const today = new Date();
   today.setHours(0,0,0,0);
   const tomorrow = new Date(today);
@@ -433,7 +427,7 @@ export const saveUserMood = async (uid: string, mood: UserMood['mood'], note?: s
       await updateDoc(doc(db, MOOD_COLLECTION, docId), {
           mood,
           note,
-          timestamp: new Date().toISOString() // Update time to latest interaction
+          timestamp: new Date().toISOString()
       });
   } else {
       // Create new
@@ -445,6 +439,8 @@ export const saveUserMood = async (uid: string, mood: UserMood['mood'], note?: s
         note
       };
       await setDoc(doc(db, MOOD_COLLECTION, entry.id), entry);
+      // Award XP for daily check-in
+      await incrementUserStats(uid, 0, 50);
   }
 };
 
