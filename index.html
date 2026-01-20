@@ -50,7 +50,7 @@
         if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK')) {
              var loader = document.getElementById('loading-indicator');
              if(loader) {
-                loader.innerHTML = '<div style="color:red; text-align:center; padding:20px; font-family:sans-serif;">' +
+                loader.innerHTML = '<div style="color:red; text-align:center; padding:20px;">' +
                   '<strong>Resource Load Error</strong><br/>' +
                   'Failed to load: ' + (e.target.src || e.target.href) + '<br/>' +
                   'Please check your internet connection or deployment configuration.' +
@@ -105,6 +105,6 @@
        <div class="text-slate-500 font-sans font-medium">Loading Construction DPR Maker...</div>
     </div>
     <div id="root" style="position: relative; z-index: 1;"></div>
-    <script type="module" src="index.tsx"></script>
+    <script type="module" src="/index.tsx"></script>
 </body>
 </html>
