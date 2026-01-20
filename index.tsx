@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Layout } from './components/Layout';
@@ -16,7 +15,6 @@ const App = () => {
   // --- STATE ---
   const [user, setUser] = useState<any | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [configError, setConfigError] = useState(false);
   
   const [activeTab, setActiveTab] = useState<TabView>(() => {
     return (localStorage.getItem('activeTab') as TabView) || TabView.INPUT;
@@ -36,14 +34,7 @@ const App = () => {
   // --- PERSISTENCE & SYNC ---
 
   useEffect(() => {
-    // Check if configuration is missing immediately
-    if (!process.env.FIREBASE_API_KEY || process.env.FIREBASE_API_KEY === 'undefined') {
-       setConfigError(true);
-       setAuthLoading(false); // Stop spinner
-       return;
-    }
-
-    const unsubscribeAuth = subscribeToAuth((u: any) => {
+    const unsubscribeAuth = subscribeToAuth((u) => {
       setUser(u);
       setAuthLoading(false);
       if (u) {
@@ -59,7 +50,7 @@ const App = () => {
 
   // Sync Reports from Firebase
   useEffect(() => {
-    const unsubscribe = subscribeToReports((data: DailyReport[]) => {
+    const unsubscribe = subscribeToReports((data) => {
       setReports(data);
     });
     return () => unsubscribe();
@@ -67,13 +58,13 @@ const App = () => {
 
   // Sync Logs from Firebase
   useEffect(() => {
-    const unsubscribe = subscribeToLogs((data: LogEntry[]) => setLogs(data));
+    const unsubscribe = subscribeToLogs((data) => setLogs(data));
     return () => unsubscribe();
   }, []);
 
   // Sync Trash Items
   useEffect(() => {
-    const unsubscribe = subscribeToTrash((data: TrashItem[]) => setTrashItems(data));
+    const unsubscribe = subscribeToTrash((data) => setTrashItems(data));
     return () => unsubscribe();
   }, []);
 
@@ -82,22 +73,29 @@ const App = () => {
     const existingReport = reports.find(r => r.date === currentDate);
 
     if (existingReport) {
+      // Always sync the ID if it doesn't match
       if (currentReportId !== existingReport.id) {
          setCurrentReportId(existingReport.id);
       }
+      // Only update entries if they are different (to avoid loop, though JSON.stringify is heavy, it works for this scale)
       if (JSON.stringify(existingReport.entries) !== JSON.stringify(currentEntries)) {
          setCurrentEntries(existingReport.entries);
       }
     } else {
+      // No report exists for this date yet.
+      // If our currentReportId belongs to a DIFFERENT date, reset.
       const isIdBelongingToOtherDate = reports.some(r => r.id === currentReportId && r.date !== currentDate);
       
       if (isIdBelongingToOtherDate || !currentReportId) {
+         // Don't generate ID here to avoid phantom IDs. 
+         // We generate ID only when saving for the first time or creating explicit new.
          setCurrentReportId(null); 
          setCurrentEntries([]);
       }
     }
   }, [currentDate, reports]);
   
+  // Clear Undo stack when changing dates/reports
   useEffect(() => {
       setUndoStack([]);
   }, [currentDate, currentReportId]);
@@ -106,10 +104,6 @@ const App = () => {
   // --- HANDLERS ---
 
   const handleLogin = async () => {
-    if (configError) {
-      alert("Cannot login: Firebase configuration is missing.");
-      return;
-    }
     try {
       await signInWithGoogle();
     } catch (error) {
@@ -159,6 +153,7 @@ const App = () => {
     
     try {
       await saveReportToCloud(report);
+      // Auto-Backup State History
       await saveReportHistory(report);
     } catch (e) {
       console.error("Failed to save", e);
@@ -169,6 +164,7 @@ const App = () => {
 
   // --- UNDO SYSTEM ---
   const captureUndoState = (entries: DPRItem[]) => {
+      // Keep last 20 states
       setUndoStack(prev => [...prev.slice(-19), entries]);
   };
 
@@ -190,20 +186,28 @@ const App = () => {
     const effectiveReportId = existingReportOnServer ? existingReportOnServer.id : (currentReportId || crypto.randomUUID());
     const baseEntries = existingReportOnServer ? existingReportOnServer.entries : currentEntries;
 
+    // Capture state before adding
     captureUndoState(baseEntries);
 
+    // 1. Save to Permanent Backup (Independent of report logic)
+    // We capture the ID of this backup to link it in the logs
     const backupId = await savePermanentBackup(currentDate, rawText, newItems, getUserName(), effectiveReportId);
 
+    // 2. Merge items
     let updatedEntries = [...baseEntries, ...newItems];
+
+    // 3. Sort items
     updatedEntries.sort((a, b) => {
       return getLocationPriority(a.location) - getLocationPriority(b.location);
     });
     
+    // 4. Update State & Save Report
     setCurrentReportId(effectiveReportId);
-    setCurrentEntries(updatedEntries);
+    setCurrentEntries(updatedEntries); // Optimistic update
     
     await saveCurrentState(updatedEntries, currentDate, effectiveReportId);
     
+    // 5. Log with link to backup
     logActivity(
       getUserName(), 
       "Report Updated", 
@@ -214,6 +218,11 @@ const App = () => {
   };
 
   const handleUpdateItem = (id: string, field: keyof DPRItem, value: string) => {
+    // Note: We don't capture undo on every keystroke/blur for individual edits to avoid spamming the stack, 
+    // but you could add it here if desired. For now, major actions like Normalize/Delete use it.
+    // Uncomment next line to enable granular undo:
+    // captureUndoState(currentEntries); 
+
     const updatedEntries = currentEntries.map(item => 
       item.id === id ? { ...item, [field]: value } : item
     );
@@ -225,14 +234,15 @@ const App = () => {
   };
 
   const handleUpdateAllEntries = (newEntries: DPRItem[]) => {
-    captureUndoState(currentEntries);
+    captureUndoState(currentEntries); // Capture before bulk update (Normalization)
+
     setCurrentEntries(newEntries);
     saveCurrentState(newEntries, currentDate, currentReportId);
     logActivity(getUserName(), "Normalized Report", `Bulk updated ${newEntries.length} items to standard hierarchy`, currentDate);
   };
 
   const handleDeleteItem = async (id: string) => {
-    captureUndoState(currentEntries);
+    captureUndoState(currentEntries); // Capture before delete
 
     const item = currentEntries.find(i => i.id === id);
     if (!item || !currentReportId) return;
@@ -285,36 +295,10 @@ const App = () => {
     );
   }
 
-  // --- CONFIGURATION ERROR SCREEN ---
-  if (configError && !user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-red-50 p-4">
-         <div className="bg-white rounded-3xl p-8 md:p-12 max-w-md w-full shadow-2xl text-center border border-red-100">
-             <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <i className="fas fa-exclamation-triangle text-red-500 text-3xl"></i>
-             </div>
-             <h1 className="text-2xl font-bold text-slate-800 mb-2">Configuration Error</h1>
-             <p className="text-slate-500 mb-6">
-               The application could not load because Firebase configuration is missing.
-             </p>
-             <div className="bg-slate-100 p-4 rounded text-xs text-left font-mono text-slate-600 mb-6 overflow-x-auto">
-                <p className="font-bold text-slate-800">Missing Variables:</p>
-                FIREBASE_API_KEY<br/>
-                FIREBASE_AUTH_DOMAIN<br/>
-                FIREBASE_PROJECT_ID
-             </div>
-             <p className="text-xs text-slate-400">
-               Please check your deployment settings or .env file.
-             </p>
-         </div>
-      </div>
-    );
-  }
-
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
-         <div className="bg-white rounded-3xl p-8 md:p-12 max-w-md w-full shadow-2xl text-center animate-fade-in">
+         <div className="bg-white rounded-3xl p-8 md:p-12 max-w-md w-full shadow-2xl text-center">
              <div className="w-20 h-20 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-indigo-500/30">
                 <i className="fas fa-hard-hat text-white text-3xl"></i>
              </div>
