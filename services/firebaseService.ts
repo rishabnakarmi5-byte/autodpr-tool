@@ -83,14 +83,12 @@ const updateUserProfile = async (user: any) => {
             displayName: user.displayName || 'User',
             email: user.email || '',
             totalEntries: 0,
-            totalDays: 1,
+            totalDays: 0,
             level: 1,
             xp: 0,
             joinedDate: new Date().toISOString()
         };
         await setDoc(userRef, newProfile);
-    } else {
-        // We could update lastSeen here if needed
     }
 }
 
@@ -100,7 +98,7 @@ export const incrementUserStats = async (uid: string, entriesCount: number, extr
     try {
         await updateDoc(userRef, {
             totalEntries: increment(entriesCount),
-            xp: increment((entriesCount * 10) + extraXp) // 10 XP per entry + extra
+            xp: increment((entriesCount * 10) + extraXp)
         });
     } catch(e) {
         console.error("Failed to update stats", e);
@@ -210,7 +208,6 @@ export const syncQuantitiesFromItems = async (items: DPRItem[], report: DailyRep
             if (type === 'Rebar' && unit === 'kg') { val = val / 1000; unit = 'Ton'; }
 
             // Check duplicate by linking to report item ID
-            // We use a query to check existence first (not ideal for perf but safe)
             const q = query(collection(db, QUANTITY_COLLECTION), where("originalReportItemId", "==", item.id));
             const snap = await getDocs(q);
             
@@ -276,7 +273,6 @@ export const updateQuantity = async (quantity: QuantityEntry, previousState: Qua
   await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
   await logActivity(user, "Edit Quantity", JSON.stringify({ before: previousState, after: quantity }), quantity.date);
   
-  // Reverse sync to Report Item if critical fields changed
   if (quantity.reportId && quantity.originalReportItemId) {
         if (quantity.location !== previousState.location || quantity.structure !== previousState.structure) {
             const reportRef = doc(db, REPORT_COLLECTION, quantity.reportId);
@@ -402,52 +398,58 @@ export const subscribeToLogs = (onUpdate: (logs: LogEntry[]) => void): Unsubscri
   });
 };
 
-// --- Mood ---
+// --- MOOD (FRESH APPROACH) ---
+
 export const saveUserMood = async (uid: string, mood: UserMood['mood'], note?: string) => {
   if (!db) return;
   
-  const today = new Date();
-  today.setHours(0,0,0,0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  // Create a deterministic ID based on Date + UID. 
+  // This prevents race conditions or duplicates for a single day.
+  const todayKey = new Date().toISOString().split('T')[0]; // "2025-01-20"
+  const docId = `mood_${uid}_${todayKey}`;
 
-  // Query for entries by this user today
-  const q = query(
-      collection(db, MOOD_COLLECTION), 
-      where("uid", "==", uid),
-      where("timestamp", ">=", today.toISOString()),
-      where("timestamp", "<", tomorrow.toISOString())
-  );
+  const docRef = doc(db, MOOD_COLLECTION, docId);
+  const docSnap = await getDoc(docRef);
 
-  const snapshot = await getDocs(q);
-  
-  if (!snapshot.empty) {
-      // Update existing
-      const docId = snapshot.docs[0].id;
-      await updateDoc(doc(db, MOOD_COLLECTION, docId), {
+  if (docSnap.exists()) {
+      // Just update the mood if they changed their mind
+      await updateDoc(docRef, {
           mood,
           note,
           timestamp: new Date().toISOString()
       });
   } else {
-      // Create new
+      // New Entry for today
       const entry: UserMood = {
-        id: crypto.randomUUID(),
+        id: docId,
         uid,
         timestamp: new Date().toISOString(),
         mood,
         note
       };
-      await setDoc(doc(db, MOOD_COLLECTION, entry.id), entry);
+      await setDoc(docRef, entry);
       
-      // Award XP for daily check-in AND update Total Days if not already done today
+      // Award Stats (Safely increment)
       const userRef = doc(db, USER_COLLECTION, uid);
-      // We perform a specific update to ensure stats are bumped
       await updateDoc(userRef, {
-          totalDays: increment(1), // Increment day streak
-          xp: increment(50)       // Award 50 XP
+          totalDays: increment(1),
+          xp: increment(50)
       });
   }
+};
+
+export const subscribeToTodayMood = (uid: string, onUpdate: (mood: UserMood | null) => void): Unsubscribe => {
+    if (!db || !uid) return () => {};
+    const todayKey = new Date().toISOString().split('T')[0];
+    const docId = `mood_${uid}_${todayKey}`;
+    
+    return onSnapshot(doc(db, MOOD_COLLECTION, docId), (doc: any) => {
+        if(doc.exists()) {
+            onUpdate(doc.data() as UserMood);
+        } else {
+            onUpdate(null);
+        }
+    });
 };
 
 export const subscribeToUserMoods = (uid: string, onUpdate: (moods: UserMood[]) => void): Unsubscribe => {

@@ -425,7 +425,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
           </table>
           
           {/* INVISIBLE FOOTER BUT DETECTABLE IN DOM */}
-          <div className="mt-4 text-right opacity-0 text-[1px] select-none pointer-events-none">
+          <div className="mt-4 text-right opacity-0 pointer-events-none select-none text-[0.1px]">
              Generated via Construction DPR Maker. Developed by Rishab Nakarmi.
           </div>
         </div>
