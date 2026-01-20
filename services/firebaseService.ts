@@ -1,3 +1,4 @@
+
 import * as _app from "firebase/app";
 import * as _firestore from "firebase/firestore";
 import * as _auth from "firebase/auth";
@@ -8,44 +9,41 @@ const { initializeApp } = _app as any;
 const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, getDocs, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion, where } = _firestore as any;
 const { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } = _auth as any;
 
-// Define loose types for internal use to avoid import errors
-type User = any;
-type Unsubscribe = any;
+// Helper to safely get env vars
+const getEnvVar = (key: string) => {
+  const val = process.env[key];
+  if (!val || val === "undefined" || val === "null") return "";
+  return val;
+};
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.FIREBASE_APP_ID,
-  measurementId: process.env.measurementId
+  apiKey: getEnvVar("FIREBASE_API_KEY"),
+  authDomain: getEnvVar("FIREBASE_AUTH_DOMAIN"),
+  projectId: getEnvVar("FIREBASE_PROJECT_ID"),
+  messagingSenderId: getEnvVar("FIREBASE_MESSAGING_SENDER_ID"),
+  appId: getEnvVar("FIREBASE_APP_ID"),
+  measurementId: getEnvVar("measurementId") || getEnvVar("FIREBASE_MEASUREMENT_ID")
 };
 
-// Robust check to warn which specific keys are missing
-const missingKeys = Object.entries(firebaseConfig)
-  .filter(([key, value]) => !value && key !== 'measurementId') // measurementId is optional
-  .map(([key]) => key);
+let app: any = null;
+let db: any = null;
+let auth: any = null;
 
-if (missingKeys.length > 0) {
-  console.error(`Firebase Configuration Error: The following keys are missing in environment variables: ${missingKeys.join(', ')}.`);
-}
+// Only initialize if we have an API key. This prevents "auth/invalid-api-key" crashes.
+const isConfigValid = !!firebaseConfig.apiKey;
 
-let app;
-let db: any;
-let auth: any;
-
-if (missingKeys.length === 0) {
+if (isConfigValid) {
   try {
     app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
-    console.log("Firebase initialized successfully (Auth & Firestore only).");
+    console.log("Firebase initialized successfully.");
   } catch (error) {
     console.error("Failed to initialize Firebase:", error);
   }
 } else {
-  console.warn("Firebase not initialized due to missing config.");
+  console.warn("Firebase configuration is missing. App will run in limited mode.");
 }
 
 const REPORT_COLLECTION = "daily_reports";
@@ -78,8 +76,9 @@ export const logoutUser = async () => {
   }
 };
 
-export const subscribeToAuth = (callback: (user: User | null) => void): Unsubscribe => {
+export const subscribeToAuth = (callback: (user: any | null) => void): any => {
   if (!auth) {
+    // If auth isn't initialized, immediately say no user is logged in
     callback(null);
     return () => {};
   }
@@ -88,7 +87,7 @@ export const subscribeToAuth = (callback: (user: User | null) => void): Unsubscr
 
 // --- Reports ---
 
-export const subscribeToReports = (onUpdate: (reports: DailyReport[]) => void): Unsubscribe => {
+export const subscribeToReports = (onUpdate: (reports: DailyReport[]) => void): any => {
   if (!db) return () => {};
   
   const q = query(collection(db, REPORT_COLLECTION), orderBy("date", "desc"));
@@ -131,7 +130,6 @@ export const saveReportHistory = async (report: DailyReport) => {
             reportDate: report.date,
             snapshot: report
         });
-        console.log("Database state snapshot saved.");
     } catch (e) {
         console.error("Failed to save history snapshot:", e);
     }
@@ -139,7 +137,7 @@ export const saveReportHistory = async (report: DailyReport) => {
 
 // --- Quantities ---
 
-export const subscribeToQuantities = (onUpdate: (quantities: QuantityEntry[]) => void): Unsubscribe => {
+export const subscribeToQuantities = (onUpdate: (quantities: QuantityEntry[]) => void): any => {
   if (!db) return () => {};
   // Order by date descending
   const q = query(collection(db, QUANTITY_COLLECTION), orderBy("date", "desc"));
@@ -179,7 +177,7 @@ export const updateQuantity = async (quantity: QuantityEntry, previousState: Qua
       after: quantity
     }), quantity.date);
 
-    // 3. REVERSE SYNC: If Location or Component (Structure) changed, update the original Report Item
+    // 3. REVERSE SYNC
     if (quantity.reportId && quantity.originalReportItemId) {
         const hasLocationChanged = quantity.location !== previousState.location;
         const hasStructureChanged = quantity.structure !== previousState.structure;
@@ -190,8 +188,6 @@ export const updateQuantity = async (quantity: QuantityEntry, previousState: Qua
 
             if (reportSnap.exists()) {
                 const reportData = reportSnap.data() as DailyReport;
-                
-                // Map over entries to find and update the specific item
                 let itemUpdated = false;
                 const updatedEntries = reportData.entries.map((entry) => {
                     if (entry.id === quantity.originalReportItemId) {
@@ -243,7 +239,7 @@ export const deleteQuantity = async (quantity: QuantityEntry, user: string) => {
 }
 
 
-// --- Backup System (Robust Data Safety) ---
+// --- Backup System ---
 
 export const savePermanentBackup = async (
   date: string, 
@@ -264,7 +260,6 @@ export const savePermanentBackup = async (
       parsedItems,
       reportIdContext
     };
-    // This collection is intended to be append-only and never deleted by the app
     await setDoc(doc(db, BACKUP_COLLECTION, backupId), backupEntry);
     console.log("Permanent backup saved:", backupId);
     return backupId;
@@ -282,9 +277,7 @@ export const getBackups = async (
   if (!db) return [];
   try {
     let q = query(collection(db, BACKUP_COLLECTION), orderBy("timestamp", "desc"));
-    
     if (startDate && endDate) {
-        // Note: Firestore string comparison works for ISO dates
         q = query(collection(db, BACKUP_COLLECTION), 
             where("date", ">=", startDate), 
             where("date", "<=", endDate),
@@ -293,7 +286,6 @@ export const getBackups = async (
     } else {
         q = query(q, limit(limitCount));
     }
-
     const snapshot = await getDocs(q);
     const backups: BackupEntry[] = [];
     snapshot.forEach((doc: any) => {
@@ -311,7 +303,6 @@ export const getBackups = async (
 export const moveReportToTrash = async (report: DailyReport, user: string): Promise<void> => {
   if (!db) return;
   try {
-    // 1. Create Trash Item
     const trashItem: TrashItem = {
       trashId: crypto.randomUUID(),
       originalId: report.id,
@@ -322,8 +313,6 @@ export const moveReportToTrash = async (report: DailyReport, user: string): Prom
       reportDate: report.date
     };
     await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
-
-    // 2. Delete Original
     await deleteDoc(doc(db, REPORT_COLLECTION, report.id));
   } catch (e) {
     console.error("Error moving report to trash:", e);
@@ -334,7 +323,6 @@ export const moveReportToTrash = async (report: DailyReport, user: string): Prom
 export const moveItemToTrash = async (item: DPRItem, reportId: string, reportDate: string, user: string): Promise<void> => {
   if (!db) return;
   try {
-    // 1. Create Trash Item (Note: We do not modify the original report here, that's done by the caller via saveReportToCloud)
     const trashItem: TrashItem = {
       trashId: crypto.randomUUID(),
       originalId: item.id,
@@ -353,7 +341,6 @@ export const moveItemToTrash = async (item: DPRItem, reportId: string, reportDat
 };
 
 export const deleteReportFromCloud = async (id: string): Promise<void> => {
-  // Direct delete (legacy or permanent)
   if (!db) return;
   try {
     await deleteDoc(doc(db, REPORT_COLLECTION, id));
@@ -363,11 +350,9 @@ export const deleteReportFromCloud = async (id: string): Promise<void> => {
   }
 };
 
-export const subscribeToTrash = (onUpdate: (items: TrashItem[]) => void): Unsubscribe => {
+export const subscribeToTrash = (onUpdate: (items: TrashItem[]) => void): any => {
   if (!db) return () => {};
-  
   const q = query(collection(db, TRASH_COLLECTION), orderBy("deletedAt", "desc"));
-  
   const unsubscribe = onSnapshot(q, (snapshot: any) => {
     const items: TrashItem[] = [];
     snapshot.forEach((doc: any) => {
@@ -377,13 +362,11 @@ export const subscribeToTrash = (onUpdate: (items: TrashItem[]) => void): Unsubs
   }, (error: any) => {
     console.error("Error subscribing to trash:", error);
   });
-
   return unsubscribe;
 };
 
 export const restoreTrashItem = async (trashItem: TrashItem): Promise<void> => {
   if (!db) return;
-  
   try {
     if (trashItem.type === 'report') {
       const report = trashItem.content as DailyReport;
@@ -392,7 +375,6 @@ export const restoreTrashItem = async (trashItem: TrashItem): Promise<void> => {
     else if (trashItem.type === 'item') {
       const item = trashItem.content as DPRItem;
       const reportId = trashItem.reportId;
-      
       if (!reportId) throw new Error("Missing report ID for item restoration");
 
       const reportRef = doc(db, REPORT_COLLECTION, reportId);
@@ -401,9 +383,7 @@ export const restoreTrashItem = async (trashItem: TrashItem): Promise<void> => {
       if (reportSnap.exists()) {
         const reportData = reportSnap.data() as DailyReport;
         if (!reportData.entries.some((e: any) => e.id === item.id)) {
-           await updateDoc(reportRef, {
-             entries: arrayUnion(item)
-           });
+           await updateDoc(reportRef, { entries: arrayUnion(item) });
         }
       } else {
         const newReport: DailyReport = {
@@ -420,10 +400,7 @@ export const restoreTrashItem = async (trashItem: TrashItem): Promise<void> => {
        const quantity = trashItem.content as QuantityEntry;
        await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
     }
-
-    // Remove from trash after successful restore
     await deleteDoc(doc(db, TRASH_COLLECTION, trashItem.trashId));
-
   } catch (error) {
     console.error("Error restoring item:", error);
     throw error;
@@ -442,23 +419,16 @@ export const logActivity = async (user: string, action: string, details: string,
       details,
       reportDate,
     };
-    
-    if (relatedBackupId) {
-        log.relatedBackupId = relatedBackupId;
-    }
-
+    if (relatedBackupId) log.relatedBackupId = relatedBackupId;
     await addDoc(collection(db, LOG_COLLECTION), log);
   } catch (e) {
     console.error("Error logging activity:", e);
   }
 };
 
-export const subscribeToLogs = (onUpdate: (logs: LogEntry[]) => void): Unsubscribe => {
+export const subscribeToLogs = (onUpdate: (logs: LogEntry[]) => void): any => {
   if (!db) return () => {};
-  
-  // Get last 100 logs
   const q = query(collection(db, LOG_COLLECTION), orderBy("timestamp", "desc"), limit(100));
-  
   const unsubscribe = onSnapshot(q, (snapshot: any) => {
     const logs: LogEntry[] = [];
     snapshot.forEach((doc: any) => {
@@ -468,6 +438,5 @@ export const subscribeToLogs = (onUpdate: (logs: LogEntry[]) => void): Unsubscri
   }, (error: any) => {
     console.error("Error subscribing to logs:", error);
   });
-
   return unsubscribe;
 };
