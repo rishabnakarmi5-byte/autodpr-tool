@@ -1,4 +1,3 @@
-
 import * as _app from "firebase/app";
 import * as _firestore from "firebase/firestore";
 import * as _auth from "firebase/auth";
@@ -7,7 +6,7 @@ import { LOCATION_HIERARCHY, identifyItemType, parseQuantityDetails } from "../u
 
 // Workaround for potential type definition mismatches
 const { initializeApp } = _app as any;
-const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, getDocs, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion, where, increment } = _firestore as any;
+const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, getDocs, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion, where, increment, serverTimestamp } = _firestore as any;
 const { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } = _auth as any;
 
 // Define loose types for internal use to avoid import errors
@@ -60,367 +59,355 @@ const MOOD_COLLECTION = "user_moods";
 // --- Authentication & Profile ---
 
 export const signInWithGoogle = async () => {
-  if (!auth) throw new Error("Authentication service not initialized.");
+  if (!auth) throw new Error("Authentication service not initialized");
   const provider = new GoogleAuthProvider();
   try {
     const result = await signInWithPopup(auth, provider);
-    await updateUserProfile(result.user);
+    // Initialize profile if new
+    const userRef = doc(db, USER_COLLECTION, result.user.uid);
+    const snap = await getDoc(userRef);
+    if (!snap.exists()) {
+      await setDoc(userRef, {
+        uid: result.user.uid,
+        displayName: result.user.displayName,
+        email: result.user.email,
+        totalEntries: 0,
+        totalDays: 1,
+        level: 1,
+        xp: 0,
+        joinedDate: new Date().toISOString()
+      });
+    }
     return result.user;
   } catch (error) {
-    console.error("Error signing in", error);
+    console.error("Login failed", error);
     throw error;
   }
 };
 
-const updateUserProfile = async (user: any) => {
-    if(!db || !user) return;
-    const userRef = doc(db, USER_COLLECTION, user.uid);
-    const snap = await getDoc(userRef);
-
-    if (!snap.exists()) {
-        const newProfile: UserProfile = {
-            uid: user.uid,
-            displayName: user.displayName || 'User',
-            email: user.email || '',
-            totalEntries: 0,
-            totalDays: 0,
-            level: 1,
-            xp: 0,
-            joinedDate: new Date().toISOString()
-        };
-        await setDoc(userRef, newProfile);
-    }
-}
-
-export const incrementUserStats = async (uid: string, entriesCount: number, extraXp: number = 0) => {
-    if(!db || !uid) return;
-    const userRef = doc(db, USER_COLLECTION, uid);
-    try {
-        await updateDoc(userRef, {
-            totalEntries: increment(entriesCount),
-            xp: increment((entriesCount * 10) + extraXp)
-        });
-    } catch(e) {
-        console.error("Failed to update stats", e);
-    }
-};
-
-export const subscribeToUserProfile = (uid: string, onUpdate: (profile: UserProfile) => void): Unsubscribe => {
-    if (!db || !uid) return () => {};
-    return onSnapshot(doc(db, USER_COLLECTION, uid), (doc: any) => {
-        if(doc.exists()) onUpdate(doc.data() as UserProfile);
-    });
-};
-
-export const saveUserMood = async (uid: string, mood: string, note: string) => {
-  if (!db) return;
-  const today = new Date().toISOString().split('T')[0];
-  const id = `${uid}_${today}`;
-  const moodEntry: UserMood = {
-      id,
-      uid,
-      mood: mood as any,
-      note,
-      timestamp: new Date().toISOString()
-  };
-  await setDoc(doc(db, MOOD_COLLECTION, id), moodEntry);
-};
-
-export const subscribeToTodayMood = (uid: string, onUpdate: (mood: UserMood | null) => void): Unsubscribe => {
-    if (!db) return () => {};
-    const today = new Date().toISOString().split('T')[0];
-    const id = `${uid}_${today}`;
-    return onSnapshot(doc(db, MOOD_COLLECTION, id), (docSnap: any) => {
-        if (docSnap.exists()) {
-            onUpdate(docSnap.data() as UserMood);
-        } else {
-            onUpdate(null);
-        }
-    });
-};
-
 export const logoutUser = async () => {
   if (!auth) return;
-  await signOut(auth);
+  return signOut(auth);
 };
 
 export const subscribeToAuth = (callback: (user: User | null) => void): Unsubscribe => {
-  if (!auth) { callback(null); return () => {}; }
+  if (!auth) {
+      callback(null);
+      return () => {};
+  }
   return onAuthStateChanged(auth, callback);
 };
 
-// --- Settings ---
-
-export const getProjectSettings = async (): Promise<ProjectSettings | null> => {
-    if(!db) return null;
-    try {
-        const docSnap = await getDoc(doc(db, SETTINGS_COLLECTION, 'general'));
-        if(docSnap.exists()) return docSnap.data() as ProjectSettings;
-        return {
-            projectName: 'Bhotekoshi Hydroelectric Project',
-            projectDescription: 'Construction Management',
-            locationHierarchy: LOCATION_HIERARCHY,
-            customItems: []
-        };
-    } catch(e) { return null; }
+export const subscribeToUserProfile = (uid: string, callback: (p: UserProfile | null) => void) => {
+  if (!db) return () => {};
+  return onSnapshot(doc(db, USER_COLLECTION, uid), (doc: any) => {
+    if (doc.exists()) callback(doc.data() as UserProfile);
+    else callback(null);
+  });
 };
 
-export const saveProjectSettings = async (settings: ProjectSettings) => {
-    if(!db) return;
-    await setDoc(doc(db, SETTINGS_COLLECTION, 'general'), settings);
+export const incrementUserStats = async (uid: string | undefined, entriesCount: number) => {
+    if (!db || !uid) return;
+    const userRef = doc(db, USER_COLLECTION, uid);
+    // Logic: 10 entries = 10 XP. 100 XP = Level Up.
+    // We do simple increment here. Cloud functions usually better for leveling up logic but we do client side for simple demo.
+    await updateDoc(userRef, {
+        totalEntries: increment(entriesCount),
+        xp: increment(entriesCount * 5)
+        // Level logic would be computed on read or via another update, keeping it simple here.
+    });
 };
 
 // --- Reports ---
 
-export const subscribeToReports = (onUpdate: (reports: DailyReport[]) => void): Unsubscribe => {
+export const subscribeToReports = (callback: (reports: DailyReport[]) => void): Unsubscribe => {
   if (!db) return () => {};
   const q = query(collection(db, REPORT_COLLECTION), orderBy("date", "desc"));
   return onSnapshot(q, (snapshot: any) => {
-    const reports: DailyReport[] = [];
-    snapshot.forEach((doc: any) => reports.push(doc.data() as DailyReport));
-    onUpdate(reports);
+    const reports = snapshot.docs.map((doc: any) => doc.data() as DailyReport);
+    callback(reports);
   });
 };
 
-export const saveReportToCloud = async (report: DailyReport): Promise<void> => {
+export const saveReportToCloud = async (report: DailyReport) => {
   if (!db) return;
-  await setDoc(doc(db, REPORT_COLLECTION, report.id), report);
+  const ref = doc(db, REPORT_COLLECTION, report.id);
+  await setDoc(ref, report, { merge: true });
+};
+
+export const deleteReportFromCloud = async (reportId: string) => {
+    if (!db) return;
+    await deleteDoc(doc(db, REPORT_COLLECTION, reportId));
 };
 
 export const saveReportHistory = async (report: DailyReport) => {
-    if (!db) return;
-    const historyId = crypto.randomUUID();
-    await setDoc(doc(db, REPORT_HISTORY_COLLECTION, historyId), {
-        historyId, timestamp: new Date().toISOString(), reportId: report.id, reportDate: report.date, snapshot: report
+    if(!db) return;
+    // Save a version
+    await addDoc(collection(db, REPORT_HISTORY_COLLECTION), {
+        reportId: report.id,
+        date: report.date,
+        entries: report.entries,
+        timestamp: new Date().toISOString()
     });
 };
 
-// --- Sync Logic (One Shot) ---
+// --- Activity Logs ---
 
-export const syncQuantitiesFromItems = async (items: DPRItem[], report: DailyReport, user: string) => {
-    if(!db) return;
-    let added = 0;
-    
-    // We only process items that have valid quantity data
-    for (const item of items) {
-        // 1. Identify Type & Parse
-        const type = identifyItemType(item.activityDescription);
-        
-        // Use explicit fields if available, otherwise parse
-        let structure = item.component || "";
-        let element = item.structuralElement || "";
-        let chainage = item.chainage || "";
-        
-        // Fallback parsing if explicit fields are empty
-        if (!element || !chainage) {
-             const parsed = parseQuantityDetails(item.location, item.component, item.chainageOrArea, item.activityDescription);
-             if(!structure) structure = parsed.structure;
-             if(!element) element = parsed.detailElement || "";
-             if(!chainage) chainage = parsed.detailLocation || "";
-        }
-
-        // 2. Extract Number/Unit
-        const regex = /(\d+(\.\d+)?)\s*(m3|cum|sqm|sq\.m|m2|m|mtr|nos|t|ton|kg)/i;
-        const match = item.activityDescription.match(regex);
-        
-        if (match) {
-            let val = parseFloat(match[1]);
-            let unit = match[3].toLowerCase();
-            const raw = match[0];
-
-            if (unit === 'cum') unit = 'm3';
-            if (unit === 'sqm' || unit === 'sq.m') unit = 'm2';
-            if (unit === 'mtr') unit = 'm';
-            if (unit === 't') unit = 'Ton';
-            if (type === 'Rebar' && unit === 'kg') { val = val / 1000; unit = 'Ton'; }
-
-            // Check duplicate by linking to report item ID
-            const q = query(collection(db, QUANTITY_COLLECTION), where("originalReportItemId", "==", item.id));
-            const snap = await getDocs(q);
-            
-            if(snap.empty) {
-                const newQty: QuantityEntry = {
-                    id: crypto.randomUUID(),
-                    date: report.date,
-                    location: item.location,
-                    structure: structure,
-                    detailElement: element,
-                    detailLocation: chainage,
-                    itemType: type,
-                    description: item.activityDescription,
-                    quantityValue: val,
-                    quantityUnit: unit,
-                    originalRawString: raw,
-                    originalReportItemId: item.id,
-                    reportId: report.id,
-                    lastUpdated: new Date().toISOString(),
-                    updatedBy: user || 'Auto-Sync'
-                };
-                await setDoc(doc(db, QUANTITY_COLLECTION, newQty.id), newQty);
-                added++;
-            } else {
-                // Update existing if changed (Silent Update)
-                const existing = snap.docs[0].data() as QuantityEntry;
-                if(existing.quantityValue !== val || existing.location !== item.location || existing.structure !== structure) {
-                     await updateDoc(doc(db, QUANTITY_COLLECTION, existing.id), {
-                         quantityValue: val,
-                         quantityUnit: unit,
-                         location: item.location,
-                         structure: structure,
-                         description: item.activityDescription,
-                         lastUpdated: new Date().toISOString()
-                     });
-                }
-            }
-        }
-    }
-    return added;
-};
-
-
-// --- Quantities ---
-
-export const subscribeToQuantities = (onUpdate: (quantities: QuantityEntry[]) => void): Unsubscribe => {
-  if (!db) return () => {};
-  const q = query(collection(db, QUANTITY_COLLECTION), orderBy("date", "desc"));
-  return onSnapshot(q, (snapshot: any) => {
-    const items: QuantityEntry[] = [];
-    snapshot.forEach((doc: any) => items.push(doc.data() as QuantityEntry));
-    onUpdate(items);
-  });
-};
-
-export const addQuantity = async (quantity: QuantityEntry) => {
-  if (!db) return;
-  await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
-};
-
-export const updateQuantity = async (quantity: QuantityEntry, previousState: QuantityEntry, user: string) => {
-  if(!db) return;
-  await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
-  await logActivity(user, "Edit Quantity", JSON.stringify({ before: previousState, after: quantity }), quantity.date);
-  
-  if (quantity.reportId && quantity.originalReportItemId) {
-        if (quantity.location !== previousState.location || quantity.structure !== previousState.structure) {
-            const reportRef = doc(db, REPORT_COLLECTION, quantity.reportId);
-            const reportSnap = await getDoc(reportRef);
-            if (reportSnap.exists()) {
-                const reportData = reportSnap.data() as DailyReport;
-                const updatedEntries = reportData.entries.map((entry) => {
-                    if (entry.id === quantity.originalReportItemId) {
-                        return { ...entry, location: quantity.location, component: quantity.structure };
-                    }
-                    return entry;
-                });
-                await updateDoc(reportRef, { entries: updatedEntries });
-            }
-        }
-    }
-}
-
-export const deleteQuantity = async (quantity: QuantityEntry, user: string) => {
-  if (!db) return;
-  const trashItem: TrashItem = {
-      trashId: crypto.randomUUID(),
-      originalId: quantity.id,
-      type: 'quantity',
-      content: quantity,
-      deletedAt: new Date().toISOString(),
-      deletedBy: user,
-      reportDate: quantity.date
-  };
-  await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
-  await deleteDoc(doc(db, QUANTITY_COLLECTION, quantity.id));
-}
-
-// --- Backup ---
-export const savePermanentBackup = async (date: string, rawInput: string, parsedItems: DPRItem[], user: string, reportIdContext: string): Promise<string | null> => {
-  if (!db) return null;
-  const backupId = crypto.randomUUID();
-  const backupEntry: BackupEntry = { id: backupId, date, timestamp: new Date().toISOString(), user: user || "Anonymous", rawInput, parsedItems, reportIdContext };
-  await setDoc(doc(db, BACKUP_COLLECTION, backupId), backupEntry);
-  return backupId;
-};
-
-export const getBackups = async (limitCount = 50, startDate?: string, endDate?: string): Promise<BackupEntry[]> => {
-  if (!db) return [];
-  let q = query(collection(db, BACKUP_COLLECTION), orderBy("timestamp", "desc"));
-  if (startDate && endDate) {
-      q = query(collection(db, BACKUP_COLLECTION), where("date", ">=", startDate), where("date", "<=", endDate), orderBy("date", "desc"));
-  } else {
-      q = query(q, limit(limitCount));
-  }
-  const snapshot = await getDocs(q);
-  const backups: BackupEntry[] = [];
-  snapshot.forEach((doc: any) => backups.push(doc.data() as BackupEntry));
-  return backups;
-};
-
-// --- Trash ---
-export const moveReportToTrash = async (report: DailyReport, user: string): Promise<void> => {
-  if (!db) return;
-  const trashItem: TrashItem = { trashId: crypto.randomUUID(), originalId: report.id, type: 'report', content: report, deletedAt: new Date().toISOString(), deletedBy: user, reportDate: report.date };
-  await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
-  await deleteDoc(doc(db, REPORT_COLLECTION, report.id));
-};
-
-export const moveItemToTrash = async (item: DPRItem, reportId: string, reportDate: string, user: string): Promise<void> => {
-  if (!db) return;
-  const trashItem: TrashItem = { trashId: crypto.randomUUID(), originalId: item.id, type: 'item', content: item, deletedAt: new Date().toISOString(), deletedBy: user, reportDate: reportDate, reportId: reportId };
-  await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
-};
-
-export const deleteReportFromCloud = async (id: string): Promise<void> => {
-  if (!db) return;
-  await deleteDoc(doc(db, REPORT_COLLECTION, id));
-};
-
-export const subscribeToTrash = (onUpdate: (items: TrashItem[]) => void): Unsubscribe => {
-  if (!db) return () => {};
-  const q = query(collection(db, TRASH_COLLECTION), orderBy("deletedAt", "desc"));
-  return onSnapshot(q, (snapshot: any) => {
-    const items: TrashItem[] = [];
-    snapshot.forEach((doc: any) => items.push(doc.data() as TrashItem));
-    onUpdate(items);
-  });
-};
-
-export const restoreTrashItem = async (trashItem: TrashItem): Promise<void> => {
-  if (!db) return;
-  if (trashItem.type === 'report') {
-    const report = trashItem.content as DailyReport;
-    await setDoc(doc(db, REPORT_COLLECTION, report.id), report);
-  } else if (trashItem.type === 'item') {
-    const item = trashItem.content as DPRItem;
-    const reportId = trashItem.reportId;
-    if (reportId) {
-        const reportRef = doc(db, REPORT_COLLECTION, reportId);
-        const reportSnap = await getDoc(reportRef);
-        if (reportSnap.exists()) {
-             await updateDoc(reportRef, { entries: arrayUnion(item) });
-        }
-    }
-  } else if (trashItem.type === 'quantity') {
-      const quantity = trashItem.content as QuantityEntry;
-      await setDoc(doc(db, QUANTITY_COLLECTION, quantity.id), quantity);
-  }
-  await deleteDoc(doc(db, TRASH_COLLECTION, trashItem.trashId));
-};
-
-// --- Logs ---
 export const logActivity = async (user: string, action: string, details: string, reportDate: string, relatedBackupId?: string) => {
   if (!db) return;
-  const log: any = { timestamp: new Date().toISOString(), user: user || "Anonymous", action, details, reportDate };
-  if (relatedBackupId) log.relatedBackupId = relatedBackupId;
-  await addDoc(collection(db, LOG_COLLECTION), log);
+  const entry: any = {
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    user,
+    action,
+    details: typeof details === 'object' ? JSON.stringify(details) : details,
+    reportDate
+  };
+  if(relatedBackupId) entry.relatedBackupId = relatedBackupId;
+  
+  await setDoc(doc(db, LOG_COLLECTION, entry.id), entry);
 };
 
-export const subscribeToLogs = (onUpdate: (logs: LogEntry[]) => void): Unsubscribe => {
+export const subscribeToLogs = (callback: (logs: LogEntry[]) => void): Unsubscribe => {
   if (!db) return () => {};
   const q = query(collection(db, LOG_COLLECTION), orderBy("timestamp", "desc"), limit(100));
   return onSnapshot(q, (snapshot: any) => {
-    const logs: LogEntry[] = [];
-    snapshot.forEach((doc: any) => logs.push({ ...doc.data(), id: doc.id } as LogEntry));
-    onUpdate(logs);
+    const logs = snapshot.docs.map((doc: any) => doc.data() as LogEntry);
+    callback(logs);
+  });
+};
+
+// --- Trash & Recycle Bin ---
+
+export const moveItemToTrash = async (item: DPRItem, reportId: string, reportDate: string, user: string) => {
+    if (!db) return;
+    const trashItem: TrashItem = {
+        trashId: crypto.randomUUID(),
+        originalId: item.id,
+        type: 'item',
+        content: item,
+        deletedAt: new Date().toISOString(),
+        deletedBy: user,
+        reportDate,
+        reportId
+    };
+    await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
+    await logActivity(user, "Move to Trash", `Moved item ${item.location} to trash`, reportDate);
+};
+
+export const moveReportToTrash = async (report: DailyReport, user: string) => {
+    if (!db) return;
+    const trashItem: TrashItem = {
+        trashId: crypto.randomUUID(),
+        originalId: report.id,
+        type: 'report',
+        content: report,
+        deletedAt: new Date().toISOString(),
+        deletedBy: user,
+        reportDate: report.date
+    };
+    await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
+    await deleteReportFromCloud(report.id);
+    await logActivity(user, "Delete Report", `Moved report ${report.date} to trash`, report.date);
+};
+
+export const subscribeToTrash = (callback: (items: TrashItem[]) => void): Unsubscribe => {
+    if (!db) return () => {};
+    const q = query(collection(db, TRASH_COLLECTION), orderBy("deletedAt", "desc"));
+    return onSnapshot(q, (snapshot: any) => {
+        const items = snapshot.docs.map((doc: any) => doc.data() as TrashItem);
+        callback(items);
+    });
+};
+
+export const restoreTrashItem = async (item: TrashItem) => {
+    if (!db) return;
+    
+    // 1. Restore content based on type
+    if (item.type === 'report') {
+        await saveReportToCloud(item.content as DailyReport);
+    } else if (item.type === 'item') {
+        // We need to fetch the report and add the item back
+        const reportRef = doc(db, REPORT_COLLECTION, item.reportId);
+        const reportSnap = await getDoc(reportRef);
+        if (reportSnap.exists()) {
+            const report = reportSnap.data() as DailyReport;
+            // Check if item already exists to avoid dupes
+            if (!report.entries.find(e => e.id === item.originalId)) {
+                const updatedEntries = [...report.entries, item.content as DPRItem];
+                await updateDoc(reportRef, { entries: updatedEntries });
+            }
+        } else {
+             // Report doesn't exist? recreate it maybe? For now just warn.
+             console.warn("Report for this item no longer exists. Cannot restore item to void.");
+             throw new Error("Parent report not found");
+        }
+    } else if (item.type === 'quantity') {
+        await updateQuantity(item.content as QuantityEntry, undefined, "System Restore");
+    }
+
+    // 2. Remove from trash
+    await deleteDoc(doc(db, TRASH_COLLECTION, item.trashId));
+};
+
+// --- Permanent Backups ---
+
+export const savePermanentBackup = async (date: string, rawText: string, parsedItems: DPRItem[], user: string, reportIdContext: string) => {
+    if (!db) return null;
+    const id = crypto.randomUUID();
+    const backup: BackupEntry = {
+        id,
+        date,
+        timestamp: new Date().toISOString(),
+        user,
+        rawInput: rawText,
+        parsedItems,
+        reportIdContext
+    };
+    await setDoc(doc(db, BACKUP_COLLECTION, id), backup);
+    return id;
+};
+
+export const getBackups = async (limitCount: number = 50, startDate?: string, endDate?: string) => {
+    if (!db) return [];
+    let q = query(collection(db, BACKUP_COLLECTION), orderBy("timestamp", "desc"), limit(limitCount));
+    
+    if (startDate && endDate) {
+         // Firestore range queries on string dates work if ISO format
+         // Note: Might need composite index. If fails, do client side filtering.
+         q = query(collection(db, BACKUP_COLLECTION), where("date", ">=", startDate), where("date", "<=", endDate), orderBy("date", "desc"));
+    }
+
+    const snap = await getDocs(q);
+    return snap.docs.map((d: any) => d.data() as BackupEntry);
+};
+
+// --- Quantities ---
+
+export const subscribeToQuantities = (callback: (qty: QuantityEntry[]) => void): Unsubscribe => {
+    if (!db) return () => {};
+    const q = query(collection(db, QUANTITY_COLLECTION), orderBy("date", "desc"));
+    return onSnapshot(q, (snapshot: any) => {
+        const items = snapshot.docs.map((doc: any) => doc.data() as QuantityEntry);
+        callback(items);
+    });
+};
+
+export const updateQuantity = async (qty: QuantityEntry, oldQty?: QuantityEntry, user?: string) => {
+    if(!db) return;
+    await setDoc(doc(db, QUANTITY_COLLECTION, qty.id), qty);
+    if(oldQty) {
+        logActivity(user || "System", "Update Quantity", `Updated ${qty.itemType} at ${qty.location}`, qty.date);
+    }
+};
+
+export const deleteQuantity = async (qty: QuantityEntry, user?: string) => {
+    if(!db) return;
+    
+    // Add to trash first
+    const trashItem: TrashItem = {
+        trashId: crypto.randomUUID(),
+        originalId: qty.id,
+        type: 'quantity',
+        content: qty,
+        deletedAt: new Date().toISOString(),
+        deletedBy: user || 'System',
+        reportDate: qty.date
+    };
+    await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
+
+    // Delete
+    await deleteDoc(doc(db, QUANTITY_COLLECTION, qty.id));
+    logActivity(user || "System", "Delete Quantity", `Deleted ${qty.itemType} at ${qty.location}`, qty.date);
+};
+
+export const syncQuantitiesFromItems = async (items: DPRItem[], report: DailyReport, user: string) => {
+    if (!db) return;
+
+    const batch = [];
+    
+    for (const item of items) {
+        const itemType = identifyItemType(item.activityDescription);
+        
+        // Extract quantity number
+        // Simple regex for now: match number before unit (m3, ton, nos)
+        // Matches "45 m3", "45.5m3", "45", "45nos"
+        const qtyMatch = item.activityDescription.match(/(\d+(\.\d+)?)\s*(m3|cum|ton|mt|nos|sqm|m2)/i);
+        
+        if (qtyMatch || itemType !== "Other") {
+            const val = qtyMatch ? parseFloat(qtyMatch[1]) : 0;
+            const unit = qtyMatch ? qtyMatch[3].toLowerCase() : 'unit';
+            
+            // Only add if there is a meaningful quantity or specific item type
+            if (val > 0 || itemType !== "Other") {
+                const parsed = parseQuantityDetails(item.location, item.component, item.chainageOrArea, item.activityDescription);
+                
+                // Create unique ID based on Report Item ID to prevent duplicates if sync runs twice
+                // Or random if new. Prefer determinism if possible, but item.id is good.
+                const qtyId = `qty_${item.id}`;
+                
+                const entry: QuantityEntry = {
+                    id: qtyId,
+                    date: report.date,
+                    location: item.location,
+                    structure: parsed.structure,
+                    detailElement: parsed.detailElement,
+                    detailLocation: parsed.detailLocation,
+                    itemType: itemType,
+                    description: item.activityDescription,
+                    quantityValue: val,
+                    quantityUnit: unit,
+                    originalRawString: item.activityDescription,
+                    originalReportItemId: item.id,
+                    reportId: report.id,
+                    lastUpdated: new Date().toISOString(),
+                    updatedBy: user
+                };
+
+                // In a real app we might batch writes. For now, sequential awaits or Promise.all.
+                // Promise.all is faster.
+                batch.push(setDoc(doc(db, QUANTITY_COLLECTION, qtyId), entry));
+            }
+        }
+    }
+    await Promise.all(batch);
+};
+
+
+// --- Settings ---
+
+export const getProjectSettings = async (): Promise<ProjectSettings | null> => {
+    if (!db) return null;
+    const snap = await getDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'));
+    if (snap.exists()) return snap.data() as ProjectSettings;
+    return null;
+};
+
+export const saveProjectSettings = async (settings: ProjectSettings) => {
+    if (!db) return;
+    await setDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'), settings);
+};
+
+// --- User Mood ---
+
+export const saveUserMood = async (uid: string, mood: 'Happy' | 'Excited' | 'Tired' | 'Frustrated' | 'Sad', note?: string) => {
+  if (!db) return;
+  const today = new Date().toISOString().split('T')[0];
+  const moodEntry: UserMood = {
+    id: `${uid}_${today}`,
+    uid,
+    mood,
+    note,
+    timestamp: new Date().toISOString()
+  };
+  await setDoc(doc(db, MOOD_COLLECTION, moodEntry.id), moodEntry);
+};
+
+export const subscribeToTodayMood = (uid: string, callback: (mood: UserMood | null) => void): Unsubscribe => {
+  if (!db) return () => {};
+  const today = new Date().toISOString().split('T')[0];
+  return onSnapshot(doc(db, MOOD_COLLECTION, `${uid}_${today}`), (doc: any) => {
+    if (doc.exists()) callback(doc.data() as UserMood);
+    else callback(null);
   });
 };

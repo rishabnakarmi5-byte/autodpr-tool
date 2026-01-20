@@ -155,7 +155,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
            </div>
         </div>
         
-        {/* Mobile Header */}
+        {/* Mobile Header with Conditional Mood */}
         <div className="md:hidden px-4 pt-4">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
                  <h2 className="text-2xl font-bold text-slate-800 mb-2 uppercase">{getTimeGreeting()}, {user?.displayName?.split(' ')[0]}!</h2>

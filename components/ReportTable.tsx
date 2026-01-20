@@ -17,6 +17,8 @@ interface ReportTableProps {
   hierarchy: Record<string, string[]>;
 }
 
+type PaperSize = 'A4' | 'A3';
+
 export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, onUpdateItem, onUpdateAllEntries, onUndo, canUndo, onRedo, canRedo, onNormalize, hierarchy }) => {
   
   const [entries, setEntries] = useState<DPRItem[]>(report.entries);
@@ -26,6 +28,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   const [isExporting, setIsExporting] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [paperSize, setPaperSize] = useState<PaperSize>('A4');
 
   // Editors State
   const [editingComponentId, setEditingComponentId] = useState<string | null>(null);
@@ -34,6 +37,14 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   useEffect(() => {
     setEntries(report.entries);
   }, [report]);
+
+  // CSS Dimensions for Screen Preview
+  // A4: 210mm x 297mm
+  // A3: 297mm x 420mm
+  const paperStyles = {
+    A4: { width: '210mm', minHeight: '297mm' },
+    A3: { width: '297mm', minHeight: '420mm' }
+  };
   
   const handlePrint = () => {
     window.print();
@@ -41,85 +52,83 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
 
   const handleDownloadJPG = async () => {
       setIsExporting(true);
-      const input = document.getElementById('printable-report');
-      if (input && window.html2canvas) {
+      const originalElement = document.getElementById('printable-report');
+      
+      if (originalElement && window.html2canvas) {
           try {
-              // Standard A4 width at 96 DPI is ~794px. 
-              const A4_WIDTH_PX = 794;
+              // 1. Create a clone container off-screen but visible to the renderer
+              // This is crucial to ensure we get a "clean" capture without zoom transforms or UI artifacts.
+              const cloneContainer = document.createElement('div');
+              cloneContainer.style.position = 'absolute';
+              cloneContainer.style.top = '-9999px';
+              cloneContainer.style.left = '-9999px';
+              cloneContainer.style.zIndex = '-1';
+              cloneContainer.style.background = '#ffffff';
               
-              const canvas = await window.html2canvas(input, { 
-                  scale: 2, // 2x scale for sharp text
-                  useCORS: true,
-                  width: A4_WIDTH_PX, 
-                  windowWidth: A4_WIDTH_PX, 
-                  backgroundColor: '#ffffff',
-                  onclone: (clonedDoc) => {
-                      const container = clonedDoc.getElementById('printable-report');
-                      
-                      // 1. Remove non-printable elements (Buttons, Toolbars)
-                      const elementsToRemove = clonedDoc.querySelectorAll('.no-print');
-                      elementsToRemove.forEach(el => el.remove());
-                      
-                      // 2. Hide Actions Column (Last Column)
-                      const tables = clonedDoc.querySelectorAll('table');
-                      tables.forEach(table => {
-                          const ths = table.querySelectorAll('th');
-                          if (ths.length > 5) ths[5].style.display = 'none'; // Header
-                          
-                          const rows = table.querySelectorAll('tr');
-                          rows.forEach(row => {
-                              const tds = row.querySelectorAll('td');
-                              if (tds.length > 5) tds[5].style.display = 'none'; // Cell
-                          });
-                      });
+              // Set explicit width based on Paper Size @ 96 DPI (approx)
+              // A4 width ~ 794px, A3 width ~ 1123px. We use slightly larger for better quality.
+              const targetWidth = paperSize === 'A4' ? 800 : 1150;
+              cloneContainer.style.width = `${targetWidth}px`;
+              
+              // 2. Clone the report content
+              const clonedReport = originalElement.cloneNode(true) as HTMLElement;
+              
+              // 3. Clean up the clone
+              // Remove "no-print" elements
+              const noPrintEls = clonedReport.querySelectorAll('.no-print');
+              noPrintEls.forEach(el => el.remove());
 
-                      // 3. CRITICAL: Replace Textareas with Divs
-                      // Textareas inside html2canvas can clip content if not fully expanded.
-                      // We replace them with static divs to ensure all text is rendered.
-                      const textareas = clonedDoc.querySelectorAll('textarea');
-                      textareas.forEach(ta => {
-                          const div = clonedDoc.createElement('div');
-                          div.innerText = ta.value;
-                          // Copy relevant styles
-                          div.style.whiteSpace = 'pre-wrap';
-                          div.style.wordBreak = 'break-word';
-                          div.style.fontSize = ta.style.fontSize || `${fontSize}px`;
-                          div.style.fontFamily = ta.style.fontFamily || 'inherit';
-                          div.style.width = '100%';
-                          div.style.padding = '0';
-                          div.style.border = 'none';
-                          div.style.background = 'transparent';
-                          div.style.color = '#000'; // Force black text
-                          
-                          if (ta.parentNode) {
-                              ta.parentNode.replaceChild(div, ta);
-                          }
-                      });
-
-                      // 4. Force Dimensions & Reset Styles on Container
-                      if (container) {
-                          container.style.transform = 'none';
-                          container.style.width = `${A4_WIDTH_PX}px`;
-                          container.style.minWidth = `${A4_WIDTH_PX}px`;
-                          container.style.maxWidth = `${A4_WIDTH_PX}px`;
-                          container.style.margin = '0';
-                          container.style.padding = '40px'; 
-                          container.style.boxShadow = 'none';
-                          container.style.border = 'none';
-                          container.style.height = 'auto'; // Allow growing
-                          container.style.overflow = 'visible'; // Show everything
-                      }
+              // Replace Textareas with Divs (for full text visibility)
+              const textareas = clonedReport.querySelectorAll('textarea');
+              textareas.forEach(ta => {
+                  const div = document.createElement('div');
+                  div.innerText = ta.value;
+                  div.style.whiteSpace = 'pre-wrap';
+                  div.style.wordBreak = 'break-word';
+                  div.style.fontSize = ta.style.fontSize || `${fontSize}px`;
+                  div.style.fontFamily = 'inherit';
+                  div.style.width = '100%';
+                  
+                  if (ta.parentNode) {
+                      ta.parentNode.replaceChild(div, ta);
                   }
               });
-              
-              const imgData = canvas.toDataURL('image/jpeg', 0.95);
+
+              // Reset Transforms and Margins on the clone
+              clonedReport.style.transform = 'none';
+              clonedReport.style.margin = '0';
+              clonedReport.style.boxShadow = 'none';
+              clonedReport.style.border = 'none';
+              clonedReport.style.width = '100%'; // Fill container
+              clonedReport.style.minHeight = 'auto'; 
+              clonedReport.style.padding = '40px'; // Add padding for the image
+
+              // Append clone to container, and container to body
+              cloneContainer.appendChild(clonedReport);
+              document.body.appendChild(cloneContainer);
+
+              // 4. Capture with html2canvas
+              const canvas = await window.html2canvas(cloneContainer, {
+                  scale: 2, // 2x scale for Retina-like quality
+                  useCORS: true,
+                  backgroundColor: '#ffffff',
+                  width: targetWidth,
+                  windowWidth: targetWidth
+              });
+
+              // 5. Download
+              const imgData = canvas.toDataURL('image/jpeg', 0.9);
               const link = document.createElement('a');
               link.href = imgData;
-              link.download = `DPR_${report.date}.jpg`;
+              link.download = `DPR_${report.date}_${paperSize}.jpg`;
               link.click();
+
+              // 6. Cleanup
+              document.body.removeChild(cloneContainer);
+
           } catch(e) {
-              console.error(e);
-              alert("Failed to capture image.");
+              console.error("JPG Export Failed:", e);
+              alert("Failed to create image. Please try 'Print -> Save as PDF' instead.");
           }
       }
       setIsExporting(false);
@@ -164,10 +173,10 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   };
 
   return (
-    <div className="flex flex-col h-full space-y-6 animate-fade-in relative">
+    <div className="flex flex-col h-full space-y-6 animate-fade-in relative toolbar-container">
       
       {/* --- TOOLBAR --- */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-white p-4 lg:p-5 rounded-2xl shadow-sm border border-slate-100 gap-4 sticky top-0 z-40 backdrop-blur-xl bg-white/90">
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center bg-white p-4 lg:p-5 rounded-2xl shadow-sm border border-slate-100 gap-4 sticky top-0 z-40 backdrop-blur-xl bg-white/90 no-print">
         <div className="flex items-center gap-4">
            <div className="bg-indigo-50 p-2.5 rounded-xl text-indigo-600">
                <i className="fas fa-file-contract text-xl"></i>
@@ -185,14 +194,13 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
            </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-end">
+        <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto justify-end">
             
              {/* Sync Button */}
             <button 
                 onClick={handleSyncQuantities}
                 disabled={isSyncing}
-                className="flex items-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-700 rounded-xl font-bold hover:bg-emerald-100 transition-colors border border-emerald-200"
-                title="Manually Add these items to Quantities Tab"
+                className="flex items-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-700 rounded-xl font-bold hover:bg-emerald-100 transition-colors border border-emerald-200 text-xs sm:text-sm"
             >
                 <i className={`fas fa-sync-alt ${isSyncing ? 'fa-spin' : ''} text-sm`}></i>
                 {isSyncing ? 'Syncing...' : 'Sync Qty'}
@@ -202,8 +210,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
             {onNormalize && (
                <button 
                   onClick={onNormalize} 
-                  className="flex items-center gap-2 px-3 py-2 bg-purple-50 text-purple-700 rounded-xl font-bold hover:bg-purple-100 transition-colors border border-purple-200"
-                  title="Refine formatting"
+                  className="flex items-center gap-2 px-3 py-2 bg-purple-50 text-purple-700 rounded-xl font-bold hover:bg-purple-100 transition-colors border border-purple-200 text-xs sm:text-sm"
                >
                   <i className="fas fa-magic text-sm"></i> Format
                </button>
@@ -211,8 +218,24 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
 
             <div className="h-6 w-px bg-slate-200 mx-1 hidden lg:block"></div>
 
-            {/* View Controls */}
-            <div className="hidden lg:flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+            {/* Paper Size Toggle */}
+            <div className="flex items-center bg-slate-100 rounded-xl p-1">
+                <button 
+                    onClick={() => setPaperSize('A4')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${paperSize === 'A4' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    A4
+                </button>
+                <button 
+                    onClick={() => setPaperSize('A3')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${paperSize === 'A3' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    A3
+                </button>
+            </div>
+
+            {/* Font Size */}
+            <div className="hidden sm:flex items-center gap-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
                  <button onClick={() => setFontSize(Math.max(8, fontSize - 1))} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white text-slate-500"><i className="fas fa-minus text-xs"></i></button>
                  <span className="text-sm font-bold w-6 text-center">{fontSize}</span>
                  <button onClick={() => setFontSize(Math.min(16, fontSize + 1))} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white text-slate-500"><i className="fas fa-plus text-xs"></i></button>
@@ -221,15 +244,15 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
             {/* Actions */}
             <button 
                 onClick={handlePrint}
-                className="flex items-center gap-2 px-5 py-2 bg-slate-800 text-white rounded-xl hover:bg-slate-900 transition-all shadow-md font-bold"
+                className="flex items-center gap-2 px-5 py-2 bg-slate-800 text-white rounded-xl hover:bg-slate-900 transition-all shadow-md font-bold text-xs sm:text-sm"
             >
-                <i className="fas fa-print text-sm"></i> Print
+                <i className="fas fa-print text-sm"></i> Print / PDF
             </button>
             
             <button 
                 onClick={handleDownloadJPG}
                 disabled={isExporting}
-                className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-md font-bold shadow-indigo-200"
+                className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-md font-bold shadow-indigo-200 text-xs sm:text-sm"
             >
                 {isExporting ? <i className="fas fa-circle-notch fa-spin text-sm"></i> : <><i className="fas fa-image text-sm"></i> JPG</>}
             </button>
@@ -237,7 +260,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
       </div>
 
       {/* --- MOBILE VIEW (CARDS) --- */}
-      <div className="lg:hidden">
+      <div className="lg:hidden no-print">
          {entries.length === 0 ? (
              <div className="text-center p-8 text-slate-400 bg-white rounded-2xl border border-dashed border-slate-200">
                  <i className="fas fa-ghost text-4xl mb-3 opacity-20"></i>
@@ -314,7 +337,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
       {/* --- DESKTOP VIEW (PAPER) --- */}
       <div className="hidden lg:flex justify-center bg-slate-200/50 p-8 rounded-2xl border border-slate-200 overflow-auto no-print-padding relative">
         
-        {/* Zoom Controls */}
+        {/* Zoom Controls (Screen Only) */}
         <div className="fixed bottom-8 right-8 z-50 bg-white shadow-xl rounded-full border border-slate-200 p-1.5 flex flex-col gap-1 no-print">
             <button onClick={() => setZoom(z => Math.min(1.5, z + 0.1))} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-600"><i className="fas fa-plus text-xs"></i></button>
             <button onClick={() => setZoom(z => Math.max(0.5, z - 0.1))} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-600"><i className="fas fa-minus text-xs"></i></button>
@@ -324,8 +347,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
           id="printable-report"
           className="bg-white shadow-2xl origin-top transition-transform duration-200"
           style={{ 
-              width: '210mm',
-              minHeight: '297mm',
+              ...paperStyles[paperSize],
               padding: '15mm',
               transform: `scale(${zoom})`,
               marginBottom: `${(zoom - 1) * 300}px`
@@ -342,6 +364,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               <div className="text-right space-y-1">
                 <p className="text-xl font-bold">{report.date}</p>
                 <p className="text-slate-600 italic">{getNepaliDate(report.date)}</p>
+                <p className="text-xs text-slate-400 no-print">Paper Size: {paperSize}</p>
               </div>
             </div>
           </div>
