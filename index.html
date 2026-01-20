@@ -47,66 +47,63 @@
         background: #94a3b8;
       }
 
-      /* --- PRINT STYLES --- */
+      /* --- CRITICAL PRINT FIX --- */
       @media print {
-        @page { 
-            margin: 0; 
-            size: auto; /* Let browser handle size based on content width */
-        }
+        @page { margin: 0; size: auto; }
         
-        /* Reset Layout containers to allow flow */
-        html, body, #root, main, .overflow-auto {
-            height: auto !important;
-            min-height: auto !important;
-            overflow: visible !important;
-            position: static !important;
-            display: block !important;
-            background: white !important;
-        }
-
-        /* Hide UI Elements */
-        nav, aside, header, .no-print, button, .toolbar-container, .sidebar-container, .mobile-nav, .fixed {
+        /* 1. Hide the entire React App Wrapper */
+        body > #root {
             display: none !important;
         }
 
-        /* Target Report */
-        #printable-report {
-            display: block !important;
-            width: 100% !important;
-            max-width: none !important;
-            margin: 0 !important;
-            padding: 10mm !important; /* Minimal padding for print */
-            box-shadow: none !important;
-            border: none !important;
-            transform: none !important; /* Remove zoom scaling */
+        /* 2. Hide loading indicators or overlays */
+        #loading-indicator, .fixed {
+            display: none !important;
         }
 
-        /* Fix Table formatting for print */
-        table {
-            width: 100% !important;
-            border-collapse: collapse !important;
-            page-break-inside: auto;
-        }
-        tr {
-            page-break-inside: avoid;
-            page-break-after: auto;
-        }
-        thead {
-            display: table-header-group;
-        }
-        tfoot {
-            display: table-footer-group;
+        /* 3. Force the printable report to be the ONLY thing visible */
+        /* We rely on ReportTable.tsx adding a specific class or ID that moves it to body context if needed, 
+           but since React keeps it in #root, we use a trick: 
+           We actually don't hide #root, we hide all children OF #root EXCEPT the print container path.
+           
+           BETTER APPROACH: Use the visibility toggle method.
+        */
+        
+        body * {
+            visibility: hidden;
         }
         
-        /* Ensure Inputs/Textareas print correctly */
-        input, textarea {
+        #printable-report, #printable-report * {
+            visibility: visible;
+        }
+
+        #printable-report {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 15mm !important;
+            background: white !important;
+            z-index: 9999 !important;
+            overflow: visible !important;
+            height: auto !important;
+            display: block !important;
+        }
+
+        /* Reset Inputs for Print */
+        textarea, input {
             border: none !important;
             background: transparent !important;
             resize: none !important;
             overflow: visible !important;
+            min-height: auto !important;
             padding: 0 !important;
-            margin: 0 !important;
-            white-space: pre-wrap !important;
+        }
+        
+        /* Hide Buttons inside the report if any remain */
+        .no-print {
+            display: none !important;
         }
       }
 

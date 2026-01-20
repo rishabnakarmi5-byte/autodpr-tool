@@ -39,15 +39,20 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   }, [report]);
 
   // CSS Dimensions for Screen Preview
-  // A4: 210mm x 297mm
-  // A3: 297mm x 420mm
   const paperStyles = {
     A4: { width: '210mm', minHeight: '297mm' },
     A3: { width: '297mm', minHeight: '420mm' }
   };
   
   const handlePrint = () => {
-    window.print();
+    // Reset zoom before print to ensure accurate CSS measurements
+    const currentZoom = zoom;
+    setZoom(1);
+    setTimeout(() => {
+        window.print();
+        // Restore zoom after print dialog opens (browsers block execution, so this runs after close usually)
+        setZoom(currentZoom);
+    }, 100);
   };
 
   const handleDownloadJPG = async () => {
@@ -56,17 +61,17 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
       
       if (originalElement && window.html2canvas) {
           try {
-              // 1. Create a clone container off-screen but visible to the renderer
-              // This is crucial to ensure we get a "clean" capture without zoom transforms or UI artifacts.
+              // 1. Create a clone container fixed in viewport but behind everything (z-index -50)
+              // This is the FIX for 0-byte images. Browsers render this because it's in the viewport.
               const cloneContainer = document.createElement('div');
-              cloneContainer.style.position = 'absolute';
-              cloneContainer.style.top = '-9999px';
-              cloneContainer.style.left = '-9999px';
-              cloneContainer.style.zIndex = '-1';
+              cloneContainer.style.position = 'fixed';
+              cloneContainer.style.top = '0';
+              cloneContainer.style.left = '0';
+              cloneContainer.style.zIndex = '-50'; // Behind current UI
               cloneContainer.style.background = '#ffffff';
+              cloneContainer.style.overflow = 'hidden'; // Prevent scrollbars affecting capture
               
-              // Set explicit width based on Paper Size @ 96 DPI (approx)
-              // A4 width ~ 794px, A3 width ~ 1123px. We use slightly larger for better quality.
+              // Set explicit width based on Paper Size
               const targetWidth = paperSize === 'A4' ? 800 : 1150;
               cloneContainer.style.width = `${targetWidth}px`;
               
@@ -74,11 +79,10 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               const clonedReport = originalElement.cloneNode(true) as HTMLElement;
               
               // 3. Clean up the clone
-              // Remove "no-print" elements
               const noPrintEls = clonedReport.querySelectorAll('.no-print');
               noPrintEls.forEach(el => el.remove());
 
-              // Replace Textareas with Divs (for full text visibility)
+              // Replace Textareas with Divs
               const textareas = clonedReport.querySelectorAll('textarea');
               textareas.forEach(ta => {
                   const div = document.createElement('div');
@@ -88,47 +92,52 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   div.style.fontSize = ta.style.fontSize || `${fontSize}px`;
                   div.style.fontFamily = 'inherit';
                   div.style.width = '100%';
-                  
-                  if (ta.parentNode) {
-                      ta.parentNode.replaceChild(div, ta);
-                  }
+                  if (ta.parentNode) ta.parentNode.replaceChild(div, ta);
               });
 
-              // Reset Transforms and Margins on the clone
+              // Reset Transforms
               clonedReport.style.transform = 'none';
               clonedReport.style.margin = '0';
               clonedReport.style.boxShadow = 'none';
               clonedReport.style.border = 'none';
-              clonedReport.style.width = '100%'; // Fill container
+              clonedReport.style.width = '100%';
               clonedReport.style.minHeight = 'auto'; 
-              clonedReport.style.padding = '40px'; // Add padding for the image
+              clonedReport.style.padding = '40px'; 
 
-              // Append clone to container, and container to body
               cloneContainer.appendChild(clonedReport);
               document.body.appendChild(cloneContainer);
 
-              // 4. Capture with html2canvas
+              // 4. WAIT for render. Critical for images/fonts.
+              await new Promise(resolve => setTimeout(resolve, 800));
+
+              // 5. Capture
               const canvas = await window.html2canvas(cloneContainer, {
-                  scale: 2, // 2x scale for Retina-like quality
+                  scale: 2, 
                   useCORS: true,
                   backgroundColor: '#ffffff',
                   width: targetWidth,
-                  windowWidth: targetWidth
+                  windowWidth: targetWidth,
+                  scrollY: 0, // Critical to prevent capturing scrolled-away empty space
+                  scrollX: 0
               });
 
-              // 5. Download
+              // 6. Download
               const imgData = canvas.toDataURL('image/jpeg', 0.9);
+              if (imgData.length < 1000) {
+                   throw new Error("Generated image is too small (0 byte issue).");
+              }
+
               const link = document.createElement('a');
               link.href = imgData;
               link.download = `DPR_${report.date}_${paperSize}.jpg`;
               link.click();
 
-              // 6. Cleanup
+              // 7. Cleanup
               document.body.removeChild(cloneContainer);
 
           } catch(e) {
               console.error("JPG Export Failed:", e);
-              alert("Failed to create image. Please try 'Print -> Save as PDF' instead.");
+              alert("Export failed. Please try 'Print -> Save as PDF' or check console for details.");
           }
       }
       setIsExporting(false);
