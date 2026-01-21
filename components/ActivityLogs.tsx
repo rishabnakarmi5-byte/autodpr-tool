@@ -1,11 +1,11 @@
 
-import React, { useState, useEffect } from 'react';
-import { LogEntry, BackupEntry } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { LogEntry, BackupEntry, DPRItem } from '../types';
 import { getBackups } from '../services/firebaseService';
 
 interface ActivityLogsProps {
   logs: LogEntry[];
-  onRecover?: (backup: BackupEntry) => void;
+  onRecover?: (backups: BackupEntry[]) => void;
 }
 
 export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) => {
@@ -15,7 +15,7 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
   const [isStorageOpen, setIsStorageOpen] = useState(false);
   const [backups, setBackups] = useState<BackupEntry[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(false);
-  const [selectedBackup, setSelectedBackup] = useState<BackupEntry | null>(null);
+  const [selectedBackupIds, setSelectedBackupIds] = useState<Set<string>>(new Set());
   
   // Storage Filters
   const [backupStartDate, setBackupStartDate] = useState<string>(
@@ -34,10 +34,11 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
       setBackups(data);
 
       if (targetId) {
-          const target = data.find(b => b.id === targetId);
-          if (target) setSelectedBackup(target);
-      } else if (data.length > 0 && !selectedBackup) {
-          setSelectedBackup(data[0]);
+          // If a specific ID was requested (via log Inspect), toggle it only
+          setSelectedBackupIds(new Set([targetId]));
+      } else {
+          // Default: Empty selection or keep previous? Resetting is safer.
+          setSelectedBackupIds(new Set());
       }
     } catch (error) {
       alert("Failed to load archived data.");
@@ -49,9 +50,69 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
   // Auto-refresh when dates change if modal is open
   useEffect(() => {
     if (isStorageOpen) {
-        handleOpenStorage(selectedBackup?.id);
+        handleOpenStorage();
     }
   }, [backupStartDate, backupEndDate]);
+
+  const toggleBackupSelection = (id: string) => {
+      setSelectedBackupIds(prev => {
+          const newSet = new Set(prev);
+          if (newSet.has(id)) {
+              newSet.delete(id);
+          } else {
+              newSet.add(id);
+          }
+          return newSet;
+      });
+  };
+
+  const getSelectedBackups = () => {
+      return backups.filter(b => selectedBackupIds.has(b.id));
+  };
+
+  // --- LOG GROUPING LOGIC ---
+  const groupedLogs = useMemo(() => {
+      if (logs.length === 0) return [];
+      
+      const result: (LogEntry & { groupCount?: number })[] = [];
+      let currentGroup: LogEntry | null = null;
+      let count = 0;
+
+      logs.forEach((log) => {
+          const isSessionLog = log.action === "Session Active" || log.details.includes("User authenticated");
+          
+          if (isSessionLog) {
+              if (currentGroup && currentGroup.user === log.user && (currentGroup.action === "Session Active" || currentGroup.details.includes("User authenticated"))) {
+                  count++;
+                  // Update timestamp to show range? For now just keep latest (first in list)
+              } else {
+                  // Push previous group
+                  if (currentGroup) {
+                      result.push({ ...currentGroup, groupCount: count });
+                  }
+                  // Start new group
+                  currentGroup = log;
+                  count = 1;
+              }
+          } else {
+              // Flush any pending session group
+              if (currentGroup) {
+                  result.push({ ...currentGroup, groupCount: count });
+                  currentGroup = null;
+                  count = 0;
+              }
+              // Push normal log
+              result.push(log);
+          }
+      });
+
+      // Flush final
+      if (currentGroup) {
+          result.push({ ...currentGroup, groupCount: count });
+      }
+
+      return result;
+  }, [logs]);
 
 
   return (
@@ -86,14 +147,15 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
                </tr>
              </thead>
              <tbody className="divide-y divide-slate-50">
-               {logs.length === 0 ? (
+               {groupedLogs.length === 0 ? (
                  <tr>
                    <td colSpan={5} className="p-8 text-center text-slate-400 italic">No activity recorded yet.</td>
                  </tr>
                ) : (
-                 logs.map((log) => {
+                 groupedLogs.map((log) => {
                    const date = new Date(log.timestamp);
                    const isJson = log.details.startsWith('{') || log.details.startsWith('[');
+                   const isGrouped = (log.groupCount || 0) > 1;
 
                    return (
                      <tr key={log.id} className="hover:bg-slate-50 transition-colors group">
@@ -118,7 +180,12 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
                          </span>
                        </td>
                        <td className="p-4 text-sm text-slate-600 max-w-md truncate" title={log.details}>
-                         {isJson ? (
+                         {isGrouped ? (
+                             <span className="text-slate-400 italic">
+                                 <i className="fas fa-layer-group mr-1"></i>
+                                 Collapsed {log.groupCount} consecutive login sessions
+                             </span>
+                         ) : isJson ? (
                              <button 
                                 onClick={() => setSelectedLog(log)}
                                 className="text-indigo-600 font-bold hover:underline text-xs flex items-center gap-1"
@@ -184,7 +251,7 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
                     </div>
                     <div>
                         <h3 className="text-2xl font-bold text-slate-800">Recovery Center</h3>
-                        <p className="text-sm text-slate-500">Access every raw input ever sent to the system.</p>
+                        <p className="text-sm text-slate-500">Select multiple entries to reconstruct a partial or full day report.</p>
                     </div>
                  </div>
                  <button onClick={() => setIsStorageOpen(false)} className="w-10 h-10 rounded-full bg-white hover:bg-slate-100 shadow border border-slate-200 flex items-center justify-center transition-colors">
@@ -202,6 +269,9 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
                      <div className="p-4 border-b border-slate-200 bg-white shadow-sm z-10">
                         <div className="flex items-center justify-between mb-2">
                              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider"><i className="far fa-calendar-alt mr-1"></i> Date Range</label>
+                             <div className="text-[10px] text-slate-400">
+                                {selectedBackupIds.size} Selected
+                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                             <input 
@@ -234,29 +304,37 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
                             <div className="divide-y divide-slate-100">
                                 {backups.map(item => {
                                     const date = new Date(item.timestamp);
-                                    const isActive = selectedBackup?.id === item.id;
+                                    const isSelected = selectedBackupIds.has(item.id);
+                                    
                                     return (
                                         <div 
                                             key={item.id} 
-                                            onClick={() => setSelectedBackup(item)}
-                                            className={`p-4 cursor-pointer hover:bg-white transition-all border-l-4 ${isActive ? 'bg-white border-emerald-500 shadow-md transform scale-[1.02] z-10' : 'border-transparent hover:border-slate-300'}`}
+                                            onClick={() => toggleBackupSelection(item.id)}
+                                            className={`p-4 cursor-pointer hover:bg-white transition-all border-l-4 group ${isSelected ? 'bg-white border-emerald-500 shadow-sm' : 'border-transparent hover:border-slate-300'}`}
                                         >
-                                            <div className="flex justify-between items-start mb-1">
-                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
-                                                    {item.date}
-                                                </span>
-                                                <span className="text-[10px] text-slate-400 font-mono">{date.toLocaleTimeString()}</span>
-                                            </div>
-                                            <div className="text-sm font-medium text-slate-800 mb-2 line-clamp-2 leading-relaxed">
-                                                {item.rawInput.substring(0, 100).replace(/\n/g, ' ')}
-                                            </div>
-                                            <div className="flex justify-between items-center text-xs text-slate-500">
-                                                <div className="flex items-center gap-1">
-                                                    <div className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center text-[8px] font-bold text-slate-600">{item.user.charAt(0)}</div>
-                                                    {item.user.split(' ')[0]}
+                                            <div className="flex items-start gap-3">
+                                                <div className={`mt-1 w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-emerald-500 border-emerald-500' : 'bg-white border-slate-300 group-hover:border-slate-400'}`}>
+                                                    {isSelected && <i className="fas fa-check text-white text-[10px]"></i>}
                                                 </div>
-                                                <div className="flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-full">
-                                                    <i className="fas fa-layer-group text-[10px]"></i> {item.parsedItems.length} items
+                                                <div className="flex-1">
+                                                    <div className="flex justify-between items-start mb-1">
+                                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isSelected ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                                                            {item.date}
+                                                        </span>
+                                                        <span className="text-[10px] text-slate-400 font-mono">{date.toLocaleTimeString()}</span>
+                                                    </div>
+                                                    <div className="text-sm font-medium text-slate-800 mb-2 line-clamp-2 leading-relaxed">
+                                                        {item.rawInput.substring(0, 80).replace(/\n/g, ' ')}...
+                                                    </div>
+                                                    <div className="flex justify-between items-center text-xs text-slate-500">
+                                                        <div className="flex items-center gap-1">
+                                                            <div className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center text-[8px] font-bold text-slate-600">{item.user.charAt(0)}</div>
+                                                            {item.user.split(' ')[0]}
+                                                        </div>
+                                                        <div className="flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-full">
+                                                            <i className="fas fa-layer-group text-[10px]"></i> {item.parsedItems.length} items
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -267,79 +345,63 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
                      </div>
                   </div>
 
-                  {/* Main Detail View */}
+                  {/* Combined Preview View */}
                   <div className="hidden md:block w-2/3 p-6 overflow-y-auto bg-slate-50">
-                      {selectedBackup ? (
+                      {selectedBackupIds.size > 0 ? (
                           <div className="space-y-6 max-w-4xl mx-auto">
                               
                               <div className="flex justify-between items-center">
                                   <div>
-                                     <h2 className="text-2xl font-bold text-slate-800">Backup Details</h2>
-                                     <p className="text-sm text-slate-500 font-mono">ID: {selectedBackup.id}</p>
+                                     <h2 className="text-2xl font-bold text-slate-800">Preview Reconstruction</h2>
+                                     <p className="text-sm text-slate-500 font-mono">{selectedBackupIds.size} backups selected</p>
                                   </div>
                                   
                                   {onRecover && (
                                      <button 
-                                        onClick={() => onRecover(selectedBackup)}
-                                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-emerald-200 hover:shadow-emerald-300 transition-all flex items-center gap-2"
+                                        onClick={() => onRecover(getSelectedBackups())}
+                                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-emerald-200 hover:shadow-emerald-300 transition-all flex items-center gap-2 animate-pulse"
                                      >
-                                         <i className="fas fa-history"></i> Reconstruct Report
+                                         <i className="fas fa-magic"></i> Reconstruct Full Report
                                      </button>
                                   )}
                               </div>
 
-                              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                                  <div className="p-4 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between">
-                                      <div className="flex items-center gap-2">
-                                         <i className="fas fa-keyboard text-emerald-600 text-lg"></i>
-                                         <h4 className="text-sm font-bold text-emerald-900 uppercase tracking-wide">Original User Input</h4>
+                              {getSelectedBackups().map((backup, index) => (
+                                  <div key={backup.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+                                      <div className="p-3 bg-slate-100 border-b border-slate-200 flex justify-between items-center">
+                                          <div className="flex items-center gap-2">
+                                              <span className="bg-slate-800 text-white text-xs font-bold px-2 py-1 rounded-md">Entry #{index + 1}</span>
+                                              <span className="text-sm text-slate-600 font-medium">{new Date(backup.timestamp).toLocaleTimeString()} by {backup.user}</span>
+                                          </div>
+                                          <div className="text-xs text-slate-400 font-mono">ID: {backup.id.substring(0,8)}...</div>
                                       </div>
-                                      <button 
-                                        onClick={() => navigator.clipboard.writeText(selectedBackup.rawInput)}
-                                        className="text-xs text-emerald-600 hover:text-emerald-800 font-bold"
-                                      >
-                                          Copy Text
-                                      </button>
+                                      
+                                      <div className="grid grid-cols-1 divide-y divide-slate-100">
+                                          {backup.parsedItems.map((item, i) => (
+                                              <div key={i} className="p-4 hover:bg-slate-50 flex gap-4">
+                                                  <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-xs font-bold border border-emerald-100 flex-shrink-0">
+                                                      {i + 1}
+                                                  </div>
+                                                  <div>
+                                                      <div className="flex items-center gap-2 mb-1">
+                                                          <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{item.location}</span>
+                                                          <span className="text-xs text-slate-500">{item.component}</span>
+                                                      </div>
+                                                      <p className="text-sm text-slate-700 leading-relaxed">{item.activityDescription}</p>
+                                                  </div>
+                                              </div>
+                                          ))}
+                                      </div>
                                   </div>
-                                  <div className="p-6 text-sm font-mono whitespace-pre-wrap text-slate-700 bg-white leading-relaxed">
-                                      {selectedBackup.rawInput}
-                                  </div>
-                              </div>
-
-                              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                                  <div className="p-4 bg-indigo-50 border-b border-indigo-100 flex items-center gap-2">
-                                      <i className="fas fa-robot text-indigo-600 text-lg"></i>
-                                      <h4 className="text-sm font-bold text-indigo-900 uppercase tracking-wide">Processed Data ({selectedBackup.parsedItems.length})</h4>
-                                  </div>
-                                  <div className="max-h-80 overflow-y-auto">
-                                      <table className="w-full text-left text-sm">
-                                          <thead className="bg-slate-50 text-[10px] text-slate-500 uppercase font-bold border-b border-slate-200 sticky top-0">
-                                              <tr>
-                                                  <th className="p-3">Location</th>
-                                                  <th className="p-3">Component</th>
-                                                  <th className="p-3">Activity Description</th>
-                                              </tr>
-                                          </thead>
-                                          <tbody className="divide-y divide-slate-100">
-                                              {selectedBackup.parsedItems.map((item, idx) => (
-                                                  <tr key={idx} className="hover:bg-slate-50">
-                                                      <td className="p-3 font-bold text-slate-700">{item.location}</td>
-                                                      <td className="p-3 text-slate-600 text-xs">{item.component}</td>
-                                                      <td className="p-3 text-slate-500">{item.activityDescription}</td>
-                                                  </tr>
-                                              ))}
-                                          </tbody>
-                                      </table>
-                                  </div>
-                              </div>
+                              ))}
                           </div>
                       ) : (
                           <div className="h-full flex flex-col items-center justify-center text-slate-400">
                               <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-6">
-                                 <i className="fas fa-mouse-pointer text-3xl text-slate-300"></i>
+                                 <i className="fas fa-check-double text-3xl text-slate-300"></i>
                               </div>
-                              <p className="text-xl font-bold text-slate-500">Select a backup entry</p>
-                              <p className="text-sm mt-2">Browse the history on the left to inspect raw data.</p>
+                              <p className="text-xl font-bold text-slate-500">Select entries to combine</p>
+                              <p className="text-sm mt-2 max-w-sm text-center">Tick the boxes on the left to merge multiple backups (e.g. Morning + Afternoon) into a single report.</p>
                           </div>
                       )}
                   </div>

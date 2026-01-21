@@ -84,6 +84,7 @@ const App = () => {
     const existingReport = reports.find(r => r.date === currentDate);
     if (existingReport) {
       if (currentReportId !== existingReport.id) setCurrentReportId(existingReport.id);
+      // Only update entries if they are different to prevent loop, but handleItemsAdded will ignore this state anyway for safety
       if (JSON.stringify(existingReport.entries) !== JSON.stringify(currentEntries)) setCurrentEntries(existingReport.entries);
     } else {
       const isIdBelongingToOtherDate = reports.some(r => r.id === currentReportId && r.date !== currentDate);
@@ -146,9 +147,13 @@ const App = () => {
   const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
     setIsGlobalSaving(true);
     try {
+        // CRITICAL FIX: Do NOT rely on currentEntries state or currentReportId state for the base data.
+        // They might be stale if another user updated the report while this user was typing.
+        // Always fetch the LATEST report from the synced 'reports' array.
         const existingReportOnServer = reports.find(r => r.date === currentDate);
+        
         const effectiveReportId = existingReportOnServer ? existingReportOnServer.id : (currentReportId || crypto.randomUUID());
-        const baseEntries = existingReportOnServer ? existingReportOnServer.entries : currentEntries;
+        const baseEntries = existingReportOnServer ? existingReportOnServer.entries : []; // Default to empty, NOT currentEntries
 
         pushUndo(baseEntries);
         
@@ -250,25 +255,38 @@ const App = () => {
       await saveProjectSettings(s);
   };
 
-  // --- RECOVERY FEATURE ---
-  const handleRecoverBackup = async (backup: BackupEntry) => {
-      if (window.confirm(`Create a NEW report for ${backup.date} from this backup? This will overwrite any existing unsaved draft for that date.`)) {
+  // --- RECOVERY FEATURE (Updated for Multi-Select) ---
+  const handleRecoverBackup = async (backups: BackupEntry[]) => {
+      if(backups.length === 0) return;
+      const primaryDate = backups[0].date;
+
+      if (window.confirm(`Reconstruct Report for ${primaryDate} using ${backups.length} selected backup(s)?\n\nThis will OVERWRITE any existing draft for this date.`)) {
           setIsGlobalSaving(true);
           try {
              const reportId = crypto.randomUUID();
-             const entries = backup.parsedItems.map(item => ({...item, id: crypto.randomUUID()})); // Regen IDs
              
-             await saveCurrentState(entries, backup.date, reportId, true);
+             // Combine items from all selected backups
+             let allEntries: DPRItem[] = [];
+             backups.forEach(b => {
+                 const itemsWithNewIds = b.parsedItems.map(item => ({...item, id: crypto.randomUUID()}));
+                 allEntries = [...allEntries, ...itemsWithNewIds];
+             });
              
-             // Sync Qty
-             await syncQuantitiesFromItems(entries, { id: reportId, date: backup.date, entries } as DailyReport, `RECOVERY_${getUserName()}`);
+             // Sort by location logic
+             allEntries.sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
 
-             setCurrentDate(backup.date);
+             await saveCurrentState(allEntries, primaryDate, reportId, true);
+             
+             // Sync Qty (Mark as recovery)
+             await syncQuantitiesFromItems(allEntries, { id: reportId, date: primaryDate, entries: allEntries } as DailyReport, `RECOVERY_${getUserName()}`);
+
+             setCurrentDate(primaryDate);
              setCurrentReportId(reportId);
-             setCurrentEntries(entries);
+             setCurrentEntries(allEntries);
              setActiveTab(TabView.VIEW_REPORT);
-             logActivity(getUserName(), "RECOVERY", `Restored report from backup ID ${backup.id}`, backup.date);
+             logActivity(getUserName(), "RECOVERY", `Reconstructed report from ${backups.length} backups`, primaryDate);
           } catch(e) {
+             console.error(e);
              alert("Recovery failed.");
           } finally {
              setIsGlobalSaving(false);
