@@ -3,11 +3,13 @@ import React, { useState, useEffect } from 'react';
 import { DailyReport, DPRItem } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 import { syncQuantitiesFromItems } from '../services/firebaseService';
+import { parseQuantityDetails } from '../utils/constants';
 
 interface ReportTableProps {
   report: DailyReport;
   onDeleteItem: (id: string) => void;
   onUpdateItem: (id: string, field: keyof DPRItem, value: string) => void;
+  onUpdateRow?: (id: string, updates: Partial<DPRItem>) => void;
   onUpdateAllEntries?: (entries: DPRItem[]) => void;
   onUndo?: () => void;
   canUndo?: boolean;
@@ -19,7 +21,7 @@ interface ReportTableProps {
 
 type PaperSize = 'A4' | 'A3';
 
-export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, onUpdateItem, onUpdateAllEntries, onUndo, canUndo, onRedo, canRedo, onNormalize, hierarchy }) => {
+export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, onUpdateItem, onUpdateRow, onUpdateAllEntries, onUndo, canUndo, onRedo, canRedo, onNormalize, hierarchy }) => {
   
   const [entries, setEntries] = useState<DPRItem[]>(report.entries);
   
@@ -167,6 +169,17 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     if (window.confirm("Delete this entry?")) {
       onDeleteItem(item.id);
     }
+  };
+
+  const handleReparse = (item: DPRItem) => {
+      if(!onUpdateRow) return;
+      const parsed = parseQuantityDetails(item.location, item.component, '', item.activityDescription);
+      onUpdateRow(item.id, {
+          component: parsed.structure || item.component,
+          structuralElement: parsed.detailElement,
+          chainage: parsed.detailLocation,
+          chainageOrArea: `${parsed.detailElement || ''} ${parsed.detailLocation || ''}`.trim()
+      });
   };
 
   const applyLocation = (id: string, value: string) => {
@@ -460,11 +473,18 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                                   />
                               </td>
 
-                              {/* Action (Delete) - CLASS 'no-print' ADDED */}
-                              <td className="p-1 align-middle text-center no-print">
+                              {/* Action (Delete & Reparse) - CLASS 'no-print' ADDED */}
+                              <td className="p-1 align-middle text-center no-print flex flex-col items-center justify-center gap-2 h-full">
+                                  <button 
+                                    onClick={() => handleReparse(item)}
+                                    className="text-slate-300 hover:text-indigo-500 transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-indigo-50"
+                                    title="Reset / Reparse details from description"
+                                  >
+                                      <i className="fas fa-magic text-xs"></i>
+                                  </button>
                                   <button 
                                     onClick={() => handleDeleteClick(item)}
-                                    className="text-slate-300 hover:text-red-500 transition-colors w-full h-full flex items-center justify-center"
+                                    className="text-slate-300 hover:text-red-500 transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-red-50"
                                     title="Delete Row"
                                   >
                                       <i className="fas fa-times text-xs"></i>

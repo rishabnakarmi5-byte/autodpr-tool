@@ -152,15 +152,29 @@ export const parseConstructionData = async (
       const result = JSON.parse(response.text);
       
       // Post-processing to map to DPRItem structure
-      const processedItems = result.items.map((item: any) => ({
-          location: item.location || "Unclassified / Needs Fix",
-          component: item.component || "",
-          structuralElement: item.structuralElement || "",
-          chainage: item.chainage || "",
-          chainageOrArea: (item.chainage || "") + (item.structuralElement ? " " + item.structuralElement : ""),
-          activityDescription: item.activityDescription,
-          plannedNextActivity: item.plannedNextActivity
-      }));
+      const processedItems = result.items.map((item: any) => {
+          // Clean "Not specified" or similar placeholders to empty strings
+          const clean = (val: string) => {
+              if(!val) return "";
+              const v = val.trim().toLowerCase();
+              if(v === "not specified" || v === "n/a" || v === "unknown" || v === "none") return "";
+              return val;
+          };
+
+          const chainageVal = clean(item.chainage);
+          const elementVal = clean(item.structuralElement);
+
+          return {
+              location: item.location || "Unclassified / Needs Fix",
+              component: item.component || "",
+              structuralElement: elementVal,
+              chainage: chainageVal,
+              // Only append if value exists to avoid "Not specified Not specified"
+              chainageOrArea: `${chainageVal} ${elementVal}`.trim(),
+              activityDescription: item.activityDescription,
+              plannedNextActivity: item.plannedNextActivity
+          };
+      });
 
       // Infer warnings locally if model didn't catch them
       const warnings: string[] = result.warnings || [];

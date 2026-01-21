@@ -234,6 +234,13 @@ const App = () => {
     logActivity(getUserName(), "Updated Item", `Changed ${field}`, currentDate);
   };
 
+  const handleUpdateRow = (id: string, updates: Partial<DPRItem>) => {
+    pushUndo(currentEntries);
+    const updatedEntries = currentEntries.map(item => item.id === id ? { ...item, ...updates } : item);
+    saveCurrentState(updatedEntries, currentDate, currentReportId); 
+    logActivity(getUserName(), "Row Updated", `Batch update on ${Object.keys(updates).join(', ')}`, currentDate);
+  };
+
   const handleDeleteItem = async (id: string) => {
     pushUndo(currentEntries);
     const item = currentEntries.find(i => i.id === id);
@@ -378,7 +385,7 @@ const App = () => {
   return (
     <Layout activeTab={activeTab} onTabChange={handleTabChange} user={user} onLogout={logoutUser}>
         {activeTab === TabView.INPUT && <InputSection currentDate={currentDate} onDateChange={setCurrentDate} onItemsAdded={handleItemsAdded} onViewReport={() => setActiveTab(TabView.VIEW_REPORT)} entryCount={currentEntries.length} user={user} hierarchy={hierarchy} />}
-        {activeTab === TabView.VIEW_REPORT && <ReportTable report={currentReport} onDeleteItem={handleDeleteItem} onUpdateItem={handleUpdateItem} onUndo={handleUndo} canUndo={undoStack.length > 0} onRedo={handleRedo} canRedo={redoStack.length > 0} onNormalize={handleNormalizeReport} hierarchy={hierarchy} />}
+        {activeTab === TabView.VIEW_REPORT && <ReportTable report={currentReport} onDeleteItem={handleDeleteItem} onUpdateItem={handleUpdateItem} onUpdateRow={handleUpdateRow} onUndo={handleUndo} canUndo={undoStack.length > 0} onRedo={handleRedo} canRedo={redoStack.length > 0} onNormalize={handleNormalizeReport} hierarchy={hierarchy} />}
         {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onNormalize={handleNormalizeQuantities} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={handleSelectReport} onDeleteReport={async (id) => { await moveReportToTrash(reports.find(r => r.id === id)!, getUserName()); }} onCreateNew={handleCreateNew} />}
         {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRecover={handleRecoverBackup} />}
