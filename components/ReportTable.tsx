@@ -251,12 +251,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
             </div>
 
             {/* Actions */}
-            <button 
-                onClick={handlePrint}
-                className="flex items-center gap-2 px-5 py-2 bg-slate-800 text-white rounded-xl hover:bg-slate-900 transition-all shadow-md font-bold text-xs sm:text-sm"
-            >
-                <i className="fas fa-print text-sm"></i> Print / PDF
-            </button>
             
             <button 
                 onClick={handleDownloadJPG}

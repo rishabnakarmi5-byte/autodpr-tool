@@ -91,6 +91,53 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user, onNor
 
   const totalAnalysisQty = useMemo(() => filteredAnalysisItems.reduce((acc, curr) => acc + curr.quantityValue, 0), [filteredAnalysisItems]);
 
+  const handleExportCSV = () => {
+    const dataToExport = activeSubTab === 'ledger' ? filteredLedgerItems : filteredAnalysisItems;
+    
+    if (dataToExport.length === 0) {
+        alert("No data to export based on current filters.");
+        return;
+    }
+
+    const headers = ["Date", "Location", "Component", "Area", "CH/EL", "Item Type", "Description", "Qty", "Unit"];
+    
+    const escapeCsv = (str: string | undefined) => {
+        if (!str) return '';
+        const stringValue = String(str);
+        if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+            return `"${stringValue.replace(/"/g, '""')}"`;
+        }
+        return stringValue;
+    };
+
+    const rows = dataToExport.map(item => [
+        item.date,
+        escapeCsv(item.location),
+        escapeCsv(item.structure),
+        escapeCsv(item.detailElement),
+        escapeCsv(item.detailLocation),
+        escapeCsv(item.itemType),
+        escapeCsv(item.description),
+        item.quantityValue,
+        item.quantityUnit
+    ]);
+
+    const csvContent = [
+        headers.join(','),
+        ...rows.map(r => r.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `DPR_Quantities_${activeSubTab}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="flex flex-col h-full space-y-6 animate-fade-in">
       <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 flex justify-between items-center">
@@ -98,6 +145,13 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, user, onNor
              <h2 className="text-2xl font-bold text-slate-800">Quantities</h2>
          </div>
          <div className="flex items-center gap-3">
+             <button 
+                onClick={handleExportCSV}
+                className="bg-indigo-600 text-white hover:bg-indigo-700 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-indigo-200 transition-all"
+             >
+                <i className="fas fa-file-csv"></i> Export CSV
+             </button>
+
              {onNormalize && (
                <button 
                   onClick={onNormalize} 
