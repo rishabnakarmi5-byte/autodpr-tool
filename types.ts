@@ -68,11 +68,17 @@ export interface QuantityEntry {
   updatedBy: string;
 }
 
+export interface ItemTypeDefinition {
+    name: string;
+    pattern: string; // Regex string
+    defaultUnit: string;
+}
+
 export interface ProjectSettings {
   projectName: string;
   projectDescription: string;
   locationHierarchy: Record<string, string[]>;
-  customItems: string[];
+  itemTypes: ItemTypeDefinition[];
 }
 
 export interface UserProfile {

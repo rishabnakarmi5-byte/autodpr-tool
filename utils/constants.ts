@@ -1,10 +1,9 @@
 
-
 export const LOCATION_HIERARCHY: Record<string, string[]> = {
   "Headworks": [
     "Barrage",
     "Weir",
-    "Upstream Apon",
+    "Upstream Apron",
     "Stilling Basin",
     "Syphon",
     "Intake",
@@ -63,27 +62,22 @@ export const getLocationPriority = (location: string): number => {
   return index === -1 ? 999 : index;
 };
 
-// Regex patterns to identify item types
+// Default regex patterns to identify item types
 export const ITEM_PATTERNS = [
-  // --- PLUM CONCRETE (Specific grades first) ---
+  // --- PLUM CONCRETE ---
   { name: "C25 Plum Concrete", pattern: /\b(c25|grade 25|m25).*(plum)|(plum).*(c25|grade 25|m25)\b/i, defaultUnit: 'm3' },
   { name: "C15 Plum Concrete", pattern: /\b(c15|grade 15|m15).*(plum)|(plum).*(c15|grade 15|m15)\b/i, defaultUnit: 'm3' },
-  // Default Plum is C10 per user request
   { name: "C10 Plum Concrete", pattern: /\b(plum)\b/i, defaultUnit: 'm3' },
 
   { name: "Shotcrete", pattern: /\b(shotcrete|s\/c)\b/i, defaultUnit: 'm3' },
 
   // --- CONCRETE GRADES ---
   { name: "C35 Concrete", pattern: /\b(c35|grade 35|m35)\b/i, defaultUnit: 'm3' },
-  // C30 includes "2nd Stage" (usually powerhouse flooring)
   { name: "C30 Concrete", pattern: /\b(c30|grade 30|m30|(2nd|second)\s+stage)\b/i, defaultUnit: 'm3' },
+  { name: "C25 Concrete", pattern: /\b(c25|grade 25|m25|concrete|conc\.?|rcc)\b/i, defaultUnit: 'm3' },
   { name: "C20 Concrete", pattern: /\b(c20|grade 20|m20)\b/i, defaultUnit: 'm3' },
   { name: "C15 Concrete", pattern: /\b(c15|grade 15|m15)\b/i, defaultUnit: 'm3' },
   { name: "C10 Concrete", pattern: /\b(c10|pcc|infill|grade 10|m10)\b/i, defaultUnit: 'm3' },
-
-  // --- DEFAULT CONCRETE (C25) ---
-  // Matches generic terms "Concrete", "Conc", "RCC" if no specific grade matched above
-  { name: "C25 Concrete", pattern: /\b(c25|grade 25|m25|concrete|conc\.?|rcc)\b/i, defaultUnit: 'm3' },
 
   // --- OTHER ITEMS ---
   { name: "Rebar", pattern: /\b(rebar|reinforcement|steel|tmt|bar|tor)\b/i, defaultUnit: 'Ton' },
@@ -132,14 +126,18 @@ export const STRUCTURAL_ELEMENTS = [
   { regex: /\b(right\s+bank)\b/i, label: "RB" },
 ];
 
-// Expanded to handle "Ch 0 to 38m" and simple "0+000"
 export const CHAINAGE_PATTERN = /(?:ch\.?|chainage|chain|@)\s*(\d+\+\d+(?:\.\d+)?|[\d\+\-\.]+)(?:\s*(?:to|-)\s*(\d+\+\d+(?:\.\d+)?|[\d\+\-\.]+))?/i;
 export const ELEVATION_PATTERN = /(?:el\.?|elevation|level|lvl)\s*([\d\+\-\.]+)(?:\s*(?:to|-)\s*([\d\+\-\.]+))?/i;
 
 // --- Helper Functions ---
 
-export const identifyItemType = (text: string): string => {
-  for (const item of ITEM_PATTERNS) {
+export const identifyItemType = (text: string, customItems?: any[]): string => {
+  const itemsToUse = customItems ? customItems.map(i => ({
+      name: i.name,
+      pattern: new RegExp(i.pattern, 'i')
+  })) : ITEM_PATTERNS;
+
+  for (const item of itemsToUse) {
     if (item.pattern.test(text)) {
       return item.name;
     }
@@ -152,21 +150,16 @@ const formatChainageNumber = (valStr: string): string => {
   const num = parseFloat(clean);
   if (isNaN(num)) return valStr;
 
-  // If number is small (e.g. 38), assume 0+038
   const km = Math.floor(num / 1000);
-  const m = Math.round(num % 1000); // Round to nearest int for standard chainage
+  const m = Math.round(num % 1000);
   return `${km}+${m.toString().padStart(3, '0')}`;
 };
 
 export const extractChainageAndFormat = (text: string): string | null => {
   const match = text.match(CHAINAGE_PATTERN);
   if (match) {
-    // Group 1 is first number, Group 2 is second number (optional)
     const startRaw = match[1];
     const endRaw = match[2];
-
-    // Basic validation to avoid matching just "2" or simple numbers as chainage unless they look like 0+000
-    // But user wants robust parsing.
     const start = formatChainageNumber(startRaw);
     if (endRaw) {
       const end = formatChainageNumber(endRaw);
@@ -177,7 +170,6 @@ export const extractChainageAndFormat = (text: string): string | null => {
   return null;
 };
 
-// Unified extraction logic used by both QuantityView and ReportTable
 export const parseQuantityDetails = (
   location: string,
   componentInput: string | undefined,
@@ -186,62 +178,36 @@ export const parseQuantityDetails = (
 ) => {
   const elements = new Set<string>();
   let chainageStr = "";
-  
   let component = componentInput || "";
-  
   const combinedText = `${chainageOrAreaInput} ${description}`;
 
-  // 1. SCAN FOR AREA / STRUCTURAL ELEMENT (High Priority)
   STRUCTURAL_ELEMENTS.forEach(p => {
     if (p.regex.test(combinedText)) {
       elements.add(p.label);
     }
   });
 
-  // 2. SCAN FOR CHAINAGE / ELEVATION
-  // Check chainageOrAreaInput specifically for Ch/EL patterns first to move them to valid column
   let chainageFromInput = extractChainageAndFormat(chainageOrAreaInput);
   const elMatchInput = chainageOrAreaInput.match(ELEVATION_PATTERN);
 
-  if (chainageFromInput) {
-    chainageStr += (chainageStr ? ", " : "") + chainageFromInput;
-  }
-  if (elMatchInput) {
-    const elStr = elMatchInput[0].trim();
-    chainageStr += (chainageStr ? ", " : "") + elStr;
-  }
+  if (chainageFromInput) chainageStr += (chainageStr ? ", " : "") + chainageFromInput;
+  if (elMatchInput) chainageStr += (chainageStr ? ", " : "") + elMatchInput[0].trim();
 
-  // Also check Description for Chainage/EL if not found yet or to append
   if (!chainageStr) {
       const chDesc = extractChainageAndFormat(description);
       if (chDesc) chainageStr += (chainageStr ? ", " : "") + chDesc;
-      
       const elDesc = description.match(ELEVATION_PATTERN);
       if (elDesc) chainageStr += (chainageStr ? ", " : "") + elDesc[0].trim();
   }
 
-  // 3. Fallback logic if component is missing
   if (!component) {
-      // If the input was purely a Chainage or Elevation, assume Location is Component? 
-      // Or if input was an Element name, treat as component?
-      // Logic: If Elements found, pick first as component? 
-      // Better: Keep component empty or default to Location if totally unknown.
-      if (chainageFromInput || elMatchInput) {
-         component = location;
-      } else if (elements.size > 0) {
-         // Maybe use first element as component if strictly missing?
-         // component = Array.from(elements)[0]; 
-      } else {
-         component = chainageOrAreaInput; // Fallback to raw string if nothing parsed
-      }
+      if (chainageFromInput || elMatchInput) component = location;
+      else component = chainageOrAreaInput;
   }
-
-  // 4. Refine Elements string
-  const detailElement = Array.from(elements).join(', ');
 
   return {
     structure: component,
-    detailElement: detailElement, // Area
-    detailLocation: chainageStr // Chainage / EL
+    detailElement: Array.from(elements).join(', '),
+    detailLocation: chainageStr
   };
 };

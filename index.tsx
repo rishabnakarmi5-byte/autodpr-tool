@@ -300,6 +300,7 @@ const App = () => {
       setSettings(s);
       setHierarchy(s.locationHierarchy);
       await saveProjectSettings(s);
+      logActivity(getUserName(), "Settings Updated", `Modified Project Configurations`, new Date().toISOString());
   };
 
   const handleRecoverBackup = async (backups: BackupEntry[]) => {
@@ -382,7 +383,7 @@ const App = () => {
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={handleSelectReport} onDeleteReport={async (id) => { await moveReportToTrash(reports.find(r => r.id === id)!, getUserName()); }} onCreateNew={handleCreateNew} />}
         {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRecover={handleRecoverBackup} />}
         {activeTab === TabView.RECYCLE_BIN && <RecycleBin logs={logs} trashItems={trashItems} onRestore={async (item) => { await restoreTrashItem(item); }} />}
-        {activeTab === TabView.SETTINGS && <ProjectSettingsView currentSettings={settings} onSave={handleSaveSettings} />}
+        {activeTab === TabView.SETTINGS && <ProjectSettingsView currentSettings={settings} onSave={handleSaveSettings} reports={reports} quantities={allQuantities} />}
         {activeTab === TabView.PROFILE && <ProfileView user={user} />}
         
         {/* Global Saving Overlay */}
