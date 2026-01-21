@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Layout } from './components/Layout';
 import { InputSection } from './components/InputSection';
@@ -31,8 +31,13 @@ const App = () => {
   const [currentEntries, setCurrentEntries] = useState<DPRItem[]>([]);
   const [undoStack, setUndoStack] = useState<DPRItem[][]>([]);
   const [redoStack, setRedoStack] = useState<DPRItem[][]>([]);
-  const [isGlobalSaving, setIsGlobalSaving] = useState(false); // New global saving lock
+  const [isGlobalSaving, setIsGlobalSaving] = useState(false); 
   
+  // Notification State
+  const [notification, setNotification] = useState<{message: string, type: 'info' | 'success'} | null>(null);
+  const lastLogIdRef = useRef<string | null>(null);
+  const isFirstLoadRef = useRef(true);
+
   // Settings State
   const [settings, setSettings] = useState<ProjectSettings | null>(null);
   const [hierarchy, setHierarchy] = useState(LOCATION_HIERARCHY);
@@ -41,7 +46,17 @@ const App = () => {
     const unsubscribeAuth = subscribeToAuth((u) => {
       setUser(u);
       setAuthLoading(false);
-      if (u) logActivity(u.displayName || u.email || 'Unknown', "Session Active", "User authenticated via Google", "N/A");
+      if (u) {
+          logActivity(u.displayName || u.email || 'Unknown', "Session Active", "User authenticated via Google", "N/A");
+          
+          // Request notification permission on login ONLY for allowed users
+          const ALLOWED_EMAILS = ['rishabnakarmi5@gmail.com'];
+          if (u.email && ALLOWED_EMAILS.includes(u.email)) {
+              if ("Notification" in window && Notification.permission === "default") {
+                  Notification.requestPermission();
+              }
+          }
+      }
     });
     return () => unsubscribeAuth();
   }, []);
@@ -55,10 +70,53 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
+  // --- NOTIFICATION LOGIC VIA LOGS ---
   useEffect(() => {
-    const unsubscribe = subscribeToLogs((data) => setLogs(data));
+    const unsubscribe = subscribeToLogs((data) => {
+        setLogs(data);
+        
+        if (data.length > 0) {
+            const latestLog = data[0];
+            
+            // Skip logic on very first load to avoid spamming alerts for old data
+            if (isFirstLoadRef.current) {
+                lastLogIdRef.current = latestLog.id;
+                isFirstLoadRef.current = false;
+                return;
+            }
+
+            // Check if this is a NEW log and NOT from the current user
+            if (latestLog.id !== lastLogIdRef.current) {
+                const currentUserName = user?.displayName || user?.email || 'Unknown';
+                const currentUserEmail = user?.email || '';
+                const isMe = latestLog.user === currentUserName || latestLog.user.includes(currentUserName.split(' ')[0]);
+
+                // RESTRICTION: Only allow notifications for specific emails
+                const ALLOWED_EMAILS = ['rishabnakarmi5@gmail.com'];
+                const isAllowed = ALLOWED_EMAILS.includes(currentUserEmail);
+
+                if (isAllowed && !isMe && (latestLog.action === 'Report Updated' || latestLog.action.includes('Recovery'))) {
+                    // 1. In-App Toast
+                    setNotification({
+                        message: `${latestLog.user} just updated the report!`,
+                        type: 'info'
+                    });
+                    setTimeout(() => setNotification(null), 5000);
+
+                    // 2. Browser System Notification (Works in background)
+                    if ("Notification" in window && Notification.permission === "granted") {
+                        new Notification("DPR Update", {
+                            body: `${latestLog.user}: ${latestLog.details}`,
+                            icon: '/vite.svg' // Standard vite icon or custom
+                        });
+                    }
+                }
+                lastLogIdRef.current = latestLog.id;
+            }
+        }
+    });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     const unsubscribe = subscribeToTrash((data) => setTrashItems(data));
@@ -84,7 +142,6 @@ const App = () => {
     const existingReport = reports.find(r => r.date === currentDate);
     if (existingReport) {
       if (currentReportId !== existingReport.id) setCurrentReportId(existingReport.id);
-      // Only update entries if they are different to prevent loop, but handleItemsAdded will ignore this state anyway for safety
       if (JSON.stringify(existingReport.entries) !== JSON.stringify(currentEntries)) setCurrentEntries(existingReport.entries);
     } else {
       const isIdBelongingToOtherDate = reports.some(r => r.id === currentReportId && r.date !== currentDate);
@@ -126,9 +183,7 @@ const App = () => {
     };
 
     try {
-      // Critical: Await the cloud save to ensure data persistence
       await saveReportToCloud(report);
-      // Background saves
       saveReportHistory(report).catch(console.error);
       return report;
     } catch (e) { 
@@ -138,35 +193,27 @@ const App = () => {
     }
   };
 
-  // Helper to manage undo stack push
   const pushUndo = (entries: DPRItem[]) => {
       setUndoStack(prev => [...prev.slice(-19), entries]);
-      setRedoStack([]); // Clear redo on new action
+      setRedoStack([]); 
   };
 
   const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
     setIsGlobalSaving(true);
     try {
-        // CRITICAL FIX: Do NOT rely on currentEntries state or currentReportId state for the base data.
-        // They might be stale if another user updated the report while this user was typing.
-        // Always fetch the LATEST report from the synced 'reports' array.
         const existingReportOnServer = reports.find(r => r.date === currentDate);
-        
         const effectiveReportId = existingReportOnServer ? existingReportOnServer.id : (currentReportId || crypto.randomUUID());
-        const baseEntries = existingReportOnServer ? existingReportOnServer.entries : []; // Default to empty, NOT currentEntries
+        const baseEntries = existingReportOnServer ? existingReportOnServer.entries : []; 
 
         pushUndo(baseEntries);
         
-        // 1. First save the Backup - this is our safety net
         const backupId = await savePermanentBackup(currentDate, rawText, newItems, getUserName(), effectiveReportId);
 
         let updatedEntries = [...baseEntries, ...newItems];
         updatedEntries.sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
         
-        // 2. Save Report to Cloud & Wait for confirmation
         const savedReport = await saveCurrentState(updatedEntries, currentDate, effectiveReportId);
         
-        // 3. One Shot Sync: Quantities (Background)
         if (savedReport) {
             syncQuantitiesFromItems(newItems, savedReport, getUserName()).catch(console.error);
             incrementUserStats(user?.uid, newItems.length).catch(console.error);
@@ -183,7 +230,7 @@ const App = () => {
   const handleUpdateItem = (id: string, field: keyof DPRItem, value: string) => {
     pushUndo(currentEntries);
     const updatedEntries = currentEntries.map(item => item.id === id ? { ...item, [field]: value } : item);
-    saveCurrentState(updatedEntries, currentDate, currentReportId); // background save for small edits
+    saveCurrentState(updatedEntries, currentDate, currentReportId); 
     logActivity(getUserName(), "Updated Item", `Changed ${field}`, currentDate);
   };
 
@@ -255,7 +302,6 @@ const App = () => {
       await saveProjectSettings(s);
   };
 
-  // --- RECOVERY FEATURE (Updated for Multi-Select) ---
   const handleRecoverBackup = async (backups: BackupEntry[]) => {
       if(backups.length === 0) return;
       const primaryDate = backups[0].date;
@@ -264,20 +310,13 @@ const App = () => {
           setIsGlobalSaving(true);
           try {
              const reportId = crypto.randomUUID();
-             
-             // Combine items from all selected backups
              let allEntries: DPRItem[] = [];
              backups.forEach(b => {
                  const itemsWithNewIds = b.parsedItems.map(item => ({...item, id: crypto.randomUUID()}));
                  allEntries = [...allEntries, ...itemsWithNewIds];
              });
-             
-             // Sort by location logic
              allEntries.sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
-
              await saveCurrentState(allEntries, primaryDate, reportId, true);
-             
-             // Sync Qty (Mark as recovery)
              await syncQuantitiesFromItems(allEntries, { id: reportId, date: primaryDate, entries: allEntries } as DailyReport, `RECOVERY_${getUserName()}`);
 
              setCurrentDate(primaryDate);
@@ -354,6 +393,24 @@ const App = () => {
                     <h3 className="text-lg font-bold text-slate-800">Saving Securely...</h3>
                     <p className="text-sm text-slate-500">Writing to Cloud Database</p>
                 </div>
+            </div>
+        )}
+
+        {/* Real-time Toast Notification */}
+        {notification && (
+            <div className={`fixed top-4 right-4 z-[10000] px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 animate-fade-in transition-all ${
+                notification.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-white'
+            }`}>
+                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+                    <i className="fas fa-bell animate-pulse"></i>
+                </div>
+                <div>
+                    <h4 className="font-bold text-sm">New Activity</h4>
+                    <p className="text-xs opacity-90">{notification.message}</p>
+                </div>
+                <button onClick={() => setNotification(null)} className="ml-2 opacity-60 hover:opacity-100">
+                    <i className="fas fa-times"></i>
+                </button>
             </div>
         )}
     </Layout>
