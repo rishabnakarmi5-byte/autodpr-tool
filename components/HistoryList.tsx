@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { DailyReport } from '../types';
 
@@ -58,6 +59,13 @@ export const HistoryList: React.FC<HistoryListProps> = ({
               {/* Card Header Color Bar */}
               <div className={`h-2 w-full ${report.id === currentReportId ? 'bg-indigo-500' : 'bg-slate-200 group-hover:bg-indigo-300'}`}></div>
               
+              {/* Recovered Ribbon */}
+              {report.isRecovered && (
+                  <div className="absolute top-3 right-[-30px] rotate-45 bg-amber-400 text-white text-[9px] font-bold py-1 px-8 shadow-sm z-10 pointer-events-none">
+                      RECOVERED
+                  </div>
+              )}
+
               <div className="p-6 flex-1">
                 <div className="flex justify-between items-start mb-4">
                    <div className="flex items-center gap-3">

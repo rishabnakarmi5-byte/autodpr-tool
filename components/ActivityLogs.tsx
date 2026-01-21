@@ -1,12 +1,14 @@
+
 import React, { useState, useEffect } from 'react';
 import { LogEntry, BackupEntry } from '../types';
 import { getBackups } from '../services/firebaseService';
 
 interface ActivityLogsProps {
   logs: LogEntry[];
+  onRecover?: (backup: BackupEntry) => void;
 }
 
-export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs }) => {
+export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) => {
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
   
   // Backup / Storage State
@@ -23,31 +25,18 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs }) => {
     new Date().toISOString().split('T')[0]
   );
 
-  const formatDetails = (details: string) => {
-      try {
-          const obj = JSON.parse(details);
-          return (
-             <span className="text-indigo-600 font-bold cursor-pointer hover:underline" onClick={() => setSelectedLog({ ...selectedLog!, details } as any)}>
-                View JSON Details
-             </span>
-          );
-      } catch (e) {
-          return details;
-      }
-  };
-
   const handleOpenStorage = async (targetId?: string) => {
     setIsStorageOpen(true);
     setLoadingBackups(true);
     try {
-      // Fetch with date filters to ensure we get everything within the range
+      // Fetch with date filters
       const data = await getBackups(100, backupStartDate, backupEndDate);
       setBackups(data);
 
       if (targetId) {
           const target = data.find(b => b.id === targetId);
           if (target) setSelectedBackup(target);
-      } else if (data.length > 0) {
+      } else if (data.length > 0 && !selectedBackup) {
           setSelectedBackup(data[0]);
       }
     } catch (error) {
@@ -66,33 +55,37 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs }) => {
 
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 animate-fade-in relative">
+    <div className="max-w-6xl mx-auto space-y-6 animate-fade-in relative">
       <div className="border-b border-slate-200 pb-4 flex justify-between items-end">
         <div>
-           <h2 className="text-3xl font-bold text-slate-800">Activity Logs</h2>
-           <p className="text-slate-500 mt-1">Audit trail of all changes made by users across the system.</p>
+           <h2 className="text-3xl font-bold text-slate-800">System Logs</h2>
+           <p className="text-slate-500 mt-1">Audit trail and data recovery center.</p>
         </div>
         <button 
            onClick={() => handleOpenStorage()}
-           className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md transition-all flex items-center gap-2"
+           className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white px-6 py-3 rounded-xl text-sm font-bold shadow-lg shadow-emerald-200 transition-all flex items-center gap-2 transform hover:-translate-y-0.5"
         >
-           <i className="fas fa-database"></i> Raw Input Storage
+           <i className="fas fa-ambulance text-lg"></i> Open Recovery Center
         </button>
       </div>
 
       <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+         <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
+            <i className="fas fa-list text-slate-400"></i>
+            <h3 className="text-sm font-bold text-slate-700 uppercase">Recent Activity Stream</h3>
+         </div>
          <div className="overflow-x-auto">
            <table className="w-full text-left border-collapse">
-             <thead className="bg-slate-50 border-b border-slate-200">
+             <thead className="bg-white border-b border-slate-100">
                <tr>
-                 <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Timestamp</th>
-                 <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">User</th>
-                 <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Action</th>
+                 <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-40">Time</th>
+                 <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-40">User</th>
+                 <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-40">Action</th>
                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Details</th>
-                 <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Context</th>
+                 <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-32">Source</th>
                </tr>
              </thead>
-             <tbody className="divide-y divide-slate-100">
+             <tbody className="divide-y divide-slate-50">
                {logs.length === 0 ? (
                  <tr>
                    <td colSpan={5} className="p-8 text-center text-slate-400 italic">No activity recorded yet.</td>
@@ -100,45 +93,47 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs }) => {
                ) : (
                  logs.map((log) => {
                    const date = new Date(log.timestamp);
-                   
-                   // Try to detect if details is JSON for the onclick handler context
                    const isJson = log.details.startsWith('{') || log.details.startsWith('[');
 
                    return (
-                     <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                     <tr key={log.id} className="hover:bg-slate-50 transition-colors group">
                        <td className="p-4 text-sm text-slate-500 whitespace-nowrap">
-                         {date.toLocaleDateString()} <span className="text-slate-400 text-xs ml-1">{date.toLocaleTimeString()}</span>
+                         <div className="font-medium text-slate-700">{date.toLocaleDateString()}</div>
+                         <div className="text-xs text-slate-400">{date.toLocaleTimeString()}</div>
                        </td>
-                       <td className="p-4 text-sm font-medium text-indigo-600">
+                       <td className="p-4">
                          <div className="flex items-center gap-2">
-                           <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-[10px] font-bold">
+                           <div className="w-6 h-6 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-600">
                              {log.user.charAt(0).toUpperCase()}
                            </div>
-                           {log.user}
+                           <span className="text-sm font-medium text-slate-700">{log.user.split(' ')[0]}</span>
                          </div>
                        </td>
-                       <td className="p-4 text-sm font-semibold text-slate-700">
-                         {log.action}
+                       <td className="p-4">
+                         <span className={`text-xs font-bold px-2 py-1 rounded-full uppercase tracking-wide
+                           ${log.action.includes('Delete') ? 'bg-red-50 text-red-600' : 
+                             log.action.includes('Update') ? 'bg-blue-50 text-blue-600' : 
+                             'bg-emerald-50 text-emerald-600'}`}>
+                           {log.action}
+                         </span>
                        </td>
-                       <td className="p-4 text-sm text-slate-600 max-w-xs truncate" title={log.details}>
+                       <td className="p-4 text-sm text-slate-600 max-w-md truncate" title={log.details}>
                          {isJson ? (
                              <button 
                                 onClick={() => setSelectedLog(log)}
-                                className="text-indigo-600 font-bold hover:underline text-xs"
+                                className="text-indigo-600 font-bold hover:underline text-xs flex items-center gap-1"
                              >
-                                <i className="fas fa-code mr-1"></i> View Change Data
+                                <i className="fas fa-code"></i> View Data Payload
                              </button>
                          ) : log.details}
                        </td>
-                       <td className="p-4 text-sm text-slate-500 font-mono">
-                         {log.reportDate}
+                       <td className="p-4">
                          {(log as any).relatedBackupId && (
                              <button 
                                 onClick={() => handleOpenStorage((log as any).relatedBackupId)}
-                                className="ml-2 bg-green-100 text-green-700 hover:bg-green-200 px-2 py-0.5 rounded text-xs font-bold transition-colors"
-                                title="View original raw input for this entry"
+                                className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 hover:border-indigo-200 px-3 py-1 rounded-lg text-xs font-bold transition-all shadow-sm"
                              >
-                                 <i className="fas fa-database"></i> Source
+                                 <i className="fas fa-search mr-1"></i> Inspect
                              </button>
                          )}
                        </td>
@@ -176,7 +171,7 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs }) => {
         </div>
       )}
 
-      {/* RAW STORAGE MODAL */}
+      {/* RECOVERY CENTER MODAL */}
       {isStorageOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in">
            <div className="bg-white rounded-2xl shadow-2xl w-full h-full md:h-[95vh] md:max-w-[95vw] relative flex flex-col overflow-hidden">
@@ -184,12 +179,12 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs }) => {
               {/* Header */}
               <div className="flex justify-between items-center p-4 md:p-6 border-b border-slate-200 bg-slate-50">
                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200">
-                        <i className="fas fa-database text-white text-xl"></i>
+                    <div className="w-12 h-12 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-200">
+                        <i className="fas fa-first-aid text-white text-2xl"></i>
                     </div>
                     <div>
-                        <h3 className="text-2xl font-bold text-slate-800">Raw Input Archive</h3>
-                        <p className="text-sm text-slate-500">Permanent, append-only storage of all user inputs.</p>
+                        <h3 className="text-2xl font-bold text-slate-800">Recovery Center</h3>
+                        <p className="text-sm text-slate-500">Access every raw input ever sent to the system.</p>
                     </div>
                  </div>
                  <button onClick={() => setIsStorageOpen(false)} className="w-10 h-10 rounded-full bg-white hover:bg-slate-100 shadow border border-slate-200 flex items-center justify-center transition-colors">
@@ -204,36 +199,36 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs }) => {
                   <div className="w-full md:w-1/3 border-r border-slate-200 flex flex-col bg-slate-50/50">
                      
                      {/* Date Filter */}
-                     <div className="p-4 border-b border-slate-200 bg-white grid grid-cols-2 gap-2">
-                        <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase">Start Date</label>
+                     <div className="p-4 border-b border-slate-200 bg-white shadow-sm z-10">
+                        <div className="flex items-center justify-between mb-2">
+                             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider"><i className="far fa-calendar-alt mr-1"></i> Date Range</label>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
                             <input 
                                 type="date" 
                                 value={backupStartDate}
                                 onChange={(e) => setBackupStartDate(e.target.value)}
-                                className="w-full p-2 border border-slate-200 rounded text-sm bg-slate-50" 
+                                className="w-full p-2 border border-slate-200 rounded text-sm bg-slate-50 hover:bg-white focus:bg-white transition-colors cursor-pointer" 
                             />
-                        </div>
-                        <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase">End Date</label>
                             <input 
                                 type="date" 
                                 value={backupEndDate}
                                 onChange={(e) => setBackupEndDate(e.target.value)}
-                                className="w-full p-2 border border-slate-200 rounded text-sm bg-slate-50" 
+                                className="w-full p-2 border border-slate-200 rounded text-sm bg-slate-50 hover:bg-white focus:bg-white transition-colors cursor-pointer" 
                             />
                         </div>
                      </div>
 
                      <div className="flex-1 overflow-y-auto">
                         {loadingBackups ? (
-                            <div className="p-8 text-center text-slate-400">
-                                <i className="fas fa-circle-notch fa-spin text-2xl mb-2"></i><br/>
-                                Fetching archive...
+                            <div className="p-12 text-center text-slate-400">
+                                <i className="fas fa-circle-notch fa-spin text-3xl mb-3 text-emerald-500"></i><br/>
+                                Scanning Archives...
                             </div>
                         ) : backups.length === 0 ? (
-                            <div className="p-8 text-center text-slate-400 italic">
-                                No inputs found in this date range.
+                            <div className="p-12 text-center text-slate-400 italic">
+                                <i className="fas fa-search text-3xl mb-3 opacity-20"></i><br/>
+                                No backups found in this range.
                             </div>
                         ) : (
                             <div className="divide-y divide-slate-100">
@@ -244,23 +239,24 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs }) => {
                                         <div 
                                             key={item.id} 
                                             onClick={() => setSelectedBackup(item)}
-                                            className={`p-4 cursor-pointer hover:bg-indigo-50 transition-colors ${isActive ? 'bg-indigo-50 border-l-4 border-indigo-600' : 'border-l-4 border-transparent'}`}
+                                            className={`p-4 cursor-pointer hover:bg-white transition-all border-l-4 ${isActive ? 'bg-white border-emerald-500 shadow-md transform scale-[1.02] z-10' : 'border-transparent hover:border-slate-300'}`}
                                         >
                                             <div className="flex justify-between items-start mb-1">
-                                                <span className="text-xs font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded">
+                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
                                                     {item.date}
                                                 </span>
-                                                <span className="text-[10px] text-slate-400">{date.toLocaleTimeString()}</span>
+                                                <span className="text-[10px] text-slate-400 font-mono">{date.toLocaleTimeString()}</span>
                                             </div>
-                                            <div className="text-sm font-medium text-slate-800 mb-2 line-clamp-2">
-                                                {item.rawInput.substring(0, 80).replace(/\n/g, ' ')}...
+                                            <div className="text-sm font-medium text-slate-800 mb-2 line-clamp-2 leading-relaxed">
+                                                {item.rawInput.substring(0, 100).replace(/\n/g, ' ')}
                                             </div>
                                             <div className="flex justify-between items-center text-xs text-slate-500">
                                                 <div className="flex items-center gap-1">
-                                                    <i className="fas fa-user-circle"></i> {item.user}
+                                                    <div className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center text-[8px] font-bold text-slate-600">{item.user.charAt(0)}</div>
+                                                    {item.user.split(' ')[0]}
                                                 </div>
-                                                <div className="flex items-center gap-1">
-                                                    <i className="fas fa-list-check"></i> {item.parsedItems.length} items
+                                                <div className="flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-full">
+                                                    <i className="fas fa-layer-group text-[10px]"></i> {item.parsedItems.length} items
                                                 </div>
                                             </div>
                                         </div>
@@ -272,71 +268,78 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs }) => {
                   </div>
 
                   {/* Main Detail View */}
-                  <div className="hidden md:block w-2/3 p-6 overflow-y-auto bg-slate-100">
+                  <div className="hidden md:block w-2/3 p-6 overflow-y-auto bg-slate-50">
                       {selectedBackup ? (
                           <div className="space-y-6 max-w-4xl mx-auto">
                               
-                              <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex justify-between items-center">
+                              <div className="flex justify-between items-center">
                                   <div>
-                                     <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Archive ID</div>
-                                     <div className="text-sm font-mono text-slate-600 select-all">{selectedBackup.id}</div>
+                                     <h2 className="text-2xl font-bold text-slate-800">Backup Details</h2>
+                                     <p className="text-sm text-slate-500 font-mono">ID: {selectedBackup.id}</p>
                                   </div>
-                                  <div className="text-right">
-                                     <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Exact Timestamp</div>
-                                     <div className="text-sm font-mono text-slate-600">{new Date(selectedBackup.timestamp).toLocaleString()}</div>
-                                  </div>
+                                  
+                                  {onRecover && (
+                                     <button 
+                                        onClick={() => onRecover(selectedBackup)}
+                                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-emerald-200 hover:shadow-emerald-300 transition-all flex items-center gap-2"
+                                     >
+                                         <i className="fas fa-history"></i> Reconstruct Report
+                                     </button>
+                                  )}
                               </div>
 
                               <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                                  <div className="p-4 bg-green-50 border-b border-green-100 flex items-center gap-2">
-                                      <i className="fab fa-whatsapp text-green-600 text-xl"></i>
-                                      <h4 className="text-sm font-bold text-green-800">Original Raw Input</h4>
+                                  <div className="p-4 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                         <i className="fas fa-keyboard text-emerald-600 text-lg"></i>
+                                         <h4 className="text-sm font-bold text-emerald-900 uppercase tracking-wide">Original User Input</h4>
+                                      </div>
+                                      <button 
+                                        onClick={() => navigator.clipboard.writeText(selectedBackup.rawInput)}
+                                        className="text-xs text-emerald-600 hover:text-emerald-800 font-bold"
+                                      >
+                                          Copy Text
+                                      </button>
                                   </div>
-                                  <div className="p-6 text-sm font-mono whitespace-pre-wrap text-slate-700 bg-white">
+                                  <div className="p-6 text-sm font-mono whitespace-pre-wrap text-slate-700 bg-white leading-relaxed">
                                       {selectedBackup.rawInput}
                                   </div>
                               </div>
 
                               <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                                   <div className="p-4 bg-indigo-50 border-b border-indigo-100 flex items-center gap-2">
-                                      <i className="fas fa-robot text-indigo-600 text-xl"></i>
-                                      <h4 className="text-sm font-bold text-indigo-800">AI Parsed Result</h4>
+                                      <i className="fas fa-robot text-indigo-600 text-lg"></i>
+                                      <h4 className="text-sm font-bold text-indigo-900 uppercase tracking-wide">Processed Data ({selectedBackup.parsedItems.length})</h4>
                                   </div>
-                                  <div className="p-0 overflow-x-auto">
+                                  <div className="max-h-80 overflow-y-auto">
                                       <table className="w-full text-left text-sm">
-                                          <thead className="bg-slate-50 text-xs text-slate-500 uppercase font-bold border-b border-slate-200">
+                                          <thead className="bg-slate-50 text-[10px] text-slate-500 uppercase font-bold border-b border-slate-200 sticky top-0">
                                               <tr>
                                                   <th className="p-3">Location</th>
                                                   <th className="p-3">Component</th>
-                                                  <th className="p-3">Activity</th>
+                                                  <th className="p-3">Activity Description</th>
                                               </tr>
                                           </thead>
                                           <tbody className="divide-y divide-slate-100">
                                               {selectedBackup.parsedItems.map((item, idx) => (
                                                   <tr key={idx} className="hover:bg-slate-50">
                                                       <td className="p-3 font-bold text-slate-700">{item.location}</td>
-                                                      <td className="p-3 text-slate-600">{item.component}</td>
-                                                      <td className="p-3 text-slate-500">{item.activityDescription.substring(0, 50)}...</td>
+                                                      <td className="p-3 text-slate-600 text-xs">{item.component}</td>
+                                                      <td className="p-3 text-slate-500">{item.activityDescription}</td>
                                                   </tr>
                                               ))}
                                           </tbody>
                                       </table>
                                   </div>
-                                  <div className="p-4 bg-slate-900 border-t border-slate-200">
-                                      <details>
-                                          <summary className="text-xs text-slate-400 cursor-pointer hover:text-white">View Full JSON Output</summary>
-                                          <pre className="mt-4 text-xs font-mono text-green-400 overflow-x-auto">
-                                              {JSON.stringify(selectedBackup.parsedItems, null, 2)}
-                                          </pre>
-                                      </details>
-                                  </div>
                               </div>
                           </div>
                       ) : (
                           <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                              <i className="fas fa-mouse-pointer text-5xl mb-6 text-slate-300"></i>
-                              <p className="text-lg font-medium">Select an entry from the sidebar</p>
-                              <p className="text-sm">Use the date filters to find older records.</p>
+                              <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-6">
+                                 <i className="fas fa-mouse-pointer text-3xl text-slate-300"></i>
+                              </div>
+                              <p className="text-xl font-bold text-slate-500">Select a backup entry</p>
+                              <p className="text-sm mt-2">Browse the history on the left to inspect raw data.</p>
                           </div>
                       )}
                   </div>

@@ -1,3 +1,4 @@
+
 export interface DPRItem {
   id: string;
   location: string;
@@ -16,6 +17,7 @@ export interface DailyReport {
   lastUpdated: string;
   projectTitle: string;
   entries: DPRItem[];
+  isRecovered?: boolean; // New: Mark if created from recovery/backup
 }
 
 export interface LogEntry {

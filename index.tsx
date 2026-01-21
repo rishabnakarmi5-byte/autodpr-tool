@@ -11,7 +11,7 @@ import { QuantityView } from './components/QuantityView';
 import { ProjectSettingsView } from './components/ProjectSettings';
 import { ProfileView } from './components/ProfileView';
 import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, syncQuantitiesFromItems, getProjectSettings, saveProjectSettings, incrementUserStats, subscribeToQuantities, updateQuantity } from './services/firebaseService';
-import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, QuantityEntry } from './types';
+import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, QuantityEntry, BackupEntry } from './types';
 import { getLocationPriority, LOCATION_HIERARCHY, parseQuantityDetails } from './utils/constants';
 
 const App = () => {
@@ -31,6 +31,7 @@ const App = () => {
   const [currentEntries, setCurrentEntries] = useState<DPRItem[]>([]);
   const [undoStack, setUndoStack] = useState<DPRItem[][]>([]);
   const [redoStack, setRedoStack] = useState<DPRItem[][]>([]);
+  const [isGlobalSaving, setIsGlobalSaving] = useState(false); // New global saving lock
   
   // Settings State
   const [settings, setSettings] = useState<ProjectSettings | null>(null);
@@ -108,17 +109,32 @@ const App = () => {
       setActiveTab(tab);
   };
 
-  const saveCurrentState = async (entries: DPRItem[], date: string, reportId: string | null) => {
+  const saveCurrentState = async (entries: DPRItem[], date: string, reportId: string | null, isRecovered = false) => {
     const id = reportId || crypto.randomUUID();
+    // Optimistic Update locally immediately
     if (!reportId) setCurrentReportId(id);
+    setCurrentEntries(entries);
+
     const report: DailyReport = {
-      id, date, lastUpdated: new Date().toISOString(), projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project", entries
+      id, 
+      date, 
+      lastUpdated: new Date().toISOString(), 
+      projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project", 
+      entries,
+      isRecovered
     };
+
     try {
+      // Critical: Await the cloud save to ensure data persistence
       await saveReportToCloud(report);
-      await saveReportHistory(report);
+      // Background saves
+      saveReportHistory(report).catch(console.error);
       return report;
-    } catch (e) { console.error("Failed to save", e); return null; }
+    } catch (e) { 
+      console.error("Failed to save", e); 
+      alert("CRITICAL ERROR: Failed to save report to cloud. Please check your internet.");
+      return null; 
+    }
   };
 
   // Helper to manage undo stack push
@@ -128,36 +144,41 @@ const App = () => {
   };
 
   const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
-    const existingReportOnServer = reports.find(r => r.date === currentDate);
-    const effectiveReportId = existingReportOnServer ? existingReportOnServer.id : (currentReportId || crypto.randomUUID());
-    const baseEntries = existingReportOnServer ? existingReportOnServer.entries : currentEntries;
+    setIsGlobalSaving(true);
+    try {
+        const existingReportOnServer = reports.find(r => r.date === currentDate);
+        const effectiveReportId = existingReportOnServer ? existingReportOnServer.id : (currentReportId || crypto.randomUUID());
+        const baseEntries = existingReportOnServer ? existingReportOnServer.entries : currentEntries;
 
-    pushUndo(baseEntries);
-    
-    const backupId = await savePermanentBackup(currentDate, rawText, newItems, getUserName(), effectiveReportId);
+        pushUndo(baseEntries);
+        
+        // 1. First save the Backup - this is our safety net
+        const backupId = await savePermanentBackup(currentDate, rawText, newItems, getUserName(), effectiveReportId);
 
-    let updatedEntries = [...baseEntries, ...newItems];
-    updatedEntries.sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
-    
-    setCurrentReportId(effectiveReportId);
-    setCurrentEntries(updatedEntries);
-    
-    const savedReport = await saveCurrentState(updatedEntries, currentDate, effectiveReportId);
-    
-    // One Shot Sync: Quantities
-    if (savedReport) {
-        await syncQuantitiesFromItems(newItems, savedReport, getUserName());
-        await incrementUserStats(user?.uid, newItems.length);
+        let updatedEntries = [...baseEntries, ...newItems];
+        updatedEntries.sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
+        
+        // 2. Save Report to Cloud & Wait for confirmation
+        const savedReport = await saveCurrentState(updatedEntries, currentDate, effectiveReportId);
+        
+        // 3. One Shot Sync: Quantities (Background)
+        if (savedReport) {
+            syncQuantitiesFromItems(newItems, savedReport, getUserName()).catch(console.error);
+            incrementUserStats(user?.uid, newItems.length).catch(console.error);
+        }
+        
+        logActivity(getUserName(), "Report Updated", `Added ${newItems.length} items`, currentDate, backupId || undefined);
+    } catch(e) {
+        alert("Error saving data. Please check your connection.");
+    } finally {
+        setIsGlobalSaving(false);
     }
-    
-    logActivity(getUserName(), "Report Updated", `Added ${newItems.length} items`, currentDate, backupId || undefined);
   };
 
   const handleUpdateItem = (id: string, field: keyof DPRItem, value: string) => {
     pushUndo(currentEntries);
     const updatedEntries = currentEntries.map(item => item.id === id ? { ...item, [field]: value } : item);
-    setCurrentEntries(updatedEntries);
-    saveCurrentState(updatedEntries, currentDate, currentReportId);
+    saveCurrentState(updatedEntries, currentDate, currentReportId); // background save for small edits
     logActivity(getUserName(), "Updated Item", `Changed ${field}`, currentDate);
   };
 
@@ -167,7 +188,6 @@ const App = () => {
     if (!item || !currentReportId) return;
     await moveItemToTrash(item, currentReportId, currentDate, getUserName());
     const updatedEntries = currentEntries.filter(item => item.id !== id);
-    setCurrentEntries(updatedEntries);
     saveCurrentState(updatedEntries, currentDate, currentReportId);
     logActivity(getUserName(), "Deleted Item", `Deleted entry for ${item?.location}`, currentDate);
   };
@@ -175,12 +195,8 @@ const App = () => {
   const handleUndo = async () => {
       if (undoStack.length === 0) return;
       const previousState = undoStack[undoStack.length - 1];
-      
-      // Push current to redo
       setRedoStack(prev => [...prev, currentEntries]);
-      
       setUndoStack(undoStack.slice(0, -1));
-      setCurrentEntries(previousState);
       await saveCurrentState(previousState, currentDate, currentReportId);
       logActivity(getUserName(), "Undo", "Reverted report state", currentDate);
   };
@@ -188,17 +204,12 @@ const App = () => {
   const handleRedo = async () => {
       if (redoStack.length === 0) return;
       const nextState = redoStack[redoStack.length - 1];
-
-      // Push current to undo (without clearing redo, handled by setRedoStack below)
       setUndoStack(prev => [...prev, currentEntries]);
-
       setRedoStack(redoStack.slice(0, -1));
-      setCurrentEntries(nextState);
       await saveCurrentState(nextState, currentDate, currentReportId);
       logActivity(getUserName(), "Redo", "Restored report state", currentDate);
   };
 
-  // Normalizes current report entries (local + cloud)
   const handleNormalizeReport = async () => {
       pushUndo(currentEntries);
       const updatedEntries = currentEntries.map(item => {
@@ -210,28 +221,20 @@ const App = () => {
               chainage: parsed.detailLocation || item.chainage
           };
       });
-      setCurrentEntries(updatedEntries);
       await saveCurrentState(updatedEntries, currentDate, currentReportId);
       logActivity(getUserName(), "Normalize", "Re-parsed all items in active report", currentDate);
   };
 
-  // Normalizes ALL quantities in database
   const handleNormalizeQuantities = async () => {
       if (!confirm("This will re-scan and normalize Chainage & Area for ALL quantities in the system. Continue?")) return;
-      
       let count = 0;
       for (const qty of allQuantities) {
           const parsed = parseQuantityDetails(qty.location, qty.structure, qty.detailLocation || '', qty.description);
-          
-          // Only update if something meaningful changed or improved
-          const newArea = parsed.detailElement || qty.detailElement;
-          const newChainage = parsed.detailLocation || qty.detailLocation;
-          
-          if (newArea !== qty.detailElement || newChainage !== qty.detailLocation) {
+          if (parsed.detailElement !== qty.detailElement || parsed.detailLocation !== qty.detailLocation) {
               await updateQuantity({
                   ...qty,
-                  detailElement: newArea,
-                  detailLocation: newChainage,
+                  detailElement: parsed.detailElement || qty.detailElement,
+                  detailLocation: parsed.detailLocation || qty.detailLocation,
                   lastUpdated: new Date().toISOString()
               }, qty, getUserName());
               count++;
@@ -245,6 +248,32 @@ const App = () => {
       setSettings(s);
       setHierarchy(s.locationHierarchy);
       await saveProjectSettings(s);
+  };
+
+  // --- RECOVERY FEATURE ---
+  const handleRecoverBackup = async (backup: BackupEntry) => {
+      if (window.confirm(`Create a NEW report for ${backup.date} from this backup? This will overwrite any existing unsaved draft for that date.`)) {
+          setIsGlobalSaving(true);
+          try {
+             const reportId = crypto.randomUUID();
+             const entries = backup.parsedItems.map(item => ({...item, id: crypto.randomUUID()})); // Regen IDs
+             
+             await saveCurrentState(entries, backup.date, reportId, true);
+             
+             // Sync Qty
+             await syncQuantitiesFromItems(entries, { id: reportId, date: backup.date, entries } as DailyReport, `RECOVERY_${getUserName()}`);
+
+             setCurrentDate(backup.date);
+             setCurrentReportId(reportId);
+             setCurrentEntries(entries);
+             setActiveTab(TabView.VIEW_REPORT);
+             logActivity(getUserName(), "RECOVERY", `Restored report from backup ID ${backup.id}`, backup.date);
+          } catch(e) {
+             alert("Recovery failed.");
+          } finally {
+             setIsGlobalSaving(false);
+          }
+      }
   };
 
   const currentReport: DailyReport = {
@@ -265,24 +294,16 @@ const App = () => {
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 relative overflow-hidden">
-         {/* Decorative Background */}
          <div className="absolute inset-0 z-0 opacity-10">
              <div className="absolute top-0 left-0 w-96 h-96 bg-indigo-400 rounded-full blur-[100px] -translate-x-1/2 -translate-y-1/2"></div>
              <div className="absolute bottom-0 right-0 w-96 h-96 bg-blue-400 rounded-full blur-[100px] translate-x-1/2 translate-y-1/2"></div>
          </div>
-
          <div className="bg-white p-8 md:p-12 rounded-3xl shadow-2xl border border-slate-100 max-w-md w-full relative z-10 text-center">
-             
              <div className="w-24 h-24 bg-gradient-to-br from-indigo-600 to-blue-700 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-indigo-200 rotate-3 hover:rotate-6 transition-transform">
                 <i className="fas fa-hard-hat text-4xl text-white"></i>
              </div>
-
              <h1 className="text-3xl font-extrabold text-slate-800 mb-2 tracking-tight">DPR Maker</h1>
-             <p className="text-slate-500 mb-8 leading-relaxed">
-                Construction Daily Progress Reporting<br/>
-                <span className="text-xs font-medium text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full mt-2 inline-block">Project Management Suite</span>
-             </p>
-
+             <p className="text-slate-500 mb-8 leading-relaxed">Construction Daily Progress Reporting</p>
              <button 
                  onClick={handleLogin}
                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 px-6 rounded-xl transition-all transform hover:-translate-y-1 shadow-lg flex items-center justify-center gap-3 group relative overflow-hidden"
@@ -291,14 +312,6 @@ const App = () => {
                  <i className="fab fa-google text-lg"></i>
                  <span>Sign In with Google</span>
              </button>
-             
-             <div className="mt-8 flex items-center justify-center gap-2 text-xs text-slate-400">
-                <i className="fas fa-shield-alt"></i> Secure Authentication
-             </div>
-         </div>
-         
-         <div className="mt-8 text-slate-400 text-xs text-center z-10">
-            &copy; {new Date().getFullYear()} Construction Management System
          </div>
       </div>
     );
@@ -310,10 +323,21 @@ const App = () => {
         {activeTab === TabView.VIEW_REPORT && <ReportTable report={currentReport} onDeleteItem={handleDeleteItem} onUpdateItem={handleUpdateItem} onUndo={handleUndo} canUndo={undoStack.length > 0} onRedo={handleRedo} canRedo={redoStack.length > 0} onNormalize={handleNormalizeReport} hierarchy={hierarchy} />}
         {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onNormalize={handleNormalizeQuantities} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={handleSelectReport} onDeleteReport={async (id) => { await moveReportToTrash(reports.find(r => r.id === id)!, getUserName()); }} onCreateNew={handleCreateNew} />}
-        {activeTab === TabView.LOGS && <ActivityLogs logs={logs} />}
+        {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRecover={handleRecoverBackup} />}
         {activeTab === TabView.RECYCLE_BIN && <RecycleBin logs={logs} trashItems={trashItems} onRestore={async (item) => { await restoreTrashItem(item); }} />}
         {activeTab === TabView.SETTINGS && <ProjectSettingsView currentSettings={settings} onSave={handleSaveSettings} />}
         {activeTab === TabView.PROFILE && <ProfileView user={user} />}
+        
+        {/* Global Saving Overlay */}
+        {isGlobalSaving && (
+            <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center backdrop-blur-sm">
+                <div className="bg-white p-6 rounded-2xl flex flex-col items-center shadow-2xl animate-bounce-in">
+                    <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <h3 className="text-lg font-bold text-slate-800">Saving Securely...</h3>
+                    <p className="text-sm text-slate-500">Writing to Cloud Database</p>
+                </div>
+            </div>
+        )}
     </Layout>
   );
 };
