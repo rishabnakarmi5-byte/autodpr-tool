@@ -77,6 +77,7 @@ export interface LiningEntry {
   volume: number;
   remarks: string;
   source: 'Legacy' | 'System' | 'Manual';
+  status?: 'Verified' | 'Conflict' | 'New'; // For sync resolution
   lastUpdated: string;
 }
 
