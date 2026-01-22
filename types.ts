@@ -68,6 +68,18 @@ export interface QuantityEntry {
   updatedBy: string;
 }
 
+export interface LiningEntry {
+  id: string;
+  date: string;
+  stage: 'Invert' | 'Kicker' | 'Gantry';
+  fromCh: number;
+  toCh: number;
+  volume: number;
+  remarks: string;
+  source: 'Legacy' | 'System' | 'Manual';
+  lastUpdated: string;
+}
+
 export interface ItemTypeDefinition {
     name: string;
     pattern: string; // Regex string
@@ -104,6 +116,7 @@ export enum TabView {
   INPUT = 'input',
   VIEW_REPORT = 'view_report',
   QUANTITY = 'quantity',
+  LINING = 'lining',
   HISTORY = 'history',
   LOGS = 'logs',
   RECYCLE_BIN = 'recycle_bin',

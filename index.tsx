@@ -8,6 +8,7 @@ import { ReportTable } from './components/ReportTable';
 import { ActivityLogs } from './components/ActivityLogs';
 import { RecycleBin } from './components/RecycleBin';
 import { QuantityView } from './components/QuantityView';
+import { HRTLiningView } from './components/HRTLiningView';
 import { ProjectSettingsView } from './components/ProjectSettings';
 import { ProfileView } from './components/ProfileView';
 import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, syncQuantitiesFromItems, getProjectSettings, saveProjectSettings, incrementUserStats, subscribeToQuantities, updateQuantity } from './services/firebaseService';
@@ -386,6 +387,7 @@ const App = () => {
     <Layout activeTab={activeTab} onTabChange={handleTabChange} user={user} onLogout={logoutUser}>
         {activeTab === TabView.INPUT && <InputSection currentDate={currentDate} onDateChange={setCurrentDate} onItemsAdded={handleItemsAdded} onViewReport={() => setActiveTab(TabView.VIEW_REPORT)} entryCount={currentEntries.length} user={user} hierarchy={hierarchy} />}
         {activeTab === TabView.VIEW_REPORT && <ReportTable report={currentReport} onDeleteItem={handleDeleteItem} onUpdateItem={handleUpdateItem} onUpdateRow={handleUpdateRow} onUndo={handleUndo} canUndo={undoStack.length > 0} onRedo={handleRedo} canRedo={redoStack.length > 0} onNormalize={handleNormalizeReport} hierarchy={hierarchy} />}
+        {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} />}
         {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onNormalize={handleNormalizeQuantities} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={handleSelectReport} onDeleteReport={async (id) => { await moveReportToTrash(reports.find(r => r.id === id)!, getUserName()); }} onCreateNew={handleCreateNew} />}
         {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRecover={handleRecoverBackup} />}

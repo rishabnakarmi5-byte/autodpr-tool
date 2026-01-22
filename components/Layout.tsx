@@ -75,6 +75,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
             desc="Print preview"
           />
           <NavButton 
+            active={activeTab === TabView.LINING} 
+            onClick={() => onTabChange(TabView.LINING)}
+            icon="fa-road"
+            label="HRT Lining"
+            desc="Tunnel progress chart"
+          />
+          <NavButton 
             active={activeTab === TabView.QUANTITY} 
             onClick={() => onTabChange(TabView.QUANTITY)}
             icon="fa-calculator"
@@ -180,6 +187,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
             onClick={() => onTabChange(TabView.VIEW_REPORT)}
             icon="fa-file-invoice"
             label="Report"
+            />
+            <MobileNavButton 
+            active={activeTab === TabView.LINING} 
+            onClick={() => onTabChange(TabView.LINING)}
+            icon="fa-road"
+            label="Lining"
             />
             <MobileNavButton 
             active={activeTab === TabView.QUANTITY} 

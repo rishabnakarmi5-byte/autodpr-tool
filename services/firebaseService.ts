@@ -1,12 +1,13 @@
+
 import * as _app from "firebase/app";
 import * as _firestore from "firebase/firestore";
 import * as _auth from "firebase/auth";
-import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry, ProjectSettings, UserProfile, UserMood } from "../types";
+import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry, ProjectSettings, UserProfile, UserMood, LiningEntry } from "../types";
 import { LOCATION_HIERARCHY, identifyItemType, parseQuantityDetails } from "../utils/constants";
 
 // Workaround for potential type definition mismatches
 const { initializeApp } = _app as any;
-const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, getDocs, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion, where, increment, serverTimestamp } = _firestore as any;
+const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, getDocs, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion, where, increment, serverTimestamp, writeBatch } = _firestore as any;
 const { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } = _auth as any;
 
 // Define loose types for internal use to avoid import errors
@@ -55,6 +56,7 @@ const QUANTITY_COLLECTION = "quantities";
 const SETTINGS_COLLECTION = "project_settings";
 const USER_COLLECTION = "user_profiles";
 const MOOD_COLLECTION = "user_moods";
+const LINING_COLLECTION = "lining_data";
 
 // --- Authentication & Profile ---
 
@@ -328,22 +330,14 @@ export const syncQuantitiesFromItems = async (items: DPRItem[], report: DailyRep
     
     for (const item of items) {
         const itemType = identifyItemType(item.activityDescription);
-        
-        // Extract quantity number
-        // Simple regex for now: match number before unit (m3, ton, nos)
-        // Matches "45 m3", "45.5m3", "45", "45nos"
         const qtyMatch = item.activityDescription.match(/(\d+(\.\d+)?)\s*(m3|cum|ton|mt|nos|sqm|m2)/i);
         
         if (qtyMatch || itemType !== "Other") {
             const val = qtyMatch ? parseFloat(qtyMatch[1]) : 0;
             const unit = qtyMatch ? qtyMatch[3].toLowerCase() : 'unit';
             
-            // Only add if there is a meaningful quantity or specific item type
             if (val > 0 || itemType !== "Other") {
                 const parsed = parseQuantityDetails(item.location, item.component, item.chainageOrArea, item.activityDescription);
-                
-                // Create unique ID based on Report Item ID to prevent duplicates if sync runs twice
-                // Or random if new. Prefer determinism if possible, but item.id is good.
                 const qtyId = `qty_${item.id}`;
                 
                 const entry: QuantityEntry = {
@@ -363,14 +357,37 @@ export const syncQuantitiesFromItems = async (items: DPRItem[], report: DailyRep
                     lastUpdated: new Date().toISOString(),
                     updatedBy: user
                 };
-
-                // In a real app we might batch writes. For now, sequential awaits or Promise.all.
-                // Promise.all is faster.
                 batch.push(setDoc(doc(db, QUANTITY_COLLECTION, qtyId), entry));
             }
         }
     }
     await Promise.all(batch);
+};
+
+// --- Lining Data ---
+
+export const subscribeToLining = (callback: (entries: LiningEntry[]) => void): Unsubscribe => {
+    if (!db) return () => {};
+    const q = query(collection(db, LINING_COLLECTION), orderBy("fromCh", "asc"));
+    return onSnapshot(q, (snapshot: any) => {
+        const items = snapshot.docs.map((doc: any) => doc.data() as LiningEntry);
+        callback(items);
+    });
+};
+
+export const saveLiningBatch = async (entries: LiningEntry[]) => {
+    if (!db) return;
+    const batch = writeBatch(db);
+    entries.forEach(entry => {
+        const ref = doc(db, LINING_COLLECTION, entry.id);
+        batch.set(ref, entry);
+    });
+    await batch.commit();
+};
+
+export const deleteLiningEntry = async (id: string) => {
+    if (!db) return;
+    await deleteDoc(doc(db, LINING_COLLECTION, id));
 };
 
 
