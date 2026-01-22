@@ -10,17 +10,23 @@ export interface EditHistory {
 export interface DPRItem {
   id: string;
   location: string;
-  component?: string; // Sub-location (e.g. Barrage, Powerhouse Main Building)
-  structuralElement?: string; // New: Area (e.g. Raft, Wall)
-  chainage?: string; // New: Chainage or Elevation
-  chainageOrArea: string; // Legacy/Fallback: Combined string
+  component?: string; 
+  structuralElement?: string; 
+  chainage?: string; 
+  chainageOrArea: string; 
   activityDescription: string;
+  
+  // Master Record Specifics
+  quantity: number;
+  unit: string;
+  itemType?: string; // Auto-classified type (e.g. C25 Concrete)
+  
   plannedNextActivity: string;
-  createdBy?: string; // Track who added this item
-  sourceBackupId?: string; // Link to the original raw input batch
+  createdBy?: string; 
+  sourceBackupId?: string; 
   lastModifiedBy?: string;
   lastModifiedAt?: string;
-  editHistory?: EditHistory[]; // Full audit trail of this specific item
+  editHistory?: EditHistory[]; 
 }
 
 export interface DailyReport {
@@ -29,7 +35,7 @@ export interface DailyReport {
   lastUpdated: string;
   projectTitle: string;
   entries: DPRItem[];
-  isRecovered?: boolean; // New: Mark if created from recovery/backup
+  isRecovered?: boolean; 
 }
 
 export interface LogEntry {
@@ -37,19 +43,19 @@ export interface LogEntry {
   timestamp: string;
   user: string;
   action: string;
-  details: string; // Can be a simple string or JSON stringified object
+  details: string; 
   reportDate: string;
 }
 
 export interface TrashItem {
   trashId: string;
-  originalId: string; // ID of the report or the item
+  originalId: string; 
   type: 'report' | 'item' | 'quantity';
-  content: DailyReport | DPRItem | QuantityEntry; // The actual data to restore
+  content: DailyReport | DPRItem | QuantityEntry; 
   deletedAt: string;
   deletedBy: string;
   reportDate: string;
-  reportId?: string; // If it's an item, we need to know which report it belonged to
+  reportId?: string; 
 }
 
 export interface BackupEntry {
@@ -62,19 +68,20 @@ export interface BackupEntry {
   reportIdContext: string;
 }
 
+// Legacy support mostly, but good for type checking
 export interface QuantityEntry {
   id: string;
   date: string;
   location: string;
-  structure: string; // Component (e.g., Barrage, Weir)
-  detailElement?: string; // "Area" (e.g., Raft, Wall, Kicker)
-  detailLocation?: string; // "Chainage / EL" (e.g., Ch 100, EL 1177)
-  itemType: string; // E.g., "C25 Concrete", "Rebar", "Formwork"
+  structure: string; 
+  detailElement?: string; 
+  detailLocation?: string; 
+  itemType: string; 
   description: string;
-  quantityValue: number; // Parsed number
-  quantityUnit: string; // Parsed unit
-  originalRawString: string; // The full "35.6 m3" string
-  originalReportItemId?: string; // Link to source report item (to prevent duplicates)
+  quantityValue: number; 
+  quantityUnit: string; 
+  originalRawString: string; 
+  originalReportItemId?: string; 
   reportId?: string;
   lastUpdated: string;
   updatedBy: string;
@@ -89,13 +96,14 @@ export interface LiningEntry {
   volume: number;
   remarks: string;
   source: 'Legacy' | 'System' | 'Manual';
-  status?: 'Verified' | 'Conflict' | 'New'; // For sync resolution
+  status?: 'Verified' | 'Conflict' | 'New'; 
   lastUpdated: string;
+  linkedItemId?: string; // Link back to Master Record
 }
 
 export interface ItemTypeDefinition {
     name: string;
-    pattern: string; // Regex string
+    pattern: string; 
     defaultUnit: string;
 }
 
@@ -111,7 +119,7 @@ export interface UserProfile {
   displayName: string;
   email: string;
   totalEntries: number;
-  totalDays: number; // Days active
+  totalDays: number; 
   level: number;
   xp: number;
   joinedDate: string;

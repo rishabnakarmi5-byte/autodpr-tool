@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { parseConstructionData } from '../services/geminiService';
 import { DPRItem } from '../types';
@@ -159,7 +158,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           chainageOrArea: `${manualElement} ${manualChainage}`.trim(),
           activityDescription: manualDesc,
           plannedNextActivity: manualNext,
-          createdBy: user?.displayName || user?.email || 'Manual Input'
+          createdBy: user?.displayName || user?.email || 'Manual Input',
+          quantity: 0,
+          unit: ''
       };
 
       onItemsAdded([newItem], `Manual Entry: ${manualDesc}`);
