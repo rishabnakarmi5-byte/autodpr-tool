@@ -12,7 +12,7 @@ import { HRTLiningView } from './components/HRTLiningView';
 import { ProjectSettingsView } from './components/ProjectSettings';
 import { ProfileView } from './components/ProfileView';
 import { subscribeToReports, saveReportToCloud, deleteReportFromCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveItemToTrash, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, syncQuantitiesFromItems, getProjectSettings, saveProjectSettings, incrementUserStats, subscribeToQuantities, updateQuantity } from './services/firebaseService';
-import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, QuantityEntry, BackupEntry } from './types';
+import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, QuantityEntry, BackupEntry, EditHistory } from './types';
 import { getLocationPriority, LOCATION_HIERARCHY, parseQuantityDetails } from './utils/constants';
 
 const App = () => {
@@ -49,14 +49,6 @@ const App = () => {
       setAuthLoading(false);
       if (u) {
           logActivity(u.displayName || u.email || 'Unknown', "Session Active", "User authenticated via Google", "N/A");
-          
-          // Request notification permission on login ONLY for allowed users
-          const ALLOWED_EMAILS = ['rishabnakarmi5@gmail.com'];
-          if (u.email && ALLOWED_EMAILS.includes(u.email)) {
-              if ("Notification" in window && Notification.permission === "default") {
-                  Notification.requestPermission();
-              }
-          }
       }
     });
     return () => unsubscribeAuth();
@@ -104,11 +96,11 @@ const App = () => {
                     });
                     setTimeout(() => setNotification(null), 5000);
 
-                    // 2. Browser System Notification (Works in background)
+                    // 2. Browser System Notification
                     if ("Notification" in window && Notification.permission === "granted") {
                         new Notification("DPR Update", {
                             body: `${latestLog.user}: ${latestLog.details}`,
-                            icon: '/vite.svg' // Standard vite icon or custom
+                            icon: '/vite.svg'
                         });
                     }
                 }
@@ -208,16 +200,23 @@ const App = () => {
 
         pushUndo(baseEntries);
         
+        // 1. Create Backup
         const backupId = await savePermanentBackup(currentDate, rawText, newItems, getUserName(), effectiveReportId);
 
-        let updatedEntries = [...baseEntries, ...newItems];
+        // 2. Stamp items with backupId
+        const stampedItems = newItems.map(item => ({
+            ...item,
+            sourceBackupId: backupId || undefined
+        }));
+
+        let updatedEntries = [...baseEntries, ...stampedItems];
         updatedEntries.sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
         
         const savedReport = await saveCurrentState(updatedEntries, currentDate, effectiveReportId);
         
         if (savedReport) {
-            syncQuantitiesFromItems(newItems, savedReport, getUserName()).catch(console.error);
-            incrementUserStats(user?.uid, newItems.length).catch(console.error);
+            syncQuantitiesFromItems(stampedItems, savedReport, getUserName()).catch(console.error);
+            incrementUserStats(user?.uid, stampedItems.length).catch(console.error);
         }
         
         logActivity(getUserName(), "Report Updated", `Added ${newItems.length} items`, currentDate, backupId || undefined);
@@ -230,16 +229,84 @@ const App = () => {
 
   const handleUpdateItem = (id: string, field: keyof DPRItem, value: string) => {
     pushUndo(currentEntries);
-    const updatedEntries = currentEntries.map(item => item.id === id ? { ...item, [field]: value } : item);
+    const updatedEntries = currentEntries.map(item => {
+        if (item.id === id) {
+            // Record History
+            const historyEntry: EditHistory = {
+                timestamp: new Date().toISOString(),
+                user: getUserName(),
+                field: field,
+                oldValue: String(item[field] || ''),
+                newValue: value
+            };
+            
+            return {
+                ...item, 
+                [field]: value,
+                lastModifiedBy: getUserName(),
+                lastModifiedAt: new Date().toISOString(),
+                editHistory: [...(item.editHistory || []), historyEntry]
+            };
+        }
+        return item;
+    });
     saveCurrentState(updatedEntries, currentDate, currentReportId); 
     logActivity(getUserName(), "Updated Item", `Changed ${field}`, currentDate);
   };
 
   const handleUpdateRow = (id: string, updates: Partial<DPRItem>) => {
     pushUndo(currentEntries);
-    const updatedEntries = currentEntries.map(item => item.id === id ? { ...item, ...updates } : item);
+    const updatedEntries = currentEntries.map(item => {
+        if (item.id === id) {
+            const historyEntries: EditHistory[] = [];
+            Object.entries(updates).forEach(([key, val]) => {
+                historyEntries.push({
+                    timestamp: new Date().toISOString(),
+                    user: getUserName(),
+                    field: key,
+                    oldValue: String((item as any)[key] || ''),
+                    newValue: String(val)
+                });
+            });
+
+            return { 
+                ...item, 
+                ...updates,
+                lastModifiedBy: getUserName(),
+                lastModifiedAt: new Date().toISOString(),
+                editHistory: [...(item.editHistory || []), ...historyEntries]
+            };
+        }
+        return item;
+    });
     saveCurrentState(updatedEntries, currentDate, currentReportId); 
     logActivity(getUserName(), "Row Updated", `Batch update on ${Object.keys(updates).join(', ')}`, currentDate);
+  };
+
+  const handleSplitItem = async (originalItem: DPRItem) => {
+      pushUndo(currentEntries);
+      const newItemId = crypto.randomUUID();
+      const newItem: DPRItem = {
+          ...originalItem,
+          id: newItemId,
+          activityDescription: `${originalItem.activityDescription} (Copy)`,
+          createdBy: getUserName(),
+          lastModifiedBy: getUserName(),
+          lastModifiedAt: new Date().toISOString(),
+          editHistory: [{
+              timestamp: new Date().toISOString(),
+              user: getUserName(),
+              field: 'creation',
+              oldValue: 'N/A',
+              newValue: `Split from ${originalItem.id}`
+          }]
+      };
+      
+      const updatedEntries = [...currentEntries, newItem];
+      updatedEntries.sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
+      
+      await saveCurrentState(updatedEntries, currentDate, currentReportId);
+      logActivity(getUserName(), "Split Item", `Duplicated item ${originalItem.id} for splitting`, currentDate);
   };
 
   const handleDeleteItem = async (id: string) => {
@@ -321,7 +388,11 @@ const App = () => {
              const reportId = crypto.randomUUID();
              let allEntries: DPRItem[] = [];
              backups.forEach(b => {
-                 const itemsWithNewIds = b.parsedItems.map(item => ({...item, id: crypto.randomUUID()}));
+                 const itemsWithNewIds = b.parsedItems.map(item => ({
+                     ...item, 
+                     id: crypto.randomUUID(),
+                     sourceBackupId: b.id // Preserve origin
+                 }));
                  allEntries = [...allEntries, ...itemsWithNewIds];
              });
              allEntries.sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
@@ -386,13 +457,13 @@ const App = () => {
   return (
     <Layout activeTab={activeTab} onTabChange={handleTabChange} user={user} onLogout={logoutUser}>
         {activeTab === TabView.INPUT && <InputSection currentDate={currentDate} onDateChange={setCurrentDate} onItemsAdded={handleItemsAdded} onViewReport={() => setActiveTab(TabView.VIEW_REPORT)} entryCount={currentEntries.length} user={user} hierarchy={hierarchy} />}
-        {activeTab === TabView.VIEW_REPORT && <ReportTable report={currentReport} onDeleteItem={handleDeleteItem} onUpdateItem={handleUpdateItem} onUpdateRow={handleUpdateRow} onUndo={handleUndo} canUndo={undoStack.length > 0} onRedo={handleRedo} canRedo={redoStack.length > 0} onNormalize={handleNormalizeReport} hierarchy={hierarchy} />}
+        {activeTab === TabView.VIEW_REPORT && <ReportTable report={currentReport} onDeleteItem={handleDeleteItem} onUpdateItem={handleUpdateItem} onUpdateRow={handleUpdateRow} onUndo={handleUndo} canUndo={undoStack.length > 0} onRedo={handleRedo} canRedo={redoStack.length > 0} onNormalize={handleNormalizeReport} onSplitItem={handleSplitItem} hierarchy={hierarchy} />}
         {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} />}
         {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onNormalize={handleNormalizeQuantities} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={handleSelectReport} onDeleteReport={async (id) => { await moveReportToTrash(reports.find(r => r.id === id)!, getUserName()); }} onCreateNew={handleCreateNew} />}
         {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRecover={handleRecoverBackup} />}
         {activeTab === TabView.RECYCLE_BIN && <RecycleBin logs={logs} trashItems={trashItems} onRestore={async (item) => { await restoreTrashItem(item); }} />}
-        {activeTab === TabView.SETTINGS && <ProjectSettingsView currentSettings={settings} onSave={handleSaveSettings} reports={reports} quantities={allQuantities} />}
+        {activeTab === TabView.SETTINGS && <ProjectSettingsView currentSettings={settings} onSave={handleSaveSettings} reports={reports} quantities={allQuantities} user={user} />}
         {activeTab === TabView.PROFILE && <ProfileView user={user} />}
         
         {/* Global Saving Overlay */}

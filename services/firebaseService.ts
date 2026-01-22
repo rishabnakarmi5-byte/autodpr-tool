@@ -2,7 +2,7 @@
 import * as _app from "firebase/app";
 import * as _firestore from "firebase/firestore";
 import * as _auth from "firebase/auth";
-import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry, ProjectSettings, UserProfile, UserMood, LiningEntry } from "../types";
+import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry, ProjectSettings, UserProfile, UserMood, LiningEntry, SystemCheckpoint } from "../types";
 import { LOCATION_HIERARCHY, identifyItemType, parseQuantityDetails } from "../utils/constants";
 
 // Workaround for potential type definition mismatches
@@ -57,6 +57,7 @@ const SETTINGS_COLLECTION = "project_settings";
 const USER_COLLECTION = "user_profiles";
 const MOOD_COLLECTION = "user_moods";
 const LINING_COLLECTION = "lining_data";
+const CHECKPOINT_COLLECTION = "system_checkpoints";
 
 // --- Authentication & Profile ---
 
@@ -275,13 +276,18 @@ export const getBackups = async (limitCount: number = 50, startDate?: string, en
     let q = query(collection(db, BACKUP_COLLECTION), orderBy("timestamp", "desc"), limit(limitCount));
     
     if (startDate && endDate) {
-         // Firestore range queries on string dates work if ISO format
-         // Note: Might need composite index. If fails, do client side filtering.
          q = query(collection(db, BACKUP_COLLECTION), where("date", ">=", startDate), where("date", "<=", endDate), orderBy("date", "desc"));
     }
 
     const snap = await getDocs(q);
     return snap.docs.map((d: any) => d.data() as BackupEntry);
+};
+
+export const getBackupById = async (id: string): Promise<BackupEntry | null> => {
+    if (!db) return null;
+    const snap = await getDoc(doc(db, BACKUP_COLLECTION, id));
+    if (snap.exists()) return snap.data() as BackupEntry;
+    return null;
 };
 
 // --- Quantities ---
@@ -427,4 +433,94 @@ export const subscribeToTodayMood = (uid: string, callback: (mood: UserMood | nu
     if (doc.exists()) callback(doc.data() as UserMood);
     else callback(null);
   });
+};
+
+// --- System Checkpoints (Snapshots) ---
+
+export const createSystemCheckpoint = async (user: string): Promise<string> => {
+    if (!db) throw new Error("Database not connected");
+
+    // 1. Fetch all data
+    // WARNING: This reads ALL docs in these collections. 
+    // Suitable for small-medium projects (e.g. < 5000 items).
+    const reportsSnap = await getDocs(collection(db, REPORT_COLLECTION));
+    const reports = reportsSnap.docs.map((d: any) => d.data() as DailyReport);
+
+    const qtySnap = await getDocs(collection(db, QUANTITY_COLLECTION));
+    const quantities = qtySnap.docs.map((d: any) => d.data() as QuantityEntry);
+
+    const liningSnap = await getDocs(collection(db, LINING_COLLECTION));
+    const lining = liningSnap.docs.map((d: any) => d.data() as LiningEntry);
+
+    const settingsSnap = await getDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'));
+    const settings = settingsSnap.exists() ? (settingsSnap.data() as ProjectSettings) : null;
+
+    // 2. Create Checkpoint Object
+    const checkpointId = crypto.randomUUID();
+    const checkpoint: SystemCheckpoint = {
+        id: checkpointId,
+        timestamp: new Date().toISOString(),
+        name: `Checkpoint ${new Date().toLocaleDateString()}`,
+        createdBy: user,
+        data: {
+            reports,
+            quantities,
+            lining,
+            settings
+        }
+    };
+
+    // 3. Save to Firestore
+    await setDoc(doc(db, CHECKPOINT_COLLECTION, checkpointId), checkpoint);
+    return checkpointId;
+};
+
+export const getCheckpoints = async (): Promise<SystemCheckpoint[]> => {
+    if (!db) return [];
+    // We only fetch metadata primarily, but since structure includes 'data', 
+    // fetching whole docs might be heavy. 
+    // Ideally we should separate metadata and data. 
+    // For MVP, we fetch everything but limiting to recent 20.
+    const q = query(collection(db, CHECKPOINT_COLLECTION), orderBy("timestamp", "desc"), limit(20));
+    const snap = await getDocs(q);
+    return snap.docs.map((d: any) => d.data() as SystemCheckpoint);
+};
+
+export const restoreSystemCheckpoint = async (checkpoint: SystemCheckpoint) => {
+    if (!db) throw new Error("Database not connected");
+    
+    // DANGER: This overwrites current state.
+    
+    const batchSize = 500;
+    
+    // Helper to batch write
+    const commitBatch = async (items: any[], colName: string) => {
+        const chunks = [];
+        for (let i = 0; i < items.length; i += batchSize) {
+            chunks.push(items.slice(i, i + batchSize));
+        }
+        
+        for (const chunk of chunks) {
+            const batch = writeBatch(db);
+            chunk.forEach((item: any) => {
+                const ref = doc(db, colName, item.id);
+                batch.set(ref, item);
+            });
+            await batch.commit();
+        }
+    };
+
+    // 1. Restore Reports
+    await commitBatch(checkpoint.data.reports, REPORT_COLLECTION);
+    
+    // 2. Restore Quantities
+    await commitBatch(checkpoint.data.quantities, QUANTITY_COLLECTION);
+
+    // 3. Restore Lining
+    await commitBatch(checkpoint.data.lining, LINING_COLLECTION);
+
+    // 4. Restore Settings
+    if (checkpoint.data.settings) {
+        await setDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'), checkpoint.data.settings);
+    }
 };

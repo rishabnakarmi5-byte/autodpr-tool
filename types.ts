@@ -1,4 +1,12 @@
 
+export interface EditHistory {
+  timestamp: string;
+  user: string;
+  field: string;
+  oldValue: string;
+  newValue: string;
+}
+
 export interface DPRItem {
   id: string;
   location: string;
@@ -9,6 +17,10 @@ export interface DPRItem {
   activityDescription: string;
   plannedNextActivity: string;
   createdBy?: string; // Track who added this item
+  sourceBackupId?: string; // Link to the original raw input batch
+  lastModifiedBy?: string;
+  lastModifiedAt?: string;
+  editHistory?: EditHistory[]; // Full audit trail of this specific item
 }
 
 export interface DailyReport {
@@ -111,6 +123,19 @@ export interface UserMood {
   mood: 'Happy' | 'Excited' | 'Tired' | 'Frustrated' | 'Sad';
   note?: string;
   timestamp: string;
+}
+
+export interface SystemCheckpoint {
+  id: string;
+  timestamp: string;
+  name: string;
+  createdBy: string;
+  data: {
+    reports: DailyReport[];
+    quantities: QuantityEntry[];
+    lining: LiningEntry[];
+    settings: ProjectSettings | null;
+  };
 }
 
 export enum TabView {

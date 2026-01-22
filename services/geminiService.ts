@@ -81,6 +81,13 @@ export const parseConstructionData = async (
     3. MASONRY:
        - Convert "MS Wall" or "MS" to "Stone Masonry Wall".
 
+    4. SPLIT COMBINED ENTRIES (IMPORTANT):
+       - If a single sentence mentions TWO separate activities, create TWO separate JSON items.
+       - Example Input: "Wall concreting 20m3 and Soling 5m3 done."
+       - Output Item 1: "Wall C25 - 20 m3"
+       - Output Item 2: "Soling - 5 m3"
+       - Both inherit the same Location/Chainage unless specified otherwise.
+
     CRITICAL HIERARCHY RULES (FOLLOW STRICTLY):
     You must classify data into 4 levels:
     1. LOCATION (Main Area, e.g., Headworks, Powerhouse)

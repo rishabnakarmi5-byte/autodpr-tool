@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { DailyReport, DPRItem } from '../types';
+import { DailyReport, DPRItem, BackupEntry } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
-import { syncQuantitiesFromItems } from '../services/firebaseService';
+import { syncQuantitiesFromItems, getBackupById } from '../services/firebaseService';
 import { parseQuantityDetails } from '../utils/constants';
 
 interface ReportTableProps {
@@ -16,12 +16,13 @@ interface ReportTableProps {
   onRedo?: () => void;
   canRedo?: boolean;
   onNormalize?: () => void;
+  onSplitItem?: (item: DPRItem) => void;
   hierarchy: Record<string, string[]>;
 }
 
 type PaperSize = 'A4' | 'A3';
 
-export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, onUpdateItem, onUpdateRow, onUpdateAllEntries, onUndo, canUndo, onRedo, canRedo, onNormalize, hierarchy }) => {
+export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, onUpdateItem, onUpdateRow, onUpdateAllEntries, onUndo, canUndo, onRedo, canRedo, onNormalize, onSplitItem, hierarchy }) => {
   
   const [entries, setEntries] = useState<DPRItem[]>(report.entries);
   
@@ -35,9 +36,22 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   // Editors State
   const [editingComponentId, setEditingComponentId] = useState<string | null>(null);
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
+
+  // Inspector State
+  const [inspectItem, setInspectItem] = useState<DPRItem | null>(null);
+  const [sourceBackup, setSourceBackup] = useState<BackupEntry | null>(null);
+  const [isLoadingBackup, setIsLoadingBackup] = useState(false);
   
   useEffect(() => {
     setEntries(report.entries);
+  }, [report]);
+
+  // Update inspect item live if it changes in the report
+  useEffect(() => {
+      if (inspectItem) {
+          const freshItem = report.entries.find(e => e.id === inspectItem.id);
+          if (freshItem) setInspectItem(freshItem);
+      }
   }, [report]);
 
   // CSS Dimensions for Screen Preview
@@ -47,12 +61,10 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   };
   
   const handlePrint = () => {
-    // Reset zoom before print to ensure accurate CSS measurements
     const currentZoom = zoom;
     setZoom(1);
     setTimeout(() => {
         window.print();
-        // Restore zoom after print dialog opens (browsers block execution, so this runs after close usually)
         setZoom(currentZoom);
     }, 100);
   };
@@ -63,28 +75,22 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
       
       if (originalElement && window.html2canvas) {
           try {
-              // 1. Create a clone container fixed in viewport but behind everything (z-index -50)
-              // This is the FIX for 0-byte images. Browsers render this because it's in the viewport.
               const cloneContainer = document.createElement('div');
               cloneContainer.style.position = 'fixed';
               cloneContainer.style.top = '0';
               cloneContainer.style.left = '0';
-              cloneContainer.style.zIndex = '-50'; // Behind current UI
+              cloneContainer.style.zIndex = '-50';
               cloneContainer.style.background = '#ffffff';
-              cloneContainer.style.overflow = 'hidden'; // Prevent scrollbars affecting capture
+              cloneContainer.style.overflow = 'hidden';
               
-              // Set explicit width based on Paper Size
               const targetWidth = paperSize === 'A4' ? 800 : 1150;
               cloneContainer.style.width = `${targetWidth}px`;
               
-              // 2. Clone the report content
               const clonedReport = originalElement.cloneNode(true) as HTMLElement;
               
-              // 3. Clean up the clone
               const noPrintEls = clonedReport.querySelectorAll('.no-print');
               noPrintEls.forEach(el => el.remove());
 
-              // Replace Textareas with Divs
               const textareas = clonedReport.querySelectorAll('textarea');
               textareas.forEach(ta => {
                   const div = document.createElement('div');
@@ -97,7 +103,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   if (ta.parentNode) ta.parentNode.replaceChild(div, ta);
               });
 
-              // Reset Transforms
               clonedReport.style.transform = 'none';
               clonedReport.style.margin = '0';
               clonedReport.style.boxShadow = 'none';
@@ -109,24 +114,21 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               cloneContainer.appendChild(clonedReport);
               document.body.appendChild(cloneContainer);
 
-              // 4. WAIT for render. Critical for images/fonts.
               await new Promise(resolve => setTimeout(resolve, 800));
 
-              // 5. Capture
               const canvas = await window.html2canvas(cloneContainer, {
                   scale: 2, 
                   useCORS: true,
                   backgroundColor: '#ffffff',
                   width: targetWidth,
                   windowWidth: targetWidth,
-                  scrollY: 0, // Critical to prevent capturing scrolled-away empty space
+                  scrollY: 0,
                   scrollX: 0
               });
 
-              // 6. Download
               const imgData = canvas.toDataURL('image/jpeg', 0.9);
               if (imgData.length < 1000) {
-                   throw new Error("Generated image is too small (0 byte issue).");
+                   throw new Error("Generated image is too small.");
               }
 
               const link = document.createElement('a');
@@ -134,12 +136,11 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               link.download = `DPR_${report.date}_${paperSize}.jpg`;
               link.click();
 
-              // 7. Cleanup
               document.body.removeChild(cloneContainer);
 
           } catch(e) {
               console.error("JPG Export Failed:", e);
-              alert("Export failed. Please try 'Print -> Save as PDF' or check console for details.");
+              alert("Export failed. Please try 'Print -> Save as PDF'.");
           }
       }
       setIsExporting(false);
@@ -166,8 +167,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
   };
 
   const handleAreaBlur = (id: string, value: string) => {
-      // Critical Fix: Explicitly clear 'chainage' and sync 'chainageOrArea' 
-      // to prevent the view logic from appending old chainage to the new manual input.
       if (onUpdateRow) {
           onUpdateRow(id, { 
               structuralElement: value, 
@@ -175,7 +174,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               chainageOrArea: value
           });
       } else {
-          // Fallback if onUpdateRow isn't provided (less atomic)
           onUpdateItem(id, 'structuralElement', value);
           onUpdateItem(id, 'chainage', '');
           onUpdateItem(id, 'chainageOrArea', value);
@@ -188,16 +186,14 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     }
   };
 
-  const handleReparse = (item: DPRItem) => {
-      if(!onUpdateRow) return;
-      // Reparse looks at activityDescription to find structural element and chainage
-      const parsed = parseQuantityDetails(item.location, item.component, '', item.activityDescription);
-      onUpdateRow(item.id, {
-          component: parsed.structure || item.component,
-          structuralElement: parsed.detailElement,
-          chainage: parsed.detailLocation,
-          chainageOrArea: `${parsed.detailElement || ''} ${parsed.detailLocation || ''}`.trim()
-      });
+  const handleSplit = () => {
+      if(inspectItem && onSplitItem) {
+          if(confirm("Split this entry? A duplicate will be created sharing the same raw source, allowing you to separate quantities.")) {
+              onSplitItem(inspectItem);
+              alert("Item duplicated below. You can now edit each separately.");
+              setInspectItem(null); // Close to refresh view
+          }
+      }
   };
 
   const applyLocation = (id: string, value: string) => {
@@ -210,6 +206,22 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
        handleLocalChange(id, 'component', value);
        onUpdateItem(id, 'component', value);
        setEditingComponentId(null);
+  };
+
+  const openInspector = async (item: DPRItem) => {
+      setInspectItem(item);
+      setSourceBackup(null);
+      
+      if (item.sourceBackupId) {
+          setIsLoadingBackup(true);
+          try {
+              const backup = await getBackupById(item.sourceBackupId);
+              setSourceBackup(backup);
+          } catch(e) {
+              console.error(e);
+          }
+          setIsLoadingBackup(false);
+      }
   };
 
   return (
@@ -235,8 +247,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto justify-end">
-            
-             {/* Sync Button */}
             <button 
                 onClick={handleSyncQuantities}
                 disabled={isSyncing}
@@ -246,7 +256,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                 {isSyncing ? 'Syncing...' : 'Sync Qty'}
             </button>
 
-             {/* Normalize Button */}
             {onNormalize && (
                <button 
                   onClick={onNormalize} 
@@ -258,7 +267,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
 
             <div className="h-6 w-px bg-slate-200 mx-1 hidden lg:block"></div>
 
-            {/* Paper Size Toggle */}
             <div className="flex items-center bg-slate-100 rounded-xl p-1">
                 <button 
                     onClick={() => setPaperSize('A4')}
@@ -274,14 +282,11 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                 </button>
             </div>
 
-            {/* Font Size */}
             <div className="hidden sm:flex items-center gap-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
                  <button onClick={() => setFontSize(Math.max(8, fontSize - 1))} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white text-slate-500"><i className="fas fa-minus text-xs"></i></button>
                  <span className="text-sm font-bold w-6 text-center">{fontSize}</span>
                  <button onClick={() => setFontSize(Math.min(16, fontSize + 1))} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white text-slate-500"><i className="fas fa-plus text-xs"></i></button>
             </div>
-
-            {/* Actions */}
             
             <button 
                 onClick={handleDownloadJPG}
@@ -293,85 +298,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
         </div>
       </div>
 
-      {/* --- MOBILE VIEW (CARDS) --- */}
-      <div className="lg:hidden no-print">
-         {entries.length === 0 ? (
-             <div className="text-center p-8 text-slate-400 bg-white rounded-2xl border border-dashed border-slate-200">
-                 <i className="fas fa-ghost text-4xl mb-3 opacity-20"></i>
-                 <p>No entries yet.</p>
-             </div>
-         ) : (
-            entries.map(item => (
-                <div key={item.id} className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 mb-4 animate-fade-in relative group">
-                    <div className="flex justify-between items-start mb-3 border-b border-slate-50 pb-2">
-                        <div>
-                            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-0.5">Location</div>
-                            <div className="text-lg text-indigo-700 font-bold leading-tight">{item.location}</div>
-                            {item.component && <div className="text-sm text-slate-500 font-medium">{item.component}</div>}
-                        </div>
-                        <div className="text-right">
-                            <button 
-                                    onClick={() => handleDeleteClick(item)} 
-                                    className="bg-red-50 text-red-500 p-2 rounded-lg hover:bg-red-100 transition-colors"
-                            >
-                                    <i className="fas fa-trash-alt text-sm"></i>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 mb-3">
-                        <div className="bg-slate-50 p-2 rounded-lg">
-                            <div className="text-[10px] font-bold text-slate-400 uppercase">Area / Element</div>
-                            <input 
-                                className="w-full bg-transparent text-sm font-medium text-slate-700 outline-none"
-                                value={item.structuralElement || ''}
-                                placeholder="N/A"
-                                onChange={(e) => handleLocalChange(item.id, 'structuralElement', e.target.value)}
-                                onBlur={(e) => handleBlur(item.id, 'structuralElement', e.target.value)}
-                            />
-                        </div>
-                        <div className="bg-slate-50 p-2 rounded-lg">
-                            <div className="text-[10px] font-bold text-slate-400 uppercase">Chainage / EL</div>
-                            <input 
-                                className="w-full bg-transparent text-sm font-medium text-slate-700 outline-none"
-                                value={item.chainage || ''}
-                                placeholder="N/A"
-                                onChange={(e) => handleLocalChange(item.id, 'chainage', e.target.value)}
-                                onBlur={(e) => handleBlur(item.id, 'chainage', e.target.value)}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="mb-3">
-                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Activity Description</div>
-                        <textarea
-                                className="w-full text-sm text-slate-800 outline-none resize-none bg-transparent"
-                                rows={3}
-                                value={item.activityDescription}
-                                onChange={(e) => handleLocalChange(item.id, 'activityDescription', e.target.value)}
-                                onBlur={(e) => handleBlur(item.id, 'activityDescription', e.target.value)}
-                            />
-                    </div>
-
-                    <div>
-                        <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Next Plan</div>
-                        <input
-                                className="w-full text-sm text-slate-600 outline-none bg-transparent border-b border-dashed border-slate-200 focus:border-indigo-300 pb-1"
-                                value={item.plannedNextActivity}
-                                onChange={(e) => handleLocalChange(item.id, 'plannedNextActivity', e.target.value)}
-                                onBlur={(e) => handleBlur(item.id, 'plannedNextActivity', e.target.value)}
-                            />
-                    </div>
-                </div>
-            ))
-         )}
-         <div className="h-20"></div> {/* Spacer for bottom nav */}
-      </div>
-
       {/* --- DESKTOP VIEW (PAPER) --- */}
       <div className="hidden lg:flex justify-center bg-slate-200/50 p-8 rounded-2xl border border-slate-200 overflow-auto no-print-padding relative">
-        
-        {/* Zoom Controls (Screen Only) */}
         <div className="fixed bottom-8 right-8 z-50 bg-white shadow-xl rounded-full border border-slate-200 p-1.5 flex flex-col gap-1 no-print">
             <button onClick={() => setZoom(z => Math.min(1.5, z + 0.1))} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-600"><i className="fas fa-plus text-xs"></i></button>
             <button onClick={() => setZoom(z => Math.max(0.5, z - 0.1))} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-600"><i className="fas fa-minus text-xs"></i></button>
@@ -387,7 +315,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               marginBottom: `${(zoom - 1) * 300}px`
           }}
         >
-          {/* Paper Header */}
           <div className="border-b-2 border-slate-900 pb-4 mb-6">
             <h1 className="text-4xl text-center uppercase tracking-widest text-slate-900 mb-2 font-bold">Daily Progress Report</h1>
             <div className="flex justify-between items-end mt-6 text-sm">
@@ -403,7 +330,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
             </div>
           </div>
 
-          {/* Paper Table */}
           <table className="w-full border-collapse border border-slate-900 text-xs table-fixed">
               <thead>
                   <tr className="bg-slate-100 border-b border-slate-900 text-slate-900 uppercase tracking-wide">
@@ -425,7 +351,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   ) : (
                       entries.map((item) => (
                           <tr key={item.id} className="group border-b border-slate-900 hover:bg-blue-50/20 align-top">
-                              {/* Location */}
                               <td className="border-r border-slate-900 p-1.5 relative font-bold text-slate-800">
                                 {editingLocationId === item.id ? (
                                     <div className="absolute top-0 left-0 z-50 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48 no-print">
@@ -443,7 +368,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                                 )}
                               </td>
 
-                              {/* Component */}
                               <td className="border-r border-slate-900 p-1.5 relative">
                                  {editingComponentId === item.id ? (
                                     <div className="absolute top-0 left-0 z-50 bg-white shadow-xl border border-indigo-200 p-2 rounded-lg w-48 no-print">
@@ -458,7 +382,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                                 )}
                               </td>
 
-                              {/* Area / CH */}
                               <td className="border-r border-slate-900 p-1.5">
                                   <textarea 
                                       className="w-full bg-transparent resize-none outline-none font-medium overflow-hidden text-slate-900"
@@ -472,7 +395,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                                   />
                               </td>
 
-                              {/* Description */}
                               <td className="border-r border-slate-900 p-1.5">
                                   <textarea 
                                       className="w-full bg-transparent resize-none outline-none overflow-hidden leading-relaxed text-slate-900"
@@ -483,7 +405,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                                   />
                               </td>
 
-                              {/* Next Plan */}
                               <td className="border-r border-slate-900 p-1.5">
                                   <textarea 
                                       className="w-full bg-transparent resize-none outline-none overflow-hidden text-slate-900"
@@ -494,14 +415,13 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                                   />
                               </td>
 
-                              {/* Action (Delete & Reparse) */}
-                              <td className="p-1 align-middle text-center no-print flex flex-col items-center justify-center gap-2 h-full">
+                              <td className="p-1 align-middle text-center no-print flex flex-col items-center justify-center gap-1 h-full">
                                   <button 
-                                    onClick={() => handleReparse(item)}
-                                    className="text-slate-300 hover:text-indigo-500 transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-indigo-50"
-                                    title="Reset / Reparse details from description"
+                                    onClick={() => openInspector(item)}
+                                    className="text-slate-300 hover:text-indigo-600 transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-indigo-50"
+                                    title="Master Record Inspector"
                                   >
-                                      <i className="fas fa-magic text-xs"></i>
+                                      <i className="fas fa-database text-xs"></i>
                                   </button>
                                   <button 
                                     onClick={() => handleDeleteClick(item)}
@@ -516,13 +436,189 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                   )}
               </tbody>
           </table>
-          
-          {/* INVISIBLE FOOTER */}
           <div className="mt-4 text-right opacity-0 pointer-events-none select-none text-[0.1px]">
              Generated via Construction DPR Maker.
           </div>
         </div>
       </div>
+
+      {/* MASTER RECORD INSPECTOR MODAL */}
+      {inspectItem && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in no-print">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full h-[90vh] flex flex-col overflow-hidden relative">
+                  
+                  {/* Header */}
+                  <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-50">
+                      <div>
+                          <div className="flex items-center gap-3">
+                              <h3 className="text-2xl font-bold text-slate-800">Master Record</h3>
+                              <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-mono font-bold">
+                                  ID: {inspectItem.id.substring(0,8)}...
+                              </span>
+                          </div>
+                          <div className="text-xs text-slate-500 mt-1 flex gap-3">
+                              <span><i className="fas fa-user-circle mr-1"></i> Created by: <strong>{inspectItem.createdBy || 'Unknown'}</strong></span>
+                              {inspectItem.lastModifiedAt && (
+                                  <span><i className="fas fa-clock mr-1"></i> Updated: {new Date(inspectItem.lastModifiedAt).toLocaleString()}</span>
+                              )}
+                          </div>
+                      </div>
+                      <div className="flex gap-2">
+                          <button onClick={handleSplit} className="bg-white border border-slate-200 text-slate-600 hover:text-indigo-600 hover:border-indigo-300 px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm">
+                              <i className="fas fa-columns mr-2"></i> Split Entry
+                          </button>
+                          <button onClick={() => setInspectItem(null)} className="w-10 h-10 rounded-full hover:bg-slate-200 flex items-center justify-center transition-colors">
+                              <i className="fas fa-times text-slate-600 text-lg"></i>
+                          </button>
+                      </div>
+                  </div>
+
+                  <div className="flex-1 flex overflow-hidden">
+                      {/* Left Column: Editable Fields */}
+                      <div className="w-2/5 p-6 overflow-y-auto border-r border-slate-100 bg-white">
+                          <h4 className="text-xs font-bold text-slate-400 uppercase mb-4 tracking-wider">Current Data Fields</h4>
+                          
+                          <div className="space-y-5">
+                              <div>
+                                  <label className="block text-[10px] font-bold text-indigo-600 uppercase mb-1">Main Location</label>
+                                  <input 
+                                    className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                    value={inspectItem.location}
+                                    onChange={(e) => handleLocalChange(inspectItem.id, 'location', e.target.value)}
+                                    onBlur={(e) => onUpdateItem(inspectItem.id, 'location', e.target.value)}
+                                  />
+                              </div>
+                              <div>
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Component</label>
+                                  <input 
+                                    className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                    value={inspectItem.component}
+                                    onChange={(e) => handleLocalChange(inspectItem.id, 'component', e.target.value)}
+                                    onBlur={(e) => onUpdateItem(inspectItem.id, 'component', e.target.value)}
+                                  />
+                              </div>
+                              <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Structure / Element</label>
+                                      <input 
+                                        className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                        value={inspectItem.structuralElement}
+                                        onChange={(e) => handleLocalChange(inspectItem.id, 'structuralElement', e.target.value)}
+                                        onBlur={(e) => onUpdateItem(inspectItem.id, 'structuralElement', e.target.value)}
+                                      />
+                                  </div>
+                                  <div>
+                                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Chainage / Elevation</label>
+                                      <input 
+                                        className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                        value={inspectItem.chainage}
+                                        onChange={(e) => handleLocalChange(inspectItem.id, 'chainage', e.target.value)}
+                                        onBlur={(e) => onUpdateItem(inspectItem.id, 'chainage', e.target.value)}
+                                      />
+                                  </div>
+                              </div>
+                              <div>
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Activity Description</label>
+                                  <textarea 
+                                    className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 text-slate-700 min-h-[120px] focus:ring-2 focus:ring-indigo-500 outline-none text-sm leading-relaxed"
+                                    value={inspectItem.activityDescription}
+                                    onChange={(e) => handleLocalChange(inspectItem.id, 'activityDescription', e.target.value)}
+                                    onBlur={(e) => onUpdateItem(inspectItem.id, 'activityDescription', e.target.value)}
+                                  />
+                              </div>
+                              <div>
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Planned Next</label>
+                                  <input 
+                                    className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                    value={inspectItem.plannedNextActivity}
+                                    onChange={(e) => handleLocalChange(inspectItem.id, 'plannedNextActivity', e.target.value)}
+                                    onBlur={(e) => onUpdateItem(inspectItem.id, 'plannedNextActivity', e.target.value)}
+                                  />
+                              </div>
+                          </div>
+                      </div>
+
+                      {/* Right Column: Context & History */}
+                      <div className="w-3/5 flex flex-col bg-slate-50/50">
+                          
+                          {/* Raw Source View */}
+                          <div className="p-6 border-b border-slate-200 h-1/2 overflow-y-auto">
+                              <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
+                                  <i className="fas fa-fingerprint"></i> Original Source Context
+                              </h4>
+                              
+                              {isLoadingBackup ? (
+                                  <div className="text-center p-8 text-slate-400">
+                                      <i className="fas fa-circle-notch fa-spin text-xl mb-2"></i><br/>Retrieving Backup...
+                                  </div>
+                              ) : sourceBackup ? (
+                                  <div className="space-y-3">
+                                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm relative group">
+                                          <div className="absolute top-2 right-2 opacity-50 group-hover:opacity-100 transition-opacity">
+                                              <span className="text-[10px] bg-slate-100 px-2 py-1 rounded text-slate-500 font-mono">
+                                                  {new Date(sourceBackup.timestamp).toLocaleTimeString()}
+                                              </span>
+                                          </div>
+                                          <div className="text-[10px] text-slate-400 mb-2 uppercase font-bold">
+                                              Batch Upload by {sourceBackup.user}
+                                          </div>
+                                          <div className="font-mono text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
+                                              {sourceBackup.rawInput}
+                                          </div>
+                                      </div>
+                                      <p className="text-[10px] text-slate-400 italic text-center px-4">
+                                          This entry was AI-parsed from the text block above. Splitting this entry will create a new record linked to this same source.
+                                      </p>
+                                  </div>
+                              ) : (
+                                  <div className="h-full flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl p-4">
+                                      <i className="fas fa-keyboard text-3xl mb-2 opacity-20"></i>
+                                      <p className="text-sm font-medium">Manual Entry</p>
+                                      <p className="text-xs">No raw source backup found.</p>
+                                  </div>
+                              )}
+                          </div>
+
+                          {/* Edit History View */}
+                          <div className="p-6 h-1/2 overflow-y-auto bg-slate-100/50">
+                              <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
+                                  <i className="fas fa-history"></i> Edit History
+                              </h4>
+                              
+                              {!inspectItem.editHistory || inspectItem.editHistory.length === 0 ? (
+                                  <div className="text-center p-8 text-slate-400 text-xs italic">
+                                      No edits recorded yet.
+                                  </div>
+                              ) : (
+                                  <div className="space-y-4">
+                                      {[...inspectItem.editHistory].reverse().map((log, idx) => (
+                                          <div key={idx} className="flex gap-3 relative">
+                                              <div className="flex flex-col items-center">
+                                                  <div className="w-2 h-2 rounded-full bg-indigo-400 ring-4 ring-slate-100"></div>
+                                                  {idx !== (inspectItem.editHistory?.length || 0) - 1 && <div className="w-px h-full bg-slate-200 my-1"></div>}
+                                              </div>
+                                              <div className="flex-1 pb-2">
+                                                  <div className="text-[10px] text-slate-400 mb-0.5">
+                                                      {new Date(log.timestamp).toLocaleString()} by <span className="font-bold text-slate-600">{log.user}</span>
+                                                  </div>
+                                                  <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm text-xs">
+                                                      <span className="font-bold text-indigo-600 uppercase text-[10px] mr-2">{log.field}</span>
+                                                      <span className="text-red-400 line-through mr-2 opacity-70">{log.oldValue || 'Empty'}</span>
+                                                      <i className="fas fa-arrow-right text-slate-300 text-[10px] mr-2"></i>
+                                                      <span className="text-green-600 font-medium">{log.newValue}</span>
+                                                  </div>
+                                              </div>
+                                          </div>
+                                      ))}
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
     </div>
   );
 };
