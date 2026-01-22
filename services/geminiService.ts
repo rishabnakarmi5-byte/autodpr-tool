@@ -66,6 +66,21 @@ export const parseConstructionData = async (
     ${contextBlock}
 
     ---------------------------------------------------------
+    CRITICAL FORMATTING & VOCABULARY RULES:
+    1. ACTIVITY DESCRIPTION: Keep it EXTREMELY SHORT, PROFESSIONAL and CONCISE.
+       - Format: "[Element] [Material/Grade] - [Quantity]"
+       - Remove story-telling words like "We did", "Completed", "In progress", "Carried out".
+       - Example: "Gantry C25 - 50 m3" (Good) vs "We completed concreting of gantry with 50m3" (Bad).
+       - Example: "Face Excavation - 12 m3" (Good).
+    
+    2. CONCRETE GRADES:
+       - Convert ALL "M" grades to "C" grades.
+       - "M25" -> "C25", "M15" -> "C15", "M20" -> "C20".
+       - If only "Concrete" is written without grade, default to "C25" internally but do not write it unless sure.
+
+    3. MASONRY:
+       - Convert "MS Wall" or "MS" to "Stone Masonry Wall".
+
     CRITICAL HIERARCHY RULES (FOLLOW STRICTLY):
     You must classify data into 4 levels:
     1. LOCATION (Main Area, e.g., Headworks, Powerhouse)
@@ -163,6 +178,17 @@ export const parseConstructionData = async (
 
           const chainageVal = clean(item.chainage);
           const elementVal = clean(item.structuralElement);
+          
+          // Strict Post-Processing Replacements
+          let desc = item.activityDescription || "";
+          
+          // 1. Force M to C conversion (Global regex, case insensitive)
+          // Matches M followed by 2 digits (e.g., M25, m15) ensuring it's a word boundary
+          desc = desc.replace(/\bM(\d{2})\b/gi, "C$1");
+
+          // 2. Map MS Wall
+          desc = desc.replace(/\bMS\s*Wall\b/gi, "Stone Masonry Wall");
+          desc = desc.replace(/\bMS\b/g, "Stone Masonry"); // Be careful with 'MS' standing for other things, but usually MS Wall context handles it.
 
           return {
               location: item.location || "Unclassified / Needs Fix",
@@ -171,7 +197,7 @@ export const parseConstructionData = async (
               chainage: chainageVal,
               // Only append if value exists to avoid "Not specified Not specified"
               chainageOrArea: `${chainageVal} ${elementVal}`.trim(),
-              activityDescription: item.activityDescription,
+              activityDescription: desc,
               plannedNextActivity: item.plannedNextActivity
           };
       });

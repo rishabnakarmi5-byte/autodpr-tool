@@ -165,6 +165,23 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
     }
   };
 
+  const handleAreaBlur = (id: string, value: string) => {
+      // Critical Fix: Explicitly clear 'chainage' and sync 'chainageOrArea' 
+      // to prevent the view logic from appending old chainage to the new manual input.
+      if (onUpdateRow) {
+          onUpdateRow(id, { 
+              structuralElement: value, 
+              chainage: '',
+              chainageOrArea: value
+          });
+      } else {
+          // Fallback if onUpdateRow isn't provided (less atomic)
+          onUpdateItem(id, 'structuralElement', value);
+          onUpdateItem(id, 'chainage', '');
+          onUpdateItem(id, 'chainageOrArea', value);
+      }
+  };
+
   const handleDeleteClick = (item: DPRItem) => {
     if (window.confirm("Delete this entry?")) {
       onDeleteItem(item.id);
@@ -173,6 +190,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
 
   const handleReparse = (item: DPRItem) => {
       if(!onUpdateRow) return;
+      // Reparse looks at activityDescription to find structural element and chainage
       const parsed = parseQuantityDetails(item.location, item.component, '', item.activityDescription);
       onUpdateRow(item.id, {
           component: parsed.structure || item.component,
@@ -392,8 +410,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                       <th className="border-r border-slate-900 p-2 w-[12%] text-left font-bold">Location</th>
                       <th className="border-r border-slate-900 p-2 w-[14%] text-left font-bold">Component</th>
                       <th className="border-r border-slate-900 p-2 w-[14%] text-left font-bold">Area / CH</th>
-                      <th className="border-r border-slate-900 p-2 w-[45%] text-left font-bold">Activity Description</th>
-                      <th className="border-r border-slate-900 p-2 w-[15%] text-left font-bold">Next Plan</th>
+                      <th className="border-r border-slate-900 p-2 w-[35%] text-left font-bold">Activity Description</th>
+                      <th className="border-r border-slate-900 p-2 w-[25%] text-left font-bold">Next Plan</th>
                       <th 
                           className="p-1 w-[25px] no-print text-center font-normal" 
                       >
@@ -445,8 +463,11 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                                   <textarea 
                                       className="w-full bg-transparent resize-none outline-none font-medium overflow-hidden text-slate-900"
                                       value={item.structuralElement || item.chainage ? `${item.structuralElement || ''} ${item.chainage || ''}`.trim() : item.chainageOrArea}
-                                      onChange={(e) => { handleLocalChange(item.id, 'structuralElement', e.target.value); handleLocalChange(item.id, 'chainage', ''); }}
-                                      onBlur={(e) => handleBlur(item.id, 'structuralElement', e.target.value)}
+                                      onChange={(e) => { 
+                                          handleLocalChange(item.id, 'structuralElement', e.target.value); 
+                                          handleLocalChange(item.id, 'chainage', ''); 
+                                      }}
+                                      onBlur={(e) => handleAreaBlur(item.id, e.target.value)}
                                       ref={el => { if(el){ el.style.height='auto'; el.style.height=el.scrollHeight+'px'; } }}
                                   />
                               </td>
@@ -473,7 +494,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
                                   />
                               </td>
 
-                              {/* Action (Delete & Reparse) - CLASS 'no-print' ADDED */}
+                              {/* Action (Delete & Reparse) */}
                               <td className="p-1 align-middle text-center no-print flex flex-col items-center justify-center gap-2 h-full">
                                   <button 
                                     onClick={() => handleReparse(item)}
@@ -496,9 +517,9 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onDeleteItem, 
               </tbody>
           </table>
           
-          {/* INVISIBLE FOOTER BUT DETECTABLE IN DOM */}
+          {/* INVISIBLE FOOTER */}
           <div className="mt-4 text-right opacity-0 pointer-events-none select-none text-[0.1px]">
-             Generated via Construction DPR Maker. Developed by Rishab Nakarmi.
+             Generated via Construction DPR Maker.
           </div>
         </div>
       </div>
