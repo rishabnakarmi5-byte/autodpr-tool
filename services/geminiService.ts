@@ -23,6 +23,68 @@ export const getMoodMessage = async (mood: string, userName: string): Promise<st
   }
 };
 
+/**
+ * Lightweight extraction for a single item.
+ * Used for the "Autofill" button in Master Record.
+ */
+export const autofillItemData = async (
+  description: string,
+  customItemTypes?: any[]
+): Promise<Partial<DPRItem>> => {
+  const itemTypesToUse = customItemTypes || ITEM_PATTERNS.map(p => ({
+      name: p.name,
+      pattern: p.pattern.toString().slice(1, -2),
+      defaultUnit: p.defaultUnit
+  }));
+
+  const itemTypesString = itemTypesToUse.map(t => `"${t.name}" (keywords: ${t.pattern})`).join(', ');
+
+  const prompt = `
+    Extract work specifications from this construction activity description: "${description}"
+    
+    Return JSON with:
+    1. quantity (number)
+    2. unit (string: m3, Ton, m2, nos, or rm)
+    3. itemType (string: Select the best match from recognized types)
+
+    RECOGNIZED TYPES: ${itemTypesString}
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            quantity: { type: Type.NUMBER },
+            unit: { type: Type.STRING },
+            itemType: { type: Type.STRING }
+          }
+        }
+      }
+    });
+
+    if (response.text) {
+      const result = JSON.parse(response.text);
+      return {
+        quantity: result.quantity || 0,
+        unit: result.unit || "m3",
+        itemType: result.itemType || identifyItemType(description, customItemTypes)
+      };
+    }
+  } catch (e) {
+    console.error("Autofill error:", e);
+  }
+  
+  // Fallback to regex-based identification if AI fails
+  return {
+    itemType: identifyItemType(description, customItemTypes)
+  };
+};
+
 export const parseConstructionData = async (
   rawText: string,
   instructions?: string,

@@ -15,6 +15,7 @@ import { MasterRecordModal } from './components/MasterRecordModal';
 import { subscribeToReports, saveReportToCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, getProjectSettings, saveProjectSettings, incrementUserStats, moveItemToTrash } from './services/firebaseService';
 import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, EditHistory } from './types';
 import { getLocationPriority, LOCATION_HIERARCHY } from './utils/constants';
+import { autofillItemData } from './services/geminiService';
 
 const App = () => {
   const [user, setUser] = useState<any | null>(null);
@@ -146,6 +147,46 @@ const App = () => {
     if(inspectItem?.id === id) setInspectItem(prev => prev ? ({...prev, ...updates}) : null);
   };
 
+  const handleHardSync = async () => {
+    if (!window.confirm("Perform Global Autofill? This will use AI to fill missing quantities/types for ALL reports. This may take a moment.")) return;
+    
+    setIsGlobalSaving(true);
+    let updatedCount = 0;
+
+    try {
+      for (const report of reports) {
+        let reportModified = false;
+        const newEntries = await Promise.all(report.entries.map(async (item) => {
+          // If quantity is missing or unclassified, try autofilling
+          if ((!item.quantity || item.quantity === 0 || !item.itemType || item.itemType === 'Other') && item.activityDescription) {
+            const result = await autofillItemData(item.activityDescription, settings?.itemTypes);
+            if (result.quantity !== undefined || result.itemType) {
+              reportModified = true;
+              updatedCount++;
+              return { 
+                ...item, 
+                ...result, 
+                lastModifiedBy: 'AI System Sync',
+                lastModifiedAt: new Date().toISOString() 
+              };
+            }
+          }
+          return item;
+        }));
+
+        if (reportModified) {
+          await saveReportToCloud({ ...report, entries: newEntries, lastUpdated: new Date().toISOString() });
+        }
+      }
+      alert(`Hard Sync Complete! Autofilled ${updatedCount} items across all reports.`);
+    } catch (e) {
+      console.error(e);
+      alert("Global autofill encountered errors.");
+    } finally {
+      setIsGlobalSaving(false);
+    }
+  };
+
   const handleSplitItem = (originalItem: DPRItem) => {
     const targetReport = findReportForItem(originalItem.id);
     if (!targetReport) return;
@@ -216,8 +257,8 @@ const App = () => {
     <Layout activeTab={activeTab} onTabChange={setActiveTab} user={user} onLogout={logoutUser}>
         {activeTab === TabView.INPUT && <InputSection currentDate={currentDate} onDateChange={setCurrentDate} onItemsAdded={handleItemsAdded} onViewReport={() => setActiveTab(TabView.VIEW_REPORT)} entryCount={currentEntries.length} user={user} hierarchy={hierarchy} />}
         {activeTab === TabView.VIEW_REPORT && <ReportTable report={{id: currentReportId || '', date: currentDate, lastUpdated: '', projectTitle: settings?.projectName || '', companyName: settings?.companyName, entries: currentEntries}} onDeleteItem={handleDeleteItem} onUpdateItem={(id, f, v) => handleUpdateItem(id, {[f]: v})} onUpdateRow={handleUpdateItem} onUndo={handleUndo} canUndo={undoStack.length > 0} onRedo={handleRedo} canRedo={redoStack.length > 0} onInspectItem={setInspectItem} hierarchy={hierarchy} />}
-        {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={() => {/* Sync is auto via sub */}} />}
-        {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onInspectItem={setInspectItem} customItemTypes={settings?.itemTypes} />}
+        {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={handleHardSync} />}
+        {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={handleHardSync} customItemTypes={settings?.itemTypes} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={(id) => { const r = reports.find(r=>r.id===id); if(r) setCurrentDate(r.date); setActiveTab(TabView.VIEW_REPORT); }} onDeleteReport={(id) => moveReportToTrash(reports.find(r=>r.id===id)!, getUserName())} onCreateNew={() => { setCurrentDate(new Date().toISOString().split('T')[0]); setActiveTab(TabView.INPUT); }} />}
         {activeTab === TabView.LOGS && <ActivityLogs logs={logs} />}
         {activeTab === TabView.RECYCLE_BIN && <RecycleBin logs={logs} trashItems={trashItems} onRestore={restoreTrashItem} />}

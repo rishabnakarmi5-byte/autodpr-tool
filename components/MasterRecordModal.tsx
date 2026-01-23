@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { DPRItem, BackupEntry, ItemTypeDefinition } from '../types';
 import { getBackupById } from '../services/firebaseService';
 import { ITEM_PATTERNS } from '../utils/constants';
-import { parseConstructionData } from '../services/geminiService';
+import { parseConstructionData, autofillItemData } from '../services/geminiService';
 
 interface MasterRecordModalProps {
   item: DPRItem;
@@ -22,6 +22,7 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
   const [activeTab, setActiveTab] = useState<'source' | 'history'>('source');
   const [loadingSource, setLoadingSource] = useState(false);
   const [parsingHarder, setParsingHarder] = useState(false);
+  const [isAutofilling, setIsAutofilling] = useState(false);
 
   useEffect(() => {
     setLocalItem(item);
@@ -51,6 +52,25 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
   const handleBlur = (field: keyof DPRItem) => {
     if (localItem[field] !== (item as any)[field]) {
       onUpdate(item.id, { [field]: localItem[field] });
+    }
+  };
+
+  const handleAutofillTrigger = async () => {
+    if (!localItem.activityDescription || isAutofilling) return;
+    setIsAutofilling(true);
+    try {
+        const result = await autofillItemData(localItem.activityDescription, customItemTypes);
+        const updates = {
+            quantity: result.quantity ?? localItem.quantity,
+            unit: result.unit ?? localItem.unit,
+            itemType: result.itemType ?? localItem.itemType
+        };
+        setLocalItem(prev => ({ ...prev, ...updates }));
+        onUpdate(item.id, updates);
+    } catch (e) {
+        alert("Autofill failed.");
+    } finally {
+        setIsAutofilling(false);
     }
   };
 
@@ -158,7 +178,21 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
             </div>
 
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative">
-              <div className="absolute -top-3 left-4 bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase">Work Specs & Quantity</div>
+              <div className="absolute -top-3 left-4 bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase flex items-center gap-2">
+                 <span>Work Specs & Quantity</span>
+              </div>
+              
+              <div className="flex justify-end mb-2">
+                 <button 
+                    onClick={handleAutofillTrigger}
+                    disabled={isAutofilling}
+                    className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all flex items-center gap-1.5"
+                 >
+                    {isAutofilling ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-magic"></i>}
+                    Autofill from Description
+                 </button>
+              </div>
+
               <div className="space-y-4">
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Classification</label>
@@ -217,17 +251,28 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                     )}
                     {sourceBackup ? (
                       <div className="space-y-4">
-                        <div className="bg-slate-900 text-slate-300 p-4 rounded-xl font-mono text-xs leading-relaxed whitespace-pre-wrap shadow-inner">{sourceBackup.rawInput}</div>
+                        <div className="bg-slate-900 text-slate-300 p-4 rounded-xl font-mono text-xs leading-relaxed whitespace-pre-wrap shadow-inner select-all cursor-default">
+                           {sourceBackup.rawInput}
+                        </div>
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-700 italic">
+                           <i className="fas fa-info-circle mr-1"></i> This is the raw text block from which this record was extracted. It is un-editable to preserve original audit trail.
+                        </div>
                         <button 
                             onClick={handleParseHarder}
                             disabled={parsingHarder}
                             className="w-full bg-indigo-50 text-indigo-700 border border-indigo-100 py-3 rounded-xl font-bold text-sm hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
                         >
                             {parsingHarder ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-microscope"></i>}
-                            AI Re-scan (Parse Harder)
+                            AI Re-scan (Full Parse)
                         </button>
                       </div>
-                    ) : <div className="text-center p-10 text-slate-400 italic">No source backup found (Manual or Split Entry).</div>}
+                    ) : (
+                      <div className="flex flex-col items-center justify-center p-12 text-slate-400 italic">
+                         <i className="fas fa-file-pen text-3xl opacity-20 mb-3"></i>
+                         No original source backup found.<br/>
+                         <span className="text-[10px] uppercase font-bold mt-1">(Manual Creation)</span>
+                      </div>
+                    )}
                   </div>
                 )
               ) : (
