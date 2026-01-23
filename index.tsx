@@ -43,7 +43,12 @@ const App = () => {
     const unsubReports = subscribeToReports(setReports);
     const unsubLogs = subscribeToLogs(setLogs);
     const unsubTrash = subscribeToTrash(setTrashItems);
-    getProjectSettings().then(s => { if(s) { setSettings(s); if(s.locationHierarchy) setHierarchy(s.locationHierarchy); } });
+    getProjectSettings().then(s => { 
+      if(s) { 
+        setSettings(s); 
+        if(s.locationHierarchy) setHierarchy(s.locationHierarchy); 
+      } 
+    });
     return () => { unsubAuth(); unsubReports(); unsubLogs(); unsubTrash(); };
   }, []);
 
@@ -274,6 +279,21 @@ const App = () => {
     incrementUserStats(user?.uid, newItems.length);
   };
 
+  const handleToggleBlockItem = async (itemId: string) => {
+      if(!settings) return;
+      const currentBlocked = settings.blockedLiningItemIds || [];
+      let newBlocked;
+      if (currentBlocked.includes(itemId)) {
+          newBlocked = currentBlocked.filter(id => id !== itemId);
+      } else {
+          newBlocked = [...currentBlocked, itemId];
+      }
+      const newSettings = { ...settings, blockedLiningItemIds: newBlocked };
+      setSettings(newSettings);
+      await saveProjectSettings(newSettings);
+      logActivity(getUserName(), "Lining Block Toggle", `${currentBlocked.includes(itemId) ? 'Unblocked' : 'Blocked'} item ${itemId} from lining progress`, currentDate);
+  };
+
   if (authLoading) return <div className="h-screen flex items-center justify-center bg-slate-50">Loading...</div>;
   if (!user) return <div className="h-screen flex items-center justify-center"><button onClick={signInWithGoogle} className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold">Sign In to DPR Tool</button></div>;
 
@@ -281,7 +301,7 @@ const App = () => {
     <Layout activeTab={activeTab} onTabChange={setActiveTab} user={user} onLogout={logoutUser}>
         {activeTab === TabView.INPUT && <InputSection currentDate={currentDate} onDateChange={setCurrentDate} onItemsAdded={handleItemsAdded} onViewReport={() => setActiveTab(TabView.VIEW_REPORT)} entryCount={currentEntries.length} user={user} hierarchy={hierarchy} />}
         {activeTab === TabView.VIEW_REPORT && <ReportTable report={{id: currentReportId || '', date: currentDate, lastUpdated: '', projectTitle: settings?.projectName || '', companyName: settings?.companyName, entries: currentEntries}} onDeleteItem={handleDeleteItem} onUpdateItem={(id, f, v) => handleUpdateItem(id, {[f]: v})} onUpdateRow={handleUpdateItem} onUndo={handleUndo} canUndo={undoStack.length > 0} onRedo={handleRedo} canRedo={redoStack.length > 0} onInspectItem={setInspectItem} hierarchy={hierarchy} />}
-        {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={handleHardSync} />}
+        {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={handleHardSync} blockedItemIds={settings?.blockedLiningItemIds || []} onToggleBlock={handleToggleBlockItem} />}
         {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={handleHardSync} customItemTypes={settings?.itemTypes} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={(id) => { const r = reports.find(r=>r.id===id); if(r) setCurrentDate(r.date); setActiveTab(TabView.VIEW_REPORT); }} onDeleteReport={(id) => moveReportToTrash(reports.find(r=>r.id===id)!, getUserName())} onCreateNew={() => { setCurrentDate(new Date().toISOString().split('T')[0]); setActiveTab(TabView.INPUT); }} />}
         {activeTab === TabView.LOGS && <ActivityLogs logs={logs} />}

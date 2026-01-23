@@ -58,12 +58,12 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
             <h1 className="text-4xl text-slate-900 font-black uppercase tracking-tighter">Daily Progress Report</h1>
             <div className="mt-2">
                 <p className="text-indigo-600 font-black text-sm uppercase tracking-widest">{report.projectTitle}</p>
-                <p className="text-slate-400 font-bold text-xs uppercase tracking-[0.2em]">{report.companyName || "Construction Management"}</p>
+                <p className="text-black font-bold text-xs uppercase tracking-[0.2em]">{report.companyName || "Construction Management"}</p>
             </div>
           </div>
           <div className="text-right">
             <div className="text-2xl font-black text-slate-900">{report.date}</div>
-            <div className="text-slate-500 italic font-medium">{getNepaliDate(report.date)}</div>
+            <div className="text-black font-medium">{getNepaliDate(report.date)}</div>
           </div>
         </div>
 
@@ -81,17 +81,16 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
             {report.entries.length === 0 ? (
               <tr><td colSpan={5} className="p-20 text-center italic text-slate-300">No records found for this date.</td></tr>
             ) : report.entries.map((item) => (
-              <tr key={item.id} onClick={() => onInspectItem(item)} className="group border-b border-slate-900 hover:bg-indigo-50/50 cursor-pointer align-top">
-                <td className="border-r border-slate-900 p-2 font-bold text-slate-900">{item.location}</td>
-                <td className="border-r border-slate-900 p-2 font-medium text-slate-600">{item.component}</td>
-                <td className="border-r border-slate-900 p-2 font-mono text-slate-500">{item.chainageOrArea}</td>
+              <tr key={item.id} onClick={() => onInspectItem(item)} className="group border-b border-slate-900 hover:bg-indigo-50/50 cursor-pointer align-top text-black">
+                <td className="border-r border-slate-900 p-2 font-bold">{item.location}</td>
+                <td className="border-r border-slate-900 p-2 font-medium">{item.component}</td>
+                <td className="border-r border-slate-900 p-2 font-mono">{item.chainageOrArea}</td>
                 <td className="border-r border-slate-900 p-2">
-                  <div className="font-medium text-slate-800 leading-snug">
+                  <div className="font-medium leading-snug">
                     {item.activityDescription}
-                    {item.quantity > 0 && <span className="ml-2 px-1.5 py-0.5 bg-indigo-50 text-indigo-700 font-black rounded border border-indigo-100" style={{ fontSize: '0.85em' }}>{item.quantity} {item.unit || 'm3'}</span>}
                   </div>
                 </td>
-                <td className="p-2 text-slate-400 italic leading-tight">{item.plannedNextActivity}</td>
+                <td className="p-2 leading-tight">{item.plannedNextActivity}</td>
               </tr>
             ))}
           </tbody>

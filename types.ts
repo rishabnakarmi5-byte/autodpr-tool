@@ -122,6 +122,7 @@ export interface ProjectSettings {
   projectDescription: string;
   locationHierarchy: Record<string, string[]>;
   itemTypes: ItemTypeDefinition[];
+  blockedLiningItemIds?: string[];
 }
 
 export interface UserProfile {

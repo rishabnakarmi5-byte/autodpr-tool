@@ -67,7 +67,8 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
       const matchSearch = q.location.toLowerCase().includes(search.toLowerCase()) || 
                           q.activityDescription.toLowerCase().includes(search.toLowerCase()) ||
                           (q.component || "").toLowerCase().includes(search.toLowerCase()) ||
-                          (q.structuralElement || "").toLowerCase().includes(search.toLowerCase());
+                          (q.structuralElement || "").toLowerCase().includes(search.toLowerCase()) ||
+                          (q.chainage || "").toLowerCase().includes(search.toLowerCase());
       const matchDate = (!dateStart || q.date >= dateStart) && (!dateEnd || q.date <= dateEnd);
       
       return matchType && matchLoc && matchComp && matchSearch && matchDate;
@@ -75,9 +76,9 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
   }, [quantities, filterType, filterLocation, filterComponent, search, dateStart, dateEnd]);
 
   const exportCSV = () => {
-    const headers = "Date,Location,Component,Activity,Item Type,Qty,Unit\n";
+    const headers = "Date,Location,Component,Structure/Area,CH/EL,Activity,Item Type,Qty,Unit\n";
     const rows = filtered.map(q => 
-      `"${q.date}","${q.location}","${q.component}","${q.activityDescription.replace(/"/g, '""')}","${q.itemType}",${q.quantity},"${q.unit || 'm3'}"`
+      `"${q.date}","${q.location}","${q.component}","${(q.structuralElement || '').replace(/"/g, '""')}","${(q.chainage || '').replace(/"/g, '""')}","${q.activityDescription.replace(/"/g, '""')}","${q.itemType}",${q.quantity},"${q.unit || 'm3'}"`
     ).join("\n");
     const blob = new Blob([headers + rows], { type: 'text/csv' });
     const link = document.createElement('a');
@@ -154,12 +155,14 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
 
       <div className="bg-white rounded-2xl shadow border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[1000px]">
+          <table className="w-full text-left border-collapse min-w-[1200px]">
             <thead className="bg-slate-50 border-b-2 border-slate-200">
               <tr>
                 <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</th>
                 <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Location / Component</th>
-                <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Activity & Element</th>
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Structure / Area</th>
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">CH. / EL.</th>
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Activity</th>
                 <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Classification</th>
                 <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Qty</th>
                 <th className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit</th>
@@ -168,7 +171,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                    <td colSpan={6} className="p-12 text-center text-slate-400 italic">No matching quantities found.</td>
+                    <td colSpan={8} className="p-12 text-center text-slate-400 italic">No matching quantities found.</td>
                 </tr>
               ) : filtered.map(q => (
                 <tr key={q.id} onClick={() => onInspectItem?.(q)} className="hover:bg-indigo-50/50 cursor-pointer transition-colors group">
@@ -177,9 +180,10 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
                     <div className="text-sm font-bold text-slate-800">{q.location}</div>
                     <div className="text-[10px] text-indigo-500 font-bold uppercase">{q.component || "General"}</div>
                   </td>
+                  <td className="p-4 text-xs font-bold text-slate-600 uppercase">{q.structuralElement || '-'}</td>
+                  <td className="p-4 text-xs font-mono text-slate-500 uppercase">{q.chainage || '-'}</td>
                   <td className="p-4">
                     <div className="text-sm text-slate-600 leading-snug">{q.activityDescription}</div>
-                    {q.structuralElement && <div className="text-[10px] text-slate-400 font-mono mt-1">Area: {q.structuralElement}</div>}
                   </td>
                   <td className="p-4">
                     <span className={`text-[10px] font-black px-2 py-1 rounded-md uppercase ${q.itemType === 'Other' ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>
