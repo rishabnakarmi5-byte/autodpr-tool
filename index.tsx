@@ -148,25 +148,43 @@ const App = () => {
   };
 
   const handleHardSync = async () => {
-    if (!window.confirm("Perform Global Autofill? This will use AI to fill missing quantities/types for ALL reports. This may take a moment.")) return;
+    if (!window.confirm("Perform Global Autofill? The AI will learn from your manually corrected entries to fix old data. Proceed?")) return;
     
     setIsGlobalSaving(true);
     let updatedCount = 0;
 
     try {
+      // 1. Gather 'Verified' examples: Prioritize items with edit history or specific high-quality structural labels
+      const verifiedItems: DPRItem[] = [];
+      reports.forEach(r => {
+          r.entries.forEach(e => {
+              const hasHistory = e.editHistory && e.editHistory.length > 0;
+              const hasComplexLocation = e.component && (e.activityDescription.toLowerCase().includes('apron') || e.activityDescription.toLowerCase().includes('key'));
+              
+              if ((hasHistory || hasComplexLocation) && e.quantity > 0) {
+                  if (verifiedItems.length < 25) verifiedItems.push(e);
+              }
+          });
+      });
+
+      const learnedContext = verifiedItems.map(v => 
+          `USER VERIFIED MAPPING: Text "${v.activityDescription}" maps to [Location: ${v.location}, Component: ${v.component}, Element: ${v.structuralElement}, Qty: ${v.quantity}, Unit: ${v.unit}, Type: ${v.itemType}]`
+      ).join('\n');
+
+      // 2. Process all reports sequentially
       for (const report of reports) {
         let reportModified = false;
         const newEntries = await Promise.all(report.entries.map(async (item) => {
-          // If quantity is missing or unclassified, try autofilling
-          if ((!item.quantity || item.quantity === 0 || !item.itemType || item.itemType === 'Other') && item.activityDescription) {
-            const result = await autofillItemData(item.activityDescription, settings?.itemTypes);
-            if (result.quantity !== undefined || result.itemType) {
+          // If record is "thin" (no quantity, or classified as 'Other'), try a re-parse with learned context
+          if ((!item.quantity || item.quantity === 0 || item.itemType === 'Other') && item.activityDescription) {
+            const result = await autofillItemData(item.activityDescription, settings?.itemTypes, learnedContext);
+            if (result.quantity !== undefined && result.quantity !== 0) {
               reportModified = true;
               updatedCount++;
               return { 
                 ...item, 
                 ...result, 
-                lastModifiedBy: 'AI System Sync',
+                lastModifiedBy: 'AI Global Sync',
                 lastModifiedAt: new Date().toISOString() 
               };
             }
@@ -178,10 +196,10 @@ const App = () => {
           await saveReportToCloud({ ...report, entries: newEntries, lastUpdated: new Date().toISOString() });
         }
       }
-      alert(`Hard Sync Complete! Autofilled ${updatedCount} items across all reports.`);
+      alert(`Hard Sync Complete! Successfully updated ${updatedCount} records based on your manually edited examples.`);
     } catch (e) {
       console.error(e);
-      alert("Global autofill encountered errors.");
+      alert("Hard Sync failed to complete all operations.");
     } finally {
       setIsGlobalSaving(false);
     }

@@ -2,17 +2,13 @@
 import * as _app from "firebase/app";
 import * as _firestore from "firebase/firestore";
 import * as _auth from "firebase/auth";
-import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry, ProjectSettings, UserProfile, UserMood, LiningEntry, SystemCheckpoint } from "../types";
+import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry, ProjectSettings, UserProfile, UserMood, LiningEntry, SystemCheckpoint, TrainingExample } from "../types";
 import { LOCATION_HIERARCHY, identifyItemType, parseQuantityDetails } from "../utils/constants";
 
 // Workaround for potential type definition mismatches
 const { initializeApp } = _app as any;
 const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, getDocs, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion, where, increment, serverTimestamp, writeBatch } = _firestore as any;
 const { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } = _auth as any;
-
-// Define loose types for internal use to avoid import errors
-type User = any;
-type Unsubscribe = any;
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -58,6 +54,7 @@ const USER_COLLECTION = "user_profiles";
 const MOOD_COLLECTION = "user_moods";
 const LINING_COLLECTION = "lining_data";
 const CHECKPOINT_COLLECTION = "system_checkpoints";
+const TRAINING_COLLECTION = "ai_training_examples";
 
 // --- Authentication & Profile ---
 
@@ -66,7 +63,6 @@ export const signInWithGoogle = async () => {
   const provider = new GoogleAuthProvider();
   try {
     const result = await signInWithPopup(auth, provider);
-    // Initialize profile if new
     const userRef = doc(db, USER_COLLECTION, result.user.uid);
     const snap = await getDoc(userRef);
     if (!snap.exists()) {
@@ -93,7 +89,7 @@ export const logoutUser = async () => {
   return signOut(auth);
 };
 
-export const subscribeToAuth = (callback: (user: User | null) => void): Unsubscribe => {
+export const subscribeToAuth = (callback: (user: any | null) => void): any => {
   if (!auth) {
       callback(null);
       return () => {};
@@ -112,18 +108,15 @@ export const subscribeToUserProfile = (uid: string, callback: (p: UserProfile | 
 export const incrementUserStats = async (uid: string | undefined, entriesCount: number) => {
     if (!db || !uid) return;
     const userRef = doc(db, USER_COLLECTION, uid);
-    // Logic: 10 entries = 10 XP. 100 XP = Level Up.
-    // We do simple increment here. Cloud functions usually better for leveling up logic but we do client side for simple demo.
     await updateDoc(userRef, {
         totalEntries: increment(entriesCount),
         xp: increment(entriesCount * 5)
-        // Level logic would be computed on read or via another update, keeping it simple here.
     });
 };
 
 // --- Reports ---
 
-export const subscribeToReports = (callback: (reports: DailyReport[]) => void): Unsubscribe => {
+export const subscribeToReports = (callback: (reports: DailyReport[]) => void): any => {
   if (!db) return () => {};
   const q = query(collection(db, REPORT_COLLECTION), orderBy("date", "desc"));
   return onSnapshot(q, (snapshot: any) => {
@@ -145,7 +138,6 @@ export const deleteReportFromCloud = async (reportId: string) => {
 
 export const saveReportHistory = async (report: DailyReport) => {
     if(!db) return;
-    // Save a version
     await addDoc(collection(db, REPORT_HISTORY_COLLECTION), {
         reportId: report.id,
         date: report.date,
@@ -167,11 +159,10 @@ export const logActivity = async (user: string, action: string, details: string,
     reportDate
   };
   if(relatedBackupId) entry.relatedBackupId = relatedBackupId;
-  
   await setDoc(doc(db, LOG_COLLECTION, entry.id), entry);
 };
 
-export const subscribeToLogs = (callback: (logs: LogEntry[]) => void): Unsubscribe => {
+export const subscribeToLogs = (callback: (logs: LogEntry[]) => void): any => {
   if (!db) return () => {};
   const q = query(collection(db, LOG_COLLECTION), orderBy("timestamp", "desc"), limit(100));
   return onSnapshot(q, (snapshot: any) => {
@@ -214,7 +205,7 @@ export const moveReportToTrash = async (report: DailyReport, user: string) => {
     await logActivity(user, "Delete Report", `Moved report ${report.date} to trash`, report.date);
 };
 
-export const subscribeToTrash = (callback: (items: TrashItem[]) => void): Unsubscribe => {
+export const subscribeToTrash = (callback: (items: TrashItem[]) => void): any => {
     if (!db) return () => {};
     const q = query(collection(db, TRASH_COLLECTION), orderBy("deletedAt", "desc"));
     return onSnapshot(q, (snapshot: any) => {
@@ -225,31 +216,23 @@ export const subscribeToTrash = (callback: (items: TrashItem[]) => void): Unsubs
 
 export const restoreTrashItem = async (item: TrashItem) => {
     if (!db) return;
-    
-    // 1. Restore content based on type
     if (item.type === 'report') {
         await saveReportToCloud(item.content as DailyReport);
     } else if (item.type === 'item') {
-        // We need to fetch the report and add the item back
         const reportRef = doc(db, REPORT_COLLECTION, item.reportId);
         const reportSnap = await getDoc(reportRef);
         if (reportSnap.exists()) {
             const report = reportSnap.data() as DailyReport;
-            // Check if item already exists to avoid dupes
             if (!report.entries.find(e => e.id === item.originalId)) {
                 const updatedEntries = [...report.entries, item.content as DPRItem];
                 await updateDoc(reportRef, { entries: updatedEntries });
             }
         } else {
-             // Report doesn't exist? recreate it maybe? For now just warn.
-             console.warn("Report for this item no longer exists. Cannot restore item to void.");
              throw new Error("Parent report not found");
         }
     } else if (item.type === 'quantity') {
         await updateQuantity(item.content as QuantityEntry, undefined, "System Restore");
     }
-
-    // 2. Remove from trash
     await deleteDoc(doc(db, TRASH_COLLECTION, item.trashId));
 };
 
@@ -274,11 +257,9 @@ export const savePermanentBackup = async (date: string, rawText: string, parsedI
 export const getBackups = async (limitCount: number = 50, startDate?: string, endDate?: string) => {
     if (!db) return [];
     let q = query(collection(db, BACKUP_COLLECTION), orderBy("timestamp", "desc"), limit(limitCount));
-    
     if (startDate && endDate) {
          q = query(collection(db, BACKUP_COLLECTION), where("date", ">=", startDate), where("date", "<=", endDate), orderBy("date", "desc"));
     }
-
     const snap = await getDocs(q);
     return snap.docs.map((d: any) => d.data() as BackupEntry);
 };
@@ -292,7 +273,7 @@ export const getBackupById = async (id: string): Promise<BackupEntry | null> => 
 
 // --- Quantities ---
 
-export const subscribeToQuantities = (callback: (qty: QuantityEntry[]) => void): Unsubscribe => {
+export const subscribeToQuantities = (callback: (qty: QuantityEntry[]) => void): any => {
     if (!db) return () => {};
     const q = query(collection(db, QUANTITY_COLLECTION), orderBy("date", "desc"));
     return onSnapshot(q, (snapshot: any) => {
@@ -311,8 +292,6 @@ export const updateQuantity = async (qty: QuantityEntry, oldQty?: QuantityEntry,
 
 export const deleteQuantity = async (qty: QuantityEntry, user?: string) => {
     if(!db) return;
-    
-    // Add to trash first
     const trashItem: TrashItem = {
         trashId: crypto.randomUUID(),
         originalId: qty.id,
@@ -323,56 +302,41 @@ export const deleteQuantity = async (qty: QuantityEntry, user?: string) => {
         reportDate: qty.date
     };
     await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
-
-    // Delete
     await deleteDoc(doc(db, QUANTITY_COLLECTION, qty.id));
     logActivity(user || "System", "Delete Quantity", `Deleted ${qty.itemType} at ${qty.location}`, qty.date);
 };
 
-export const syncQuantitiesFromItems = async (items: DPRItem[], report: DailyReport, user: string) => {
-    if (!db) return;
+// --- AI Training ---
 
-    const batch = [];
-    
-    for (const item of items) {
-        const itemType = identifyItemType(item.activityDescription);
-        const qtyMatch = item.activityDescription.match(/(\d+(\.\d+)?)\s*(m3|cum|ton|mt|nos|sqm|m2)/i);
-        
-        if (qtyMatch || itemType !== "Other") {
-            const val = qtyMatch ? parseFloat(qtyMatch[1]) : 0;
-            const unit = qtyMatch ? qtyMatch[3].toLowerCase() : 'unit';
-            
-            if (val > 0 || itemType !== "Other") {
-                const parsed = parseQuantityDetails(item.location, item.component, item.chainageOrArea, item.activityDescription);
-                const qtyId = `qty_${item.id}`;
-                
-                const entry: QuantityEntry = {
-                    id: qtyId,
-                    date: report.date,
-                    location: item.location,
-                    structure: parsed.structure,
-                    detailElement: parsed.detailElement,
-                    detailLocation: parsed.detailLocation,
-                    itemType: itemType,
-                    description: item.activityDescription,
-                    quantityValue: val,
-                    quantityUnit: unit,
-                    originalRawString: item.activityDescription,
-                    originalReportItemId: item.id,
-                    reportId: report.id,
-                    lastUpdated: new Date().toISOString(),
-                    updatedBy: user
-                };
-                batch.push(setDoc(doc(db, QUANTITY_COLLECTION, qtyId), entry));
-            }
-        }
-    }
-    await Promise.all(batch);
+export const saveTrainingExample = async (example: TrainingExample) => {
+  if (!db) return;
+  await setDoc(doc(db, TRAINING_COLLECTION, example.id), example);
+};
+
+export const deleteTrainingExample = async (id: string) => {
+  if (!db) return;
+  await deleteDoc(doc(db, TRAINING_COLLECTION, id));
+};
+
+export const getTrainingExamples = async (): Promise<TrainingExample[]> => {
+  if (!db) return [];
+  const q = query(collection(db, TRAINING_COLLECTION), orderBy("createdAt", "desc"));
+  const snap = await getDocs(q);
+  return snap.docs.map((d: any) => d.data() as TrainingExample);
+};
+
+export const subscribeToTrainingExamples = (callback: (ex: TrainingExample[]) => void): any => {
+  if (!db) return () => {};
+  const q = query(collection(db, TRAINING_COLLECTION), orderBy("createdAt", "desc"));
+  return onSnapshot(q, (snapshot: any) => {
+    const items = snapshot.docs.map((doc: any) => doc.data() as TrainingExample);
+    callback(items);
+  });
 };
 
 // --- Lining Data ---
 
-export const subscribeToLining = (callback: (entries: LiningEntry[]) => void): Unsubscribe => {
+export const subscribeToLining = (callback: (entries: LiningEntry[]) => void): any => {
     if (!db) return () => {};
     const q = query(collection(db, LINING_COLLECTION), orderBy("fromCh", "asc"));
     return onSnapshot(q, (snapshot: any) => {
@@ -396,7 +360,6 @@ export const deleteLiningEntry = async (id: string) => {
     await deleteDoc(doc(db, LINING_COLLECTION, id));
 };
 
-
 // --- Settings ---
 
 export const getProjectSettings = async (): Promise<ProjectSettings | null> => {
@@ -413,7 +376,7 @@ export const saveProjectSettings = async (settings: ProjectSettings) => {
 
 // --- User Mood ---
 
-export const saveUserMood = async (uid: string, mood: 'Happy' | 'Excited' | 'Tired' | 'Frustrated' | 'Sad', note?: string) => {
+export const saveUserMood = async (uid: string, mood: any, note?: string) => {
   if (!db) return;
   const today = new Date().toISOString().split('T')[0];
   const moodEntry: UserMood = {
@@ -426,7 +389,7 @@ export const saveUserMood = async (uid: string, mood: 'Happy' | 'Excited' | 'Tir
   await setDoc(doc(db, MOOD_COLLECTION, moodEntry.id), moodEntry);
 };
 
-export const subscribeToTodayMood = (uid: string, callback: (mood: UserMood | null) => void): Unsubscribe => {
+export const subscribeToTodayMood = (uid: string, callback: (mood: UserMood | null) => void): any => {
   if (!db) return () => {};
   const today = new Date().toISOString().split('T')[0];
   return onSnapshot(doc(db, MOOD_COLLECTION, `${uid}_${today}`), (doc: any) => {
@@ -435,52 +398,32 @@ export const subscribeToTodayMood = (uid: string, callback: (mood: UserMood | nu
   });
 };
 
-// --- System Checkpoints (Snapshots) ---
+// --- System Checkpoints ---
 
 export const createSystemCheckpoint = async (user: string): Promise<string> => {
     if (!db) throw new Error("Database not connected");
-
-    // 1. Fetch all data
-    // WARNING: This reads ALL docs in these collections. 
-    // Suitable for small-medium projects (e.g. < 5000 items).
     const reportsSnap = await getDocs(collection(db, REPORT_COLLECTION));
     const reports = reportsSnap.docs.map((d: any) => d.data() as DailyReport);
-
     const qtySnap = await getDocs(collection(db, QUANTITY_COLLECTION));
     const quantities = qtySnap.docs.map((d: any) => d.data() as QuantityEntry);
-
     const liningSnap = await getDocs(collection(db, LINING_COLLECTION));
     const lining = liningSnap.docs.map((d: any) => d.data() as LiningEntry);
-
     const settingsSnap = await getDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'));
     const settings = settingsSnap.exists() ? (settingsSnap.data() as ProjectSettings) : null;
-
-    // 2. Create Checkpoint Object
     const checkpointId = crypto.randomUUID();
     const checkpoint: SystemCheckpoint = {
         id: checkpointId,
         timestamp: new Date().toISOString(),
         name: `Checkpoint ${new Date().toLocaleDateString()}`,
         createdBy: user,
-        data: {
-            reports,
-            quantities,
-            lining,
-            settings
-        }
+        data: { reports, quantities, lining, settings }
     };
-
-    // 3. Save to Firestore
     await setDoc(doc(db, CHECKPOINT_COLLECTION, checkpointId), checkpoint);
     return checkpointId;
 };
 
 export const getCheckpoints = async (): Promise<SystemCheckpoint[]> => {
     if (!db) return [];
-    // We only fetch metadata primarily, but since structure includes 'data', 
-    // fetching whole docs might be heavy. 
-    // Ideally we should separate metadata and data. 
-    // For MVP, we fetch everything but limiting to recent 20.
     const q = query(collection(db, CHECKPOINT_COLLECTION), orderBy("timestamp", "desc"), limit(20));
     const snap = await getDocs(q);
     return snap.docs.map((d: any) => d.data() as SystemCheckpoint);
@@ -488,18 +431,12 @@ export const getCheckpoints = async (): Promise<SystemCheckpoint[]> => {
 
 export const restoreSystemCheckpoint = async (checkpoint: SystemCheckpoint) => {
     if (!db) throw new Error("Database not connected");
-    
-    // DANGER: This overwrites current state.
-    
     const batchSize = 500;
-    
-    // Helper to batch write
     const commitBatch = async (items: any[], colName: string) => {
         const chunks = [];
         for (let i = 0; i < items.length; i += batchSize) {
             chunks.push(items.slice(i, i + batchSize));
         }
-        
         for (const chunk of chunks) {
             const batch = writeBatch(db);
             chunk.forEach((item: any) => {
@@ -509,17 +446,9 @@ export const restoreSystemCheckpoint = async (checkpoint: SystemCheckpoint) => {
             await batch.commit();
         }
     };
-
-    // 1. Restore Reports
     await commitBatch(checkpoint.data.reports, REPORT_COLLECTION);
-    
-    // 2. Restore Quantities
     await commitBatch(checkpoint.data.quantities, QUANTITY_COLLECTION);
-
-    // 3. Restore Lining
     await commitBatch(checkpoint.data.lining, LINING_COLLECTION);
-
-    // 4. Restore Settings
     if (checkpoint.data.settings) {
         await setDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'), checkpoint.data.settings);
     }

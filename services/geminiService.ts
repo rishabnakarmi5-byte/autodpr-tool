@@ -1,7 +1,8 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { DPRItem } from "../types";
+import { DPRItem, TrainingExample } from "../types";
 import { LOCATION_HIERARCHY, identifyItemType, ITEM_PATTERNS } from "../utils/constants";
+import { getTrainingExamples } from "./firebaseService";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -25,11 +26,12 @@ export const getMoodMessage = async (mood: string, userName: string): Promise<st
 
 /**
  * Lightweight extraction for a single item.
- * Used for the "Autofill" button in Master Record.
+ * Now supports 'learnedContext' to maintain consistency with previous user edits.
  */
 export const autofillItemData = async (
   description: string,
-  customItemTypes?: any[]
+  customItemTypes?: any[],
+  learnedContext?: string
 ): Promise<Partial<DPRItem>> => {
   const itemTypesToUse = customItemTypes || ITEM_PATTERNS.map(p => ({
       name: p.name,
@@ -42,13 +44,21 @@ export const autofillItemData = async (
   const prompt = `
     Act as a construction data specialist. Analyze this activity description: "${description}"
     
+    ${learnedContext ? `GOLD STANDARD EXAMPLES (Follow these user-verified mappings exactly):\n${learnedContext}\n` : ''}
+
     Your task is to extract the quantity, unit, and item classification.
     
-    RULES:
-    1. QUANTITY: Extract the exact numeric value. If it says "385 m3", return 385. If it says "Placement of 2.5 m3", return 2.5. If no quantity is found, return 0.
-    2. UNIT: Strictly choose one from ["m3", "Ton", "m2", "nos", "rm"]. 
-       Mapping: "cum" -> "m3", "mt" -> "Ton", "sqm" -> "m2", "bags" -> "nos", "mtr" -> "rm".
-    3. CLASSIFICATION: Choose the best fit from these recognized types: ${itemTypesString}. If no match, use "Other".
+    STRICT RULES:
+    1. HIERARCHY MAPPING:
+       - If "Apron", "Key", "Glacis", or "Face" is mentioned, look for parent structures like "Barrage", "Weir", or "Stilling Basin".
+       - Ensure "Upstream Apron" is mapped to "Barrage" or "Weir" component based on context.
+    
+    2. QUANTITY & UNIT:
+       - Extract numeric values precisely (e.g., "0.458", "9.15").
+       - UNIT MAPPING: "sqm" -> "m2", "m2" -> "m2", "cum" -> "m3", "m3" -> "m3", "mt" -> "Ton", "ton" -> "Ton".
+       - If the text says "9.6 sqm", the quantity is 9.6 and unit is "m2".
+    
+    3. CLASSIFICATION: Choose from: ${itemTypesString}.
 
     Output ONLY a valid JSON object.
   `;
@@ -62,9 +72,12 @@ export const autofillItemData = async (
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            quantity: { type: Type.NUMBER, description: "The numeric quantity extracted" },
-            unit: { type: Type.STRING, description: "The unit (m3, Ton, m2, nos, rm)" },
-            itemType: { type: Type.STRING, description: "The classification name" }
+            location: { type: Type.STRING },
+            component: { type: Type.STRING },
+            structuralElement: { type: Type.STRING },
+            quantity: { type: Type.NUMBER },
+            unit: { type: Type.STRING },
+            itemType: { type: Type.STRING }
           },
           required: ["quantity", "unit", "itemType"]
         }
@@ -73,11 +86,25 @@ export const autofillItemData = async (
 
     if (response.text) {
       const result = JSON.parse(response.text);
-      // Strict validation of the unit
-      const allowedUnits = ["m3", "Ton", "m2", "nos", "rm"];
-      const finalUnit = allowedUnits.includes(result.unit) ? result.unit : "m3";
+      // Normalized units
+      const unitMap: Record<string, string> = {
+          'sqm': 'm2',
+          'm2': 'm2',
+          'cum': 'm3',
+          'm3': 'm3',
+          'mt': 'Ton',
+          'ton': 'Ton',
+          'tons': 'Ton',
+          'nos': 'nos',
+          'rm': 'rm'
+      };
+      
+      const finalUnit = unitMap[result.unit?.toLowerCase()] || result.unit || "m3";
       
       return {
+        location: result.location,
+        component: result.component,
+        structuralElement: result.structuralElement,
         quantity: result.quantity || 0,
         unit: finalUnit,
         itemType: result.itemType || identifyItemType(description, customItemTypes)
@@ -108,6 +135,17 @@ export const parseConstructionData = async (
       defaultUnit: p.defaultUnit
   }));
 
+  let trainingExamplesText = "";
+  try {
+    const examples = await getTrainingExamples();
+    if (examples.length > 0) {
+      trainingExamplesText = "\nFOLLOW THESE USER-PROVIDED EXAMPLES (FEW-SHOT LEARNING):\n" + 
+        examples.slice(0, 10).map(ex => `INPUT: "${ex.rawInput}"\nEXPECTED OUTPUT: ${ex.expectedOutput}`).join('\n\n');
+    }
+  } catch (e) {
+    console.warn("Could not load training examples for AI prompt.");
+  }
+
   const instructionBlock = instructions 
     ? `USER SPECIFIC INSTRUCTIONS (CRITICAL): ${instructions}` 
     : 'No specific user instructions.';
@@ -129,30 +167,26 @@ export const parseConstructionData = async (
 
   const prompt = `
     You are a construction site data extraction engine.
-    Convert raw WhatsApp messages into a structured JSON array of construction activities.
+    Convert raw site update text into a structured JSON array of construction activities.
 
     ${instructionBlock}
     ${contextBlock}
+    ${trainingExamplesText}
 
     ---------------------------------------------------------
     STRICT EXTRACTION RULES:
-    1. SPLIT COMBINED ACTIVITIES: 
-       - If one sentence mentions rebar, formwork, AND concrete, you MUST create THREE separate objects.
+    1. SPLIT COMBINED ACTIVITIES: If one sentence mentions rebar AND concrete, create TWO objects.
     
-    2. QUANTITY PRECISION:
-       - Extract ALL numeric quantities accurately.
-       - Unit Mapping (Case Insensitive): 
-         * "mt", "metric ton" -> "Ton"
-         * "cum", "m3" -> "m3"
-         * "sqm", "m2" -> "m2"
-         * "bags", "nos", "number", "numbers" -> "nos"
-         * "rm", "running meter" -> "rm"
-       - Example: "42 bags" => quantity: 42, unit: "nos".
-       - Example: "37 m3 of C25" => quantity: 37, unit: "m3".
-
-    3. DESCRIPTIONS:
-       - Clean description (e.g., "Rebar installation").
-       - Keep grade labels like "C25".
+    2. QUANTITY & UNITS: 
+       - "sqm" or "m2" MUST be unit "m2".
+       - "cum" or "m3" MUST be unit "m3".
+       - "mt" or "ton" MUST be unit "Ton".
+       - Numeric quantities MUST be extracted precisely (e.g., 9.6, 0.458).
+    
+    3. LOCATION CONTEXT (CRITICAL):
+       - If "Apron" or "Key" or "Face" is mentioned, look for nearby structure names like "Barrage", "Weir", "Stilling Basin".
+       - Map these to the correct hierarchy provided below.
+       - "U/S" means Upstream, "D/S" means Downstream.
 
     HIERARCHY:
     ${hierarchyString}
@@ -202,10 +236,8 @@ export const parseConstructionData = async (
 
     if (response.text) {
       const result = JSON.parse(response.text);
-      
       const processedItems = result.items.map((item: any) => {
           const desc = item.activityDescription || "";
-          // If AI provided itemType, use it, otherwise detect it
           const type = item.itemType && item.itemType !== "Other" ? item.itemType : identifyItemType(desc, customItemTypes);
           
           return {

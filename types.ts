@@ -107,6 +107,14 @@ export interface ItemTypeDefinition {
     defaultUnit: string;
 }
 
+export interface TrainingExample {
+  id: string;
+  rawInput: string;
+  expectedOutput: string; // JSON string
+  category: 'location' | 'quantity' | 'general';
+  createdAt: string;
+}
+
 export interface ProjectSettings {
   projectName: string;
   companyName: string;
