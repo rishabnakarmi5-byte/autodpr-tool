@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Layout } from './components/Layout';
@@ -127,6 +126,16 @@ const App = () => {
     const targetReport = findReportForItem(id);
     if (!targetReport) return;
 
+    // Logic to calculate derived fields (Auto-refresh 'Area / CH' column)
+    let derivedUpdates: Partial<DPRItem> = {};
+    const currentItem = targetReport.entries.find(e => e.id === id);
+    
+    if (currentItem && (updates.chainage !== undefined || updates.structuralElement !== undefined)) {
+        const newCh = updates.chainage !== undefined ? updates.chainage : currentItem.chainage;
+        const newSt = updates.structuralElement !== undefined ? updates.structuralElement : currentItem.structuralElement;
+        derivedUpdates.chainageOrArea = `${newCh || ''} ${newSt || ''}`.trim();
+    }
+
     const newEntries = targetReport.entries.map(item => {
       if (item.id === id) {
         const history: EditHistory[] = Object.entries(updates).map(([field, val]) => ({
@@ -138,7 +147,8 @@ const App = () => {
         }));
         return { 
           ...item, 
-          ...updates, 
+          ...updates,
+          ...derivedUpdates, // Apply derived field updates
           lastModifiedBy: getUserName(), 
           lastModifiedAt: new Date().toISOString(),
           editHistory: [...(item.editHistory || []), ...history]
@@ -148,7 +158,11 @@ const App = () => {
     });
 
     saveReportState({ ...targetReport, entries: newEntries, lastUpdated: new Date().toISOString() });
-    if(inspectItem?.id === id) setInspectItem(prev => prev ? ({...prev, ...updates}) : null);
+    
+    // Update the inspector modal live if it's open, including derived fields
+    if(inspectItem?.id === id) {
+        setInspectItem(prev => prev ? ({...prev, ...updates, ...derivedUpdates}) : null);
+    }
   };
 
   const handleHardSync = async () => {
