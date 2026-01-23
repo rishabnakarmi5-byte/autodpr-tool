@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { DPRItem, BackupEntry, ItemTypeDefinition } from '../types';
-import { getBackupById } from '../services/firebaseService';
+import { getBackupById, getBackups } from '../services/firebaseService';
 import { ITEM_PATTERNS } from '../utils/constants';
 import { parseConstructionData, autofillItemData } from '../services/geminiService';
 
@@ -26,16 +26,42 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
 
   useEffect(() => {
     setLocalItem(item);
-    if (isOpen && item.sourceBackupId) {
-      setLoadingSource(true);
-      getBackupById(item.sourceBackupId).then(b => {
-        setSourceBackup(b);
-        setLoadingSource(false);
-      });
-    } else {
-        setSourceBackup(null);
+    if (isOpen) {
+      loadSourceData();
     }
   }, [item, isOpen]);
+
+  const loadSourceData = async () => {
+    setLoadingSource(true);
+    setSourceBackup(null);
+    try {
+      // 1. Try direct link via backup ID
+      if (item.sourceBackupId) {
+        const b = await getBackupById(item.sourceBackupId);
+        if (b) {
+          setSourceBackup(b);
+          setLoadingSource(false);
+          return;
+        }
+      }
+
+      // 2. Fallback: Search recently saved backups for a match based on activity text snippet
+      // This is helpful if the link was broken during a recovery or split
+      const recentBackups = await getBackups(30);
+      const found = recentBackups.find(b => 
+        b.rawInput.toLowerCase().includes(item.activityDescription.toLowerCase().substring(0, 20)) ||
+        b.parsedItems.some(p => p.id === item.id)
+      );
+      
+      if (found) {
+        setSourceBackup(found);
+      }
+    } catch (e) {
+      console.error("Failed to fetch source backup:", e);
+    } finally {
+      setLoadingSource(false);
+    }
+  };
 
   const allItemTypes = useMemo(() => {
       const types = [...ITEM_PATTERNS.map(p => p.name)];
@@ -66,6 +92,7 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
             itemType: result.itemType ?? localItem.itemType
         };
         setLocalItem(prev => ({ ...prev, ...updates }));
+        // Sync to cloud immediately
         onUpdate(item.id, updates);
     } catch (e) {
         alert("Autofill failed.");
@@ -208,11 +235,11 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                 <div className="flex gap-4">
                   <div className="flex-1">
                     <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Quantity</label>
-                    <input type="number" step="any" className="w-full p-3 border border-slate-200 rounded-lg text-2xl font-bold text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-500" value={localItem.quantity || ''} onChange={e => handleChange('quantity', parseFloat(e.target.value) || 0)} onBlur={() => handleBlur('quantity')} />
+                    <input type="number" step="any" className="w-full p-3 border border-slate-200 rounded-lg text-2xl font-bold text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-500" value={localItem.quantity === 0 ? '' : localItem.quantity} placeholder="0.00" onChange={e => handleChange('quantity', parseFloat(e.target.value) || 0)} onBlur={() => handleBlur('quantity')} />
                   </div>
                   <div className="w-1/4">
                     <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Unit</label>
-                    <select className="w-full p-3 border border-slate-200 rounded-lg text-lg h-[58px] font-bold outline-none focus:ring-2 focus:ring-indigo-500" value={localItem.unit} onChange={e => { handleChange('unit', e.target.value); onUpdate(item.id, {unit: e.target.value}); }}>
+                    <select className="w-full p-3 border border-slate-200 rounded-lg text-lg h-[58px] font-bold outline-none focus:ring-2 focus:ring-indigo-500" value={localItem.unit || 'm3'} onChange={e => { handleChange('unit', e.target.value); onUpdate(item.id, {unit: e.target.value}); }}>
                       <option value="m3">m3</option>
                       <option value="m2">m2</option>
                       <option value="Ton">Ton</option>
@@ -242,7 +269,12 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
             </div>
             <div className="flex-1 overflow-y-auto p-6">
               {activeTab === 'source' ? (
-                loadingSource ? <div className="text-center p-10 text-slate-400">Loading original text...</div> : (
+                loadingSource ? (
+                  <div className="flex flex-col items-center justify-center h-full text-slate-400 italic">
+                    <i className="fas fa-circle-notch fa-spin text-2xl mb-2"></i>
+                    <span>Finding original context...</span>
+                  </div>
+                ) : (
                   <div className="space-y-4">
                     {splitFromLog && (
                         <div className="bg-indigo-50 border border-indigo-200 p-3 rounded-lg flex items-center gap-3 text-indigo-700 text-xs font-bold animate-pulse">
@@ -255,7 +287,7 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                            {sourceBackup.rawInput}
                         </div>
                         <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-700 italic">
-                           <i className="fas fa-info-circle mr-1"></i> This is the raw text block from which this record was extracted. It is un-editable to preserve original audit trail.
+                           <i className="fas fa-info-circle mr-1"></i> Raw text source found in archives. Use for verification only.
                         </div>
                         <button 
                             onClick={handleParseHarder}

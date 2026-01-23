@@ -37,17 +37,20 @@ export const autofillItemData = async (
       defaultUnit: p.defaultUnit
   }));
 
-  const itemTypesString = itemTypesToUse.map(t => `"${t.name}" (keywords: ${t.pattern})`).join(', ');
+  const itemTypesString = itemTypesToUse.map(t => `"${t.name}"`).join(', ');
 
   const prompt = `
-    Extract work specifications from this construction activity description: "${description}"
+    Act as a construction data specialist. Analyze this activity description: "${description}"
     
-    Return JSON with:
-    1. quantity (number)
-    2. unit (string: m3, Ton, m2, nos, or rm)
-    3. itemType (string: Select the best match from recognized types)
+    Your task is to extract the quantity, unit, and item classification.
+    
+    RULES:
+    1. QUANTITY: Extract the exact numeric value. If it says "385 m3", return 385. If it says "Placement of 2.5 m3", return 2.5. If no quantity is found, return 0.
+    2. UNIT: Strictly choose one from ["m3", "Ton", "m2", "nos", "rm"]. 
+       Mapping: "cum" -> "m3", "mt" -> "Ton", "sqm" -> "m2", "bags" -> "nos", "mtr" -> "rm".
+    3. CLASSIFICATION: Choose the best fit from these recognized types: ${itemTypesString}. If no match, use "Other".
 
-    RECOGNIZED TYPES: ${itemTypesString}
+    Output ONLY a valid JSON object.
   `;
 
   try {
@@ -59,19 +62,24 @@ export const autofillItemData = async (
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            quantity: { type: Type.NUMBER },
-            unit: { type: Type.STRING },
-            itemType: { type: Type.STRING }
-          }
+            quantity: { type: Type.NUMBER, description: "The numeric quantity extracted" },
+            unit: { type: Type.STRING, description: "The unit (m3, Ton, m2, nos, rm)" },
+            itemType: { type: Type.STRING, description: "The classification name" }
+          },
+          required: ["quantity", "unit", "itemType"]
         }
       }
     });
 
     if (response.text) {
       const result = JSON.parse(response.text);
+      // Strict validation of the unit
+      const allowedUnits = ["m3", "Ton", "m2", "nos", "rm"];
+      const finalUnit = allowedUnits.includes(result.unit) ? result.unit : "m3";
+      
       return {
         quantity: result.quantity || 0,
-        unit: result.unit || "m3",
+        unit: finalUnit,
         itemType: result.itemType || identifyItemType(description, customItemTypes)
       };
     }
@@ -79,7 +87,6 @@ export const autofillItemData = async (
     console.error("Autofill error:", e);
   }
   
-  // Fallback to regex-based identification if AI fails
   return {
     itemType: identifyItemType(description, customItemTypes)
   };
