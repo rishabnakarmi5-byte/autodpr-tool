@@ -25,15 +25,23 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const [aiLocations, setAiLocations] = useState<string[]>([]);
   const [aiComponents, setAiComponents] = useState<string[]>([]);
   
+  // Bulk Lining State
+  const [bulkStage, setBulkStage] = useState<string>('');
+  
   // Modal State
   const [modalStep, setModalStep] = useState<number>(0);
 
   const handleBulkLiningAdd = async () => {
     setIsProcessing(true);
     try {
+      // Inject the selected stage into the prompt context if selected
+      const stageContext = bulkStage 
+        ? `IMPORTANT: All entries below are specifically for the '${bulkStage}' stage. Force the 'activityDescription' or 'structuralElement' to reflect ${bulkStage}.` 
+        : "Extract the stage (Invert, Kicker, Gantry) from the text row itself.";
+
       const { items } = await parseConstructionData(
         rawText, 
-        "BULK LINING MODE: The text contains multiple tunnel lining entries. Expected format: Date CH. From To. Type (Invert/Kicker/Gantry) Pour Quantity. Example: '2026-01-22 CH 0+500 to 0+520 Gantry C25 150m3'. Extract each row as a separate Master Record.",
+        `BULK LINING MODE: The text contains multiple tunnel lining entries. ${stageContext} Expected format: Date CH. From To. Pour Quantity.`,
         ["Headrace Tunnel (HRT)"],
         ["HRT from Inlet", "HRT from Adit"],
         hierarchy
@@ -76,6 +84,26 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     }
   };
 
+  const createBlankMasterCard = () => {
+      const blankItem: DPRItem = {
+          id: crypto.randomUUID(),
+          location: Object.keys(hierarchy)[0] || 'General',
+          component: '',
+          structuralElement: '',
+          chainageOrArea: '',
+          activityDescription: 'New Activity Entry',
+          quantity: 0,
+          unit: 'm3',
+          plannedNextActivity: '',
+          createdBy: user?.displayName || 'Manual',
+          lastModifiedAt: new Date().toISOString()
+      };
+      
+      // We pass "Manual Creation" as the raw text source
+      onItemsAdded([blankItem], "Manual Creation (Blank Card)");
+      setModalStep(1);
+  };
+
   return (
     <div className="space-y-8 animate-fade-in relative">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -95,7 +123,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
            <h3 className="text-slate-500 text-sm font-medium mb-2">Cloud Status</h3>
            <div className="space-y-2">
              <div className="flex items-center text-sm text-slate-600 gap-2"><i className="fas fa-check-circle text-green-500"></i> Sync: Active</div>
-             <div className="flex items-center text-sm text-indigo-600 gap-2 font-bold"><i className="fas fa-magic"></i> AI Model: Gemini 3</div>
+             <div className="flex items-center text-sm text-indigo-600 gap-2 font-bold"><i className="fas fa-magic"></i> Automatic DPR Maker</div>
            </div>
         </div>
       </div>
@@ -103,7 +131,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex justify-between bg-slate-50/30">
             <div className="flex gap-4">
-                <button onClick={() => setMode('ai')} className={`text-xs font-bold px-4 py-2 rounded-full transition-all ${mode === 'ai' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-white border border-transparent'}`}>WhatsApp AI</button>
+                <button onClick={() => setMode('ai')} className={`text-xs font-bold px-4 py-2 rounded-full transition-all ${mode === 'ai' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-white border border-transparent'}`}>Daily Progress Entry</button>
                 <button onClick={() => setMode('bulk_lining')} className={`text-xs font-bold px-4 py-2 rounded-full transition-all ${mode === 'bulk_lining' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-white border border-transparent'}`}>Bulk Lining</button>
                 <button onClick={() => setMode('manual')} className={`text-xs font-bold px-4 py-2 rounded-full transition-all ${mode === 'manual' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-white border border-transparent'}`}>Manual</button>
             </div>
@@ -130,9 +158,28 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
 
             {mode === 'bulk_lining' && (
                 <>
+                    <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <div className="flex-1">
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Select Stage (Optional)</label>
+                            <select 
+                                value={bulkStage} 
+                                onChange={e => setBulkStage(e.target.value)}
+                                className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                            >
+                                <option value="">Auto-detect from text</option>
+                                <option value="Invert">Invert</option>
+                                <option value="Kicker">Kicker</option>
+                                <option value="Gantry">Gantry</option>
+                            </select>
+                        </div>
+                        <div className="flex-[2] text-xs text-slate-500 italic">
+                             If you select a stage, all entries below will be treated as that stage unless specified otherwise.
+                        </div>
+                    </div>
+
                     <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-xs text-amber-800 mb-4">
-                        <strong>Format:</strong> Date CH. From to To Stage PourQuantity. Example:<br/>
-                        2026-01-22 CH 100 to 120 Gantry 15m3
+                        <strong>Format:</strong> Date CH. From to To PourQuantity. Example:<br/>
+                        2026-01-22 CH 100 to 120 15m3
                     </div>
                     <textarea value={rawText} onChange={e => setRawText(e.target.value)} placeholder="Paste lining data rows..." className="w-full h-40 p-5 border border-slate-200 rounded-xl bg-slate-50 font-mono text-sm" />
                     <button onClick={handleBulkLiningAdd} disabled={isProcessing} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2">
@@ -140,6 +187,24 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                         Parse Bulk Lining Entries
                     </button>
                 </>
+            )}
+
+            {mode === 'manual' && (
+                <div className="flex flex-col items-center justify-center py-12 px-6 border-2 border-dashed border-slate-300 rounded-2xl bg-slate-50 hover:bg-white transition-colors">
+                    <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-2xl mb-4">
+                        <i className="fas fa-pen-nib"></i>
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-800 mb-2">Create Blank Master Record</h3>
+                    <p className="text-slate-500 text-center max-w-sm mb-6">
+                        Manually enter all details for a new activity without using the AI parser. This creates an empty card you can edit immediately.
+                    </p>
+                    <button 
+                        onClick={createBlankMasterCard}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all flex items-center gap-2 transform hover:-translate-y-1"
+                    >
+                        <i className="fas fa-plus-circle"></i> Create Blank Entry
+                    </button>
+                </div>
             )}
         </div>
       </div>
@@ -149,7 +214,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
            <div className="bg-white rounded-2xl p-8 text-center max-w-sm w-full">
               <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl"><i className="fas fa-check"></i></div>
               <h2 className="text-2xl font-bold">Successfully Added</h2>
-              <p className="text-slate-500 mt-2 mb-6 text-sm">New Master Records created. Reports and Quantities synced.</p>
+              <p className="text-slate-500 mt-2 mb-6 text-sm">New Master Record(s) created. Reports and Quantities synced.</p>
               <button onClick={() => { setModalStep(0); onViewReport(); }} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold">View Daily Report</button>
            </div>
         </div>
