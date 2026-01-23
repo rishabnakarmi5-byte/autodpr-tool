@@ -50,13 +50,12 @@ export const autofillItemData = async (
     
     STRICT RULES:
     1. HIERARCHY MAPPING:
-       - If "Apron", "Key", "Glacis", or "Face" is mentioned, look for parent structures like "Barrage", "Weir", or "Stilling Basin".
-       - Ensure "Upstream Apron" is mapped to "Barrage" or "Weir" component based on context.
+       - Map parts to parent structures (Barrage, Weir, Stilling Basin).
     
     2. QUANTITY & UNIT:
        - Extract numeric values precisely (e.g., "0.458", "9.15").
-       - UNIT MAPPING: "sqm" -> "m2", "m2" -> "m2", "cum" -> "m3", "m3" -> "m3", "mt" -> "Ton", "ton" -> "Ton".
-       - If the text says "9.6 sqm", the quantity is 9.6 and unit is "m2".
+       - UNIT MAPPING: "sqm" -> "m2", "cum" -> "m3", "mt" -> "Ton".
+       - If no unit is found, default to "m3".
     
     3. CLASSIFICATION: Choose from: ${itemTypesString}.
 
@@ -86,20 +85,11 @@ export const autofillItemData = async (
 
     if (response.text) {
       const result = JSON.parse(response.text);
-      // Normalized units
       const unitMap: Record<string, string> = {
-          'sqm': 'm2',
-          'm2': 'm2',
-          'cum': 'm3',
-          'm3': 'm3',
-          'mt': 'Ton',
-          'ton': 'Ton',
-          'tons': 'Ton',
-          'nos': 'nos',
-          'rm': 'rm'
+          'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'tons': 'Ton', 'nos': 'nos', 'rm': 'rm'
       };
       
-      const finalUnit = unitMap[result.unit?.toLowerCase()] || result.unit || "m3";
+      const finalUnit = unitMap[result.unit?.toLowerCase()] || "m3";
       
       return {
         location: result.location,
@@ -115,6 +105,7 @@ export const autofillItemData = async (
   }
   
   return {
+    unit: 'm3',
     itemType: identifyItemType(description, customItemTypes)
   };
 };
@@ -146,53 +137,27 @@ export const parseConstructionData = async (
     console.warn("Could not load training examples for AI prompt.");
   }
 
-  const instructionBlock = instructions 
-    ? `USER SPECIFIC INSTRUCTIONS (CRITICAL): ${instructions}` 
-    : 'No specific user instructions.';
-
-  let contextBlock = "";
-  if (contextLocations && contextLocations.length > 0) {
-      contextBlock += `\n    FORCE LOCATIONS: ${JSON.stringify(contextLocations)}`;
-      if (contextComponents && contextComponents.length > 0) {
-          contextBlock += `\n    FORCE COMPONENTS: ${JSON.stringify(contextComponents)}`;
-      }
-      contextBlock += `\n    IMPORTANT: Use these selected contexts if the text doesn't specify otherwise.`;
-  }
-
-  const hierarchyString = Object.entries(hierarchyToUse).map(([loc, comps]) => {
-      return `LOC: "${loc}" -> COMPS: [${comps.join(', ')}]`;
-  }).join('\n    ');
-
-  const itemTypesString = itemTypesToUse.map(t => `"${t.name}" (keywords: ${t.pattern})`).join(', ');
-
   const prompt = `
     You are a construction site data extraction engine.
-    Convert raw site update text into a structured JSON array of construction activities.
+    Convert raw site update text into a structured JSON array.
 
-    ${instructionBlock}
-    ${contextBlock}
+    ${instructions ? `USER SPECIFIC INSTRUCTIONS: ${instructions}` : ''}
     ${trainingExamplesText}
 
     ---------------------------------------------------------
     STRICT EXTRACTION RULES:
-    1. SPLIT COMBINED ACTIVITIES: If one sentence mentions rebar AND concrete, create TWO objects.
-    
-    2. QUANTITY & UNITS: 
+    1. QUANTITY & UNITS: 
        - "sqm" or "m2" MUST be unit "m2".
        - "cum" or "m3" MUST be unit "m3".
        - "mt" or "ton" MUST be unit "Ton".
+       - If unit is missing, use "m3".
        - Numeric quantities MUST be extracted precisely (e.g., 9.6, 0.458).
     
-    3. LOCATION CONTEXT (CRITICAL):
-       - If "Apron" or "Key" or "Face" is mentioned, look for nearby structure names like "Barrage", "Weir", "Stilling Basin".
-       - Map these to the correct hierarchy provided below.
-       - "U/S" means Upstream, "D/S" means Downstream.
-
-    HIERARCHY:
-    ${hierarchyString}
+    2. LOCATION CONTEXT:
+       - Map "Apron" or "Key" to correct parent (Barrage, Weir, Stilling Basin).
 
     RECOGNIZED ITEM TYPES:
-    ${itemTypesString}
+    ${itemTypesToUse.map(t => t.name).join(', ')}
     ---------------------------------------------------------
 
     RAW INPUT:
@@ -225,7 +190,7 @@ export const parseConstructionData = async (
                     unit: { type: Type.STRING },
                     itemType: { type: Type.STRING }
                   },
-                  required: ["location", "activityDescription"],
+                  required: ["location", "activityDescription", "unit"],
                 },
              },
              warnings: { type: Type.ARRAY, items: { type: Type.STRING } }
@@ -236,9 +201,14 @@ export const parseConstructionData = async (
 
     if (response.text) {
       const result = JSON.parse(response.text);
+      const unitMap: Record<string, string> = {
+          'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'nos': 'nos', 'rm': 'rm'
+      };
+
       const processedItems = result.items.map((item: any) => {
           const desc = item.activityDescription || "";
           const type = item.itemType && item.itemType !== "Other" ? item.itemType : identifyItemType(desc, customItemTypes);
+          const finalUnit = unitMap[item.unit?.toLowerCase()] || item.unit || "m3";
           
           return {
               location: item.location || "Unclassified",
@@ -249,7 +219,7 @@ export const parseConstructionData = async (
               activityDescription: desc,
               plannedNextActivity: item.plannedNextActivity || "As per plan",
               quantity: item.quantity || 0,
-              unit: item.unit || "m3",
+              unit: finalUnit,
               itemType: type
           };
       });

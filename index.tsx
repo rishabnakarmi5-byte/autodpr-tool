@@ -65,7 +65,6 @@ const App = () => {
   const getUserName = () => user?.displayName || user?.email || 'Anonymous';
 
   const saveReportState = async (report: DailyReport) => {
-    // If it's the active report, update local undo stack
     if (report.date === currentDate) {
       setUndoStack(prev => [currentEntries, ...prev].slice(0, 20));
       setRedoStack([]);
@@ -154,14 +153,12 @@ const App = () => {
     let updatedCount = 0;
 
     try {
-      // 1. Gather 'Verified' examples: Prioritize items with edit history or specific high-quality structural labels
       const verifiedItems: DPRItem[] = [];
       reports.forEach(r => {
           r.entries.forEach(e => {
               const hasHistory = e.editHistory && e.editHistory.length > 0;
               const hasComplexLocation = e.component && (e.activityDescription.toLowerCase().includes('apron') || e.activityDescription.toLowerCase().includes('key'));
-              
-              if ((hasHistory || hasComplexLocation) && e.quantity > 0) {
+              if ((hasHistory || hasComplexLocation) && e.quantity > 0 && e.unit) {
                   if (verifiedItems.length < 25) verifiedItems.push(e);
               }
           });
@@ -171,19 +168,21 @@ const App = () => {
           `USER VERIFIED MAPPING: Text "${v.activityDescription}" maps to [Location: ${v.location}, Component: ${v.component}, Element: ${v.structuralElement}, Qty: ${v.quantity}, Unit: ${v.unit}, Type: ${v.itemType}]`
       ).join('\n');
 
-      // 2. Process all reports sequentially
       for (const report of reports) {
         let reportModified = false;
         const newEntries = await Promise.all(report.entries.map(async (item) => {
-          // If record is "thin" (no quantity, or classified as 'Other'), try a re-parse with learned context
-          if ((!item.quantity || item.quantity === 0 || item.itemType === 'Other') && item.activityDescription) {
+          // If record is "thin" (no quantity, no unit, or unclassified), re-parse
+          const needsRepair = !item.quantity || item.quantity === 0 || !item.unit || item.unit === "" || item.itemType === 'Other';
+          
+          if (needsRepair && item.activityDescription) {
             const result = await autofillItemData(item.activityDescription, settings?.itemTypes, learnedContext);
-            if (result.quantity !== undefined && result.quantity !== 0) {
+            if (result.quantity !== undefined || result.unit) {
               reportModified = true;
               updatedCount++;
               return { 
                 ...item, 
                 ...result, 
+                unit: result.unit || item.unit || 'm3', // Absolute fallback
                 lastModifiedBy: 'AI Global Sync',
                 lastModifiedAt: new Date().toISOString() 
               };
@@ -196,10 +195,10 @@ const App = () => {
           await saveReportToCloud({ ...report, entries: newEntries, lastUpdated: new Date().toISOString() });
         }
       }
-      alert(`Hard Sync Complete! Successfully updated ${updatedCount} records based on your manually edited examples.`);
+      alert(`Hard Sync Complete! Successfully updated ${updatedCount} records.`);
     } catch (e) {
       console.error(e);
-      alert("Hard Sync failed to complete all operations.");
+      alert("Hard Sync failed.");
     } finally {
       setIsGlobalSaving(false);
     }
@@ -214,6 +213,7 @@ const App = () => {
         id: crypto.randomUUID(),
         activityDescription: `${originalItem.activityDescription} (Split)`,
         quantity: 0, 
+        unit: originalItem.unit || 'm3',
         createdBy: getUserName(),
         lastModifiedAt: new Date().toISOString(),
         editHistory: [{
@@ -230,17 +230,14 @@ const App = () => {
     newEntries.splice(index + 1, 0, newItem);
     
     saveReportState({ ...targetReport, entries: newEntries, lastUpdated: new Date().toISOString() });
-    logActivity(getUserName(), "Split Activity", `Split item ${originalItem.id} in report ${targetReport.date}`, targetReport.date);
   };
 
   const handleDeleteItem = async (itemId: string) => {
     const targetReport = findReportForItem(itemId);
     if (!targetReport) return;
-
     const itemToDelete = targetReport.entries.find(e => e.id === itemId);
     if (!itemToDelete) return;
-
-    if (window.confirm("Archive this record? It will be moved to the Recycle Bin.")) {
+    if (window.confirm("Archive this record?")) {
       await moveItemToTrash(itemToDelete, targetReport.id, targetReport.date, getUserName());
       const newEntries = targetReport.entries.filter(e => e.id !== itemId);
       await saveReportState({ ...targetReport, entries: newEntries, lastUpdated: new Date().toISOString() });
@@ -250,8 +247,17 @@ const App = () => {
 
   const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
     const id = currentReportId || crypto.randomUUID();
-    const backupId = await savePermanentBackup(currentDate, rawText, newItems, getUserName(), id);
-    const stamped = newItems.map(i => ({...i, sourceBackupId: backupId || undefined}));
+    
+    // HYDRATION: Ensure every item has an explicit unit string before saving
+    const hydratedItems = newItems.map(item => ({
+        ...item,
+        unit: item.unit || 'm3', // Enforce 'm3' default if empty
+        id: item.id || crypto.randomUUID(),
+        createdBy: item.createdBy || getUserName()
+    }));
+
+    const backupId = await savePermanentBackup(currentDate, rawText, hydratedItems, getUserName(), id);
+    const stamped = hydratedItems.map(i => ({...i, sourceBackupId: backupId || undefined}));
     const combined = [...currentEntries, ...stamped].sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
     
     const report: DailyReport = {

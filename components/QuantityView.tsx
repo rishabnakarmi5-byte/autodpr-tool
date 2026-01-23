@@ -26,13 +26,10 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
 
   const availableItemTypes = useMemo(() => {
     const types = new Set<string>();
-    // Default patterns
     ITEM_PATTERNS.forEach(p => types.add(p.name));
-    // User custom patterns
     if (customItemTypes) {
       customItemTypes.forEach(t => types.add(t.name));
     }
-    // Existing data (in case some were typed manually)
     reports.forEach(r => r.entries.forEach(e => { if(e.itemType) types.add(e.itemType); }));
     return Array.from(types).sort();
   }, [reports, customItemTypes]);
@@ -41,7 +38,6 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
     const list: (DPRItem & { date: string })[] = [];
     reports.forEach(r => {
       r.entries.forEach(e => {
-        // Show even if itemType is "Other" if there's a quantity
         if (e.quantity > 0 || e.itemType !== 'Other') {
           list.push({ ...e, date: r.date });
         }
@@ -66,7 +62,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
   const exportCSV = () => {
     const headers = "Date,Location,Component,Activity,Item Type,Qty,Unit\n";
     const rows = filtered.map(q => 
-      `"${q.date}","${q.location}","${q.component}","${q.activityDescription.replace(/"/g, '""')}","${q.itemType}",${q.quantity},"${q.unit}"`
+      `"${q.date}","${q.location}","${q.component}","${q.activityDescription.replace(/"/g, '""')}","${q.itemType}",${q.quantity},"${q.unit || 'm3'}"`
     ).join("\n");
     const blob = new Blob([headers + rows], { type: 'text/csv' });
     const link = document.createElement('a');
@@ -111,17 +107,6 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
                 </select>
             </div>
         </div>
-        <div className="flex gap-4 items-center">
-            <div className="flex-1 flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-100">
-                <span className="text-[10px] font-bold text-slate-400 uppercase ml-2">From:</span>
-                <input type="date" className="bg-transparent border-none text-sm font-bold outline-none" value={dateStart} onChange={e => setDateStart(e.target.value)} />
-            </div>
-            <div className="flex-1 flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-100">
-                <span className="text-[10px] font-bold text-slate-400 uppercase ml-2">To:</span>
-                <input type="date" className="bg-transparent border-none text-sm font-bold outline-none" value={dateEnd} onChange={e => setDateEnd(e.target.value)} />
-            </div>
-            <button onClick={() => { setDateStart(''); setDateEnd(''); setSearch(''); setFilterType('All'); setFilterLocation('All'); }} className="text-xs font-bold text-slate-400 hover:text-red-500 px-4 uppercase tracking-wider">Clear Filters</button>
-        </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow border border-slate-200 overflow-hidden">
@@ -151,7 +136,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
                   </span>
                 </td>
                 <td className="p-4 text-right font-black text-indigo-600 text-lg">{q.quantity || '-'}</td>
-                <td className="p-4 text-[10px] font-black text-slate-400 uppercase">{q.unit}</td>
+                <td className="p-4 text-[10px] font-black text-slate-400 uppercase">{q.unit || 'm3'}</td>
               </tr>
             ))}
           </tbody>

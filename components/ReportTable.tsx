@@ -17,7 +17,7 @@ interface ReportTableProps {
 }
 
 export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUndo, onRedo, canRedo, onInspectItem }) => {
-  const [fontSize, setFontSize] = useState(12); // Base font size in pixels
+  const [fontSize, setFontSize] = useState(12);
   const reportRef = useRef<HTMLDivElement>(null);
 
   const exportToJPG = async () => {
@@ -35,7 +35,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
 
   return (
     <div className="flex flex-col h-full space-y-6 animate-fade-in relative pb-20">
-      {/* Control Bar */}
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex justify-between items-center no-print">
         <div className="flex gap-2">
           <button onClick={onUndo} disabled={!canUndo} className="p-2.5 bg-slate-100 rounded-xl hover:bg-slate-200 disabled:opacity-30 transition-all"><i className="fas fa-undo"></i></button>
@@ -89,7 +88,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
                 <td className="border-r border-slate-900 p-2">
                   <div className="font-medium text-slate-800 leading-snug">
                     {item.activityDescription}
-                    {item.quantity > 0 && <span className="ml-2 px-1.5 py-0.5 bg-indigo-50 text-indigo-700 font-black rounded border border-indigo-100" style={{ fontSize: '0.85em' }}>{item.quantity} {item.unit}</span>}
+                    {item.quantity > 0 && <span className="ml-2 px-1.5 py-0.5 bg-indigo-50 text-indigo-700 font-black rounded border border-indigo-100" style={{ fontSize: '0.85em' }}>{item.quantity} {item.unit || 'm3'}</span>}
                   </div>
                 </td>
                 <td className="p-2 text-slate-400 italic leading-tight">{item.plannedNextActivity}</td>
