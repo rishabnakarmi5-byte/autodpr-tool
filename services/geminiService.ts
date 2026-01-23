@@ -167,6 +167,15 @@ export const parseConstructionData = async (
        - **IMPORTANT**: The 'activityDescription' field MUST include the quantity and unit text (e.g., "C25 Concrete work (15 m3)"). 
        - Do not strip the quantity from the description.
        - Ensure the description is human-readable and complete.
+    
+    4. PLANNED NEXT ACTIVITY:
+       - Infer the next logical construction step based on the current activity.
+       - Examples: 
+         - "Excavation" -> "Soling & PCC"
+         - "Rebar/Formwork" -> "Concreting"
+         - "Concreting" -> "Curing & De-shuttering"
+       - If the activity is ongoing or unclear, use "Continue works" or "Work in progress".
+       - DO NOT use "As per plan".
 
     RECOGNIZED ITEM TYPES:
     ${itemTypesToUse.map(t => t.name).join(', ')}
@@ -241,7 +250,7 @@ export const parseConstructionData = async (
               chainage: item.chainage || "",
               chainageOrArea: `${item.chainage || ''} ${item.structuralElement || ''}`.trim(),
               activityDescription: desc,
-              plannedNextActivity: item.plannedNextActivity || "As per plan",
+              plannedNextActivity: item.plannedNextActivity || "Continue works",
               quantity: qty,
               unit: finalUnit,
               itemType: type

@@ -119,11 +119,12 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                   activityDescription: bestMatch.activityDescription,
                   quantity: bestMatch.quantity,
                   unit: bestMatch.unit,
-                  itemType: bestMatch.itemType
+                  itemType: bestMatch.itemType,
+                  plannedNextActivity: bestMatch.plannedNextActivity
               };
               setLocalItem(prev => ({ ...prev, ...updates }));
               onUpdate(item.id, updates);
-              alert(`AI suggests: ${bestMatch.activityDescription} (${bestMatch.quantity} ${bestMatch.unit}). Updating...`);
+              alert(`AI suggests: ${bestMatch.activityDescription} -> Next: ${bestMatch.plannedNextActivity}. Updating...`);
           }
       } catch (e) {
           alert("Failed to parse harder.");
@@ -255,6 +256,16 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                     value={localItem.activityDescription} 
                     onChange={e => handleChange('activityDescription', e.target.value)} 
                     onBlur={() => handleBlur('activityDescription')} 
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Planned Next Activity</label>
+                  <input 
+                    className="w-full p-3 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                    placeholder="e.g. Curing, De-shuttering, Continue works..."
+                    value={localItem.plannedNextActivity || ''} 
+                    onChange={e => handleChange('plannedNextActivity', e.target.value)} 
+                    onBlur={() => handleBlur('plannedNextActivity')} 
                   />
                 </div>
               </div>
