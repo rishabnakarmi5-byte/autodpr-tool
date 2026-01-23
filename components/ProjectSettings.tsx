@@ -22,7 +22,8 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   const [itemTypes, setItemTypes] = useState<ItemTypeDefinition[]>(currentSettings?.itemTypes || ITEM_PATTERNS.map(p => ({
       name: p.name,
       pattern: p.pattern.toString().slice(1, -2),
-      defaultUnit: p.defaultUnit
+      defaultUnit: p.defaultUnit,
+      description: ''
   })));
 
   const [snapshots, setSnapshots] = useState<SystemCheckpoint[]>([]);
@@ -42,6 +43,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   const [newItemName, setNewItemName] = useState('');
   const [newItemPattern, setNewItemPattern] = useState('');
   const [newItemUnit, setNewItemUnit] = useState('m3');
+  const [newItemDesc, setNewItemDesc] = useState('');
 
   const handleSave = () => {
     onSave({
@@ -71,6 +73,10 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
 
   const addComponent = () => {
       if(newCompLoc && newCompName) {
+          if (hierarchy[newCompLoc].includes(newCompName)) {
+              alert("Component already exists.");
+              return;
+          }
           setHierarchy(prev => ({
               ...prev,
               [newCompLoc]: [...(prev[newCompLoc] || []), newCompName]
@@ -79,19 +85,32 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
       }
   };
 
+  const deleteComponent = (loc: string, comp: string) => {
+      if (window.confirm(`Remove component "${comp}" from "${loc}"?`)) {
+          setHierarchy(prev => ({
+              ...prev,
+              [loc]: prev[loc].filter(c => c !== comp)
+          }));
+      }
+  };
+
   const addItemType = () => {
       if (!newItemName) return;
       setItemTypes([...itemTypes, { 
         name: newItemName, 
         pattern: newItemPattern || newItemName, 
-        defaultUnit: newItemUnit 
+        defaultUnit: newItemUnit,
+        description: newItemDesc
       }]);
       setNewItemName('');
       setNewItemPattern('');
+      setNewItemDesc('');
   };
 
   const deleteItemType = (index: number) => {
-      setItemTypes(itemTypes.filter((_, i) => i !== index));
+      if (window.confirm("Delete this item type?")) {
+        setItemTypes(itemTypes.filter((_, i) => i !== index));
+      }
   };
 
   // --- TRAINING HANDLERS ---
@@ -180,7 +199,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
                                 <input className="flex-1 p-2 bg-transparent text-sm font-bold outline-none" placeholder="Add new location..." value={newLocName} onChange={e => setNewLocName(e.target.value)} />
                                 <button onClick={addLocation} className="bg-indigo-600 text-white px-4 rounded-lg font-bold text-xs">Add</button>
                             </div>
-                            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                            <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
                                 {Object.keys(hierarchy).map(loc => (
                                     <div key={loc} className="p-3 bg-white border border-slate-100 rounded-lg flex justify-between items-center group">
                                         <span className="text-sm font-bold text-slate-700">{loc}</span>
@@ -195,12 +214,83 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
                                 <option value="">Select Parent Location...</option>
                                 {Object.keys(hierarchy).map(l => <option key={l} value={l}>{l}</option>)}
                             </select>
-                            <div className="flex gap-2 bg-slate-50 p-2 rounded-xl border border-slate-100">
-                                <input className="flex-1 p-2 bg-transparent text-sm font-bold outline-none" placeholder="New component name..." value={newCompName} onChange={e => setNewCompName(e.target.value)} />
-                                <button onClick={addComponent} className="bg-indigo-600 text-white px-4 rounded-lg font-bold text-xs">Add</button>
+                            
+                            {newCompLoc && (
+                                <>
+                                    <div className="flex gap-2 bg-slate-50 p-2 rounded-xl border border-slate-100">
+                                        <input className="flex-1 p-2 bg-transparent text-sm font-bold outline-none" placeholder="New component name..." value={newCompName} onChange={e => setNewCompName(e.target.value)} />
+                                        <button onClick={addComponent} className="bg-indigo-600 text-white px-4 rounded-lg font-bold text-xs">Add</button>
+                                    </div>
+                                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 mt-4">
+                                        {hierarchy[newCompLoc].length === 0 ? (
+                                            <div className="text-center text-slate-400 py-4 italic text-sm">No components defined yet.</div>
+                                        ) : hierarchy[newCompLoc].map(comp => (
+                                            <div key={comp} className="p-2.5 bg-white border border-slate-100 rounded-lg flex justify-between items-center group">
+                                                <span className="text-sm font-medium text-slate-700">{comp}</span>
+                                                <button onClick={() => deleteComponent(newCompLoc, comp)} className="text-slate-300 hover:text-red-500 transition-colors"><i className="fas fa-trash-alt text-xs"></i></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="bg-indigo-50 p-3 rounded-xl text-xs text-indigo-600 border border-indigo-100 font-bold">
+                                        {hierarchy[newCompLoc].length} components defined for {newCompLoc}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><i className="fas fa-tags text-indigo-500"></i> Construction Item Types</h3>
+                    <div className="grid md:grid-cols-2 gap-8">
+                        <div className="space-y-4">
+                            <h4 className="font-bold text-indigo-600 text-xs uppercase tracking-wider">Add New Item Type</h4>
+                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Display Name</label>
+                                    <input className="w-full p-2 border rounded-lg text-sm font-bold" placeholder="e.g. C25 Concrete" value={newItemName} onChange={e => setNewItemName(e.target.value)} />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Regex Pattern (Keywords)</label>
+                                    <input className="w-full p-2 border rounded-lg text-sm font-mono" placeholder="e.g. c25|concrete|rcc" value={newItemPattern} onChange={e => setNewItemPattern(e.target.value)} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Default Unit</label>
+                                        <select className="w-full p-2 border rounded-lg text-sm font-bold" value={newItemUnit} onChange={e => setNewItemUnit(e.target.value)}>
+                                            <option value="m3">m3</option>
+                                            <option value="m2">m2</option>
+                                            <option value="Ton">Ton</option>
+                                            <option value="nos">nos</option>
+                                            <option value="rm">rm</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Internal Description</label>
+                                    <textarea className="w-full p-2 border rounded-lg text-sm" placeholder="Purpose of this item..." value={newItemDesc} onChange={e => setNewItemDesc(e.target.value)} />
+                                </div>
+                                <button onClick={addItemType} className="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold text-sm">Add Item Type</button>
                             </div>
-                            <div className="bg-slate-50 p-4 rounded-xl text-xs text-slate-500 border border-slate-100">
-                                {newCompLoc ? `${hierarchy[newCompLoc]?.length || 0} components defined for ${newCompLoc}` : 'Select a location to manage components'}
+                        </div>
+                        <div className="space-y-4">
+                            <h4 className="font-bold text-indigo-600 text-xs uppercase tracking-wider">Existing Classifications</h4>
+                            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+                                {itemTypes.map((type, idx) => (
+                                    <div key={idx} className="p-4 bg-white border border-slate-100 rounded-xl hover:shadow-md transition-all group border-l-4 border-l-indigo-500">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <h5 className="font-bold text-slate-800 text-sm">{type.name}</h5>
+                                                <p className="text-[10px] text-slate-400 font-mono mt-0.5">{type.pattern}</p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-2 py-0.5 rounded">{type.defaultUnit}</span>
+                                                <button onClick={() => deleteItemType(idx)} className="text-slate-300 hover:text-red-500 transition-colors"><i className="fas fa-trash-alt text-xs"></i></button>
+                                            </div>
+                                        </div>
+                                        {type.description && <p className="text-xs text-slate-500 mt-2 italic border-t border-slate-50 pt-2">{type.description}</p>}
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </div>

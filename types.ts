@@ -105,6 +105,7 @@ export interface ItemTypeDefinition {
     name: string;
     pattern: string; 
     defaultUnit: string;
+    description?: string;
 }
 
 export interface TrainingExample {

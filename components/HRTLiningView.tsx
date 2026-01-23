@@ -29,9 +29,14 @@ export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspect
 
     reports.forEach(r => {
       r.entries.forEach(e => {
+        // 1. Check Location: Must be HRT
         const isHRT = e.location.toLowerCase().includes("headrace") || e.location.toLowerCase().includes("hrt");
         if (!isHRT) return;
         
+        // 2. Check Item Type: Exclusively show C25 Concrete (Primary Lining)
+        // This filters out Rebar, Excavation, and other non-concrete entries
+        if (e.itemType !== 'C25 Concrete') return;
+
         const desc = (e.activityDescription + " " + (e.structuralElement || "")).toLowerCase();
         let stage = "";
         if (desc.includes('invert')) stage = 'Invert';
@@ -44,7 +49,13 @@ export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspect
             const start = parseCh(match[1]);
             const end = match[2] ? parseCh(match[2]) : start;
             if (start !== null && end !== null) {
-              items.push({ ...e, date: r.date, fromCh: Math.min(start, end), toCh: Math.max(start, end), stage });
+              items.push({ 
+                ...e, 
+                date: r.date, 
+                fromCh: Math.min(start, end), 
+                toCh: Math.max(start, end), 
+                stage 
+              });
             }
           }
         }
@@ -61,22 +72,31 @@ export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspect
         <div className={`flex-1 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm`}>
             <div className={`p-3 border-b border-slate-100 ${colorClass} bg-opacity-10`}>
                 <h3 className={`text-xs font-black uppercase tracking-wider ${colorClass.replace('bg-', 'text-')}`}>{title}</h3>
-                <span className="text-[10px] text-slate-400 font-bold">{items.length} Entries</span>
+                <div className="flex justify-between items-center mt-1">
+                   <span className="text-[10px] text-slate-400 font-bold">{items.length} Concrete Pours</span>
+                </div>
             </div>
-            <div className="max-h-[300px] overflow-y-auto p-2 space-y-2">
-                {items.length === 0 ? <div className="text-center text-slate-300 text-xs italic py-4">No data</div> : 
+            <div className="max-h-[350px] overflow-y-auto p-2 space-y-2">
+                {items.length === 0 ? <div className="text-center text-slate-300 text-xs italic py-10">No C25 Concrete data for {stage}</div> : 
                  items.map(item => (
                     <div 
                         key={item.id} 
                         onClick={() => onInspectItem?.(item)}
-                        className="p-3 bg-slate-50 hover:bg-white hover:shadow-md border border-slate-100 rounded-lg cursor-pointer transition-all group"
+                        className="p-3 bg-white hover:bg-indigo-50/30 hover:shadow-md border border-slate-100 rounded-lg cursor-pointer transition-all group relative overflow-hidden"
                     >
                         <div className="flex justify-between items-center mb-1">
-                            <span className="text-[10px] font-mono font-bold text-slate-500">{item.date}</span>
-                            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded text-white ${colorClass.replace('bg-opacity-10', '')}`}>{item.quantity > 0 ? `${item.quantity}${item.unit}` : '-'}</span>
+                            <span className="text-[10px] font-mono font-bold text-slate-400">{item.date}</span>
+                            <div className="flex items-center gap-2">
+                               <span className={`text-[10px] font-black px-1.5 py-0.5 rounded shadow-sm border ${colorClass === 'bg-blue-500' ? 'bg-blue-600 border-blue-700' : colorClass === 'bg-green-500' ? 'bg-green-600 border-green-700' : 'bg-red-600 border-red-700'} text-white`}>
+                                   {item.quantity > 0 ? `${item.quantity}${item.unit || 'm3'}` : '-'}
+                               </span>
+                            </div>
                         </div>
-                        <div className="text-xs font-bold text-slate-800">
+                        <div className="text-sm font-bold text-slate-800">
                              CH {item.fromCh} - {item.toCh}
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-medium truncate mt-1">
+                           {item.activityDescription.substring(0, 40)}...
                         </div>
                     </div>
                 ))}
@@ -90,7 +110,7 @@ export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspect
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-6">
         <div>
           <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">HRT Progress Profile</h2>
-          <p className="text-sm text-slate-500 italic">Total Alignment: 2606.0m</p>
+          <p className="text-sm text-slate-500 italic">Tracking C25 Concrete pours across 2606.0m alignment</p>
         </div>
         
         <div className="flex items-center gap-4">
@@ -100,7 +120,7 @@ export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspect
 
             <div className="flex flex-col gap-2 bg-slate-50 p-4 rounded-xl border border-slate-200 w-full md:w-auto">
             <label className="text-[10px] font-black uppercase text-slate-400 flex justify-between">
-                <span>Break Profile Sections (Coordinate Control)</span>
+                <span>Section Range (Control)</span>
                 <span className="text-indigo-600">{rangeStart}m - {rangeEnd}m</span>
             </label>
             <div className="flex gap-4 items-center">
