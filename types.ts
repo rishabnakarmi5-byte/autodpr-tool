@@ -68,7 +68,6 @@ export interface BackupEntry {
   reportIdContext: string;
 }
 
-// Legacy support mostly, but good for type checking
 export interface QuantityEntry {
   id: string;
   date: string;
@@ -98,7 +97,7 @@ export interface LiningEntry {
   source: 'Legacy' | 'System' | 'Manual';
   status?: 'Verified' | 'Conflict' | 'New'; 
   lastUpdated: string;
-  linkedItemId?: string; // Link back to Master Record
+  linkedItemId?: string; 
 }
 
 export interface ItemTypeDefinition {
@@ -125,6 +124,9 @@ export interface UserProfile {
   joinedDate: string;
 }
 
+/**
+ * Added UserMood interface to track user sentiment data
+ */
 export interface UserMood {
   id: string;
   uid: string;
@@ -133,6 +135,9 @@ export interface UserMood {
   timestamp: string;
 }
 
+/**
+ * Added SystemCheckpoint interface for full database snapshots and restore points
+ */
 export interface SystemCheckpoint {
   id: string;
   timestamp: string;
@@ -156,10 +161,4 @@ export enum TabView {
   RECYCLE_BIN = 'recycle_bin',
   SETTINGS = 'settings',
   PROFILE = 'profile'
-}
-
-declare global {
-  interface Window {
-    html2canvas: (element: HTMLElement, options?: any) => Promise<HTMLCanvasElement>;
-  }
 }
