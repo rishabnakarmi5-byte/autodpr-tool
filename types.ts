@@ -34,6 +34,7 @@ export interface DailyReport {
   date: string;
   lastUpdated: string;
   projectTitle: string;
+  companyName?: string;
   entries: DPRItem[];
   isRecovered?: boolean; 
 }
@@ -108,6 +109,7 @@ export interface ItemTypeDefinition {
 
 export interface ProjectSettings {
   projectName: string;
+  companyName: string;
   projectDescription: string;
   locationHierarchy: Record<string, string[]>;
   itemTypes: ItemTypeDefinition[];
@@ -124,9 +126,6 @@ export interface UserProfile {
   joinedDate: string;
 }
 
-/**
- * Added UserMood interface to track user sentiment data
- */
 export interface UserMood {
   id: string;
   uid: string;
@@ -135,9 +134,6 @@ export interface UserMood {
   timestamp: string;
 }
 
-/**
- * Added SystemCheckpoint interface for full database snapshots and restore points
- */
 export interface SystemCheckpoint {
   id: string;
   timestamp: string;

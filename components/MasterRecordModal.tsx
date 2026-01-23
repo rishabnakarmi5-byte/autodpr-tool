@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { DPRItem, BackupEntry } from '../types';
 import { getBackupById } from '../services/firebaseService';
 import { ITEM_PATTERNS } from '../utils/constants';
+import { parseConstructionData } from '../services/geminiService';
 
 interface MasterRecordModalProps {
   item: DPRItem;
@@ -18,6 +19,7 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
   const [sourceBackup, setSourceBackup] = useState<BackupEntry | null>(null);
   const [activeTab, setActiveTab] = useState<'source' | 'history'>('source');
   const [loadingSource, setLoadingSource] = useState(false);
+  const [parsingHarder, setParsingHarder] = useState(false);
 
   useEffect(() => {
     setLocalItem(item);
@@ -27,6 +29,8 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
         setSourceBackup(b);
         setLoadingSource(false);
       });
+    } else {
+        setSourceBackup(null);
     }
   }, [item, isOpen]);
 
@@ -38,6 +42,34 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
     if (localItem[field] !== (item as any)[field]) {
       onUpdate(item.id, { [field]: localItem[field] });
     }
+  };
+
+  const handleParseHarder = async () => {
+      if (!sourceBackup) return;
+      setParsingHarder(true);
+      try {
+          const { items } = await parseConstructionData(
+              sourceBackup.rawInput, 
+              "STRICT MODE: The user is re-scanning this specific entry. Look specifically for multiple quantities or combined activities like 'rebar AND concrete'. Break them apart.",
+              [item.location],
+              [item.component || ""],
+              hierarchy
+          );
+          if (items.length > 0) {
+              const bestMatch = items[0];
+              onUpdate(item.id, {
+                  activityDescription: bestMatch.activityDescription,
+                  quantity: bestMatch.quantity,
+                  unit: bestMatch.unit,
+                  itemType: bestMatch.itemType
+              });
+              alert(`AI suggests: ${bestMatch.activityDescription} (${bestMatch.quantity} ${bestMatch.unit}). Updating...`);
+          }
+      } catch (e) {
+          alert("Failed to parse harder.");
+      } finally {
+          setParsingHarder(false);
+      }
   };
 
   if (!isOpen) return null;
@@ -61,9 +93,17 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
               </div>
             </div>
           </div>
-          <button onClick={onClose} className="w-10 h-10 bg-slate-800 hover:bg-slate-700 rounded-full flex items-center justify-center transition-colors">
-            <i className="fas fa-times"></i>
-          </button>
+          <div className="flex gap-3">
+              <button 
+                onClick={() => onSplit(item)}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2"
+              >
+                  <i className="fas fa-columns"></i> Split Activity
+              </button>
+              <button onClick={onClose} className="w-10 h-10 bg-slate-800 hover:bg-slate-700 rounded-full flex items-center justify-center transition-colors">
+                <i className="fas fa-times"></i>
+              </button>
+          </div>
         </div>
 
         <div className="flex-1 flex overflow-hidden">
@@ -118,6 +158,7 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                       <option value="m2">m2</option>
                       <option value="Ton">Ton</option>
                       <option value="nos">nos</option>
+                      <option value="rm">rm</option>
                     </select>
                   </div>
                 </div>
@@ -138,7 +179,19 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
             <div className="flex-1 overflow-y-auto p-6">
               {activeTab === 'source' ? (
                 loadingSource ? <div className="text-center p-10 text-slate-400">Loading original text...</div> : (
-                  sourceBackup ? <div className="bg-slate-900 text-slate-300 p-4 rounded-xl font-mono text-xs leading-relaxed whitespace-pre-wrap shadow-inner">{sourceBackup.rawInput}</div> : <div className="text-center p-10 text-slate-400 italic">No source backup found for manual entry.</div>
+                  sourceBackup ? (
+                      <div className="space-y-4">
+                        <div className="bg-slate-900 text-slate-300 p-4 rounded-xl font-mono text-xs leading-relaxed whitespace-pre-wrap shadow-inner">{sourceBackup.rawInput}</div>
+                        <button 
+                            onClick={handleParseHarder}
+                            disabled={parsingHarder}
+                            className="w-full bg-indigo-50 text-indigo-700 border border-indigo-100 py-3 rounded-xl font-bold text-sm hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
+                        >
+                            {parsingHarder ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-microscope"></i>}
+                            AI Re-scan (Parse Harder)
+                        </button>
+                      </div>
+                  ) : <div className="text-center p-10 text-slate-400 italic">No source backup found for manual entry.</div>
                 )
               ) : (
                 <div className="space-y-4">
