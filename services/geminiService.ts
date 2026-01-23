@@ -1,7 +1,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { DPRItem } from "../types";
-import { LOCATION_HIERARCHY, identifyItemType } from "../utils/constants";
+import { LOCATION_HIERARCHY, identifyItemType, ITEM_PATTERNS } from "../utils/constants";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -28,10 +28,17 @@ export const parseConstructionData = async (
   instructions?: string,
   contextLocations?: string[],
   contextComponents?: string[],
-  customHierarchy?: Record<string, string[]>
+  customHierarchy?: Record<string, string[]>,
+  customItemTypes?: any[]
 ): Promise<{ items: Omit<DPRItem, 'id'>[], warnings: string[] }> => {
   
   const hierarchyToUse = customHierarchy || LOCATION_HIERARCHY;
+  const itemTypesToUse = customItemTypes || ITEM_PATTERNS.map(p => ({
+      name: p.name,
+      pattern: p.pattern.toString().slice(1, -2),
+      defaultUnit: p.defaultUnit
+  }));
+
   const instructionBlock = instructions 
     ? `USER SPECIFIC INSTRUCTIONS (CRITICAL): ${instructions}` 
     : 'No specific user instructions.';
@@ -49,6 +56,8 @@ export const parseConstructionData = async (
       return `LOC: "${loc}" -> COMPS: [${comps.join(', ')}]`;
   }).join('\n    ');
 
+  const itemTypesString = itemTypesToUse.map(t => `"${t.name}" (keywords: ${t.pattern})`).join(', ');
+
   const prompt = `
     You are a construction site data extraction engine.
     Convert raw WhatsApp messages into a structured JSON array of construction activities.
@@ -60,19 +69,27 @@ export const parseConstructionData = async (
     STRICT EXTRACTION RULES:
     1. SPLIT COMBINED ACTIVITIES: 
        - If one sentence mentions rebar, formwork, AND concrete, you MUST create THREE separate objects.
-       - NEVER bundle rebar and concrete in the same activityDescription unless specifically requested.
     
     2. QUANTITY PRECISION:
-       - Extract ALL numeric quantities.
-       - Mapping: "mt" or "metric ton" -> "Ton", "cum" or "m3" -> "m3", "sqm" or "m2" -> "m2", "bags" or "nos" -> "nos".
-       - If no unit is mentioned but it is 'C25', assume 'm3'.
+       - Extract ALL numeric quantities accurately.
+       - Unit Mapping (Case Insensitive): 
+         * "mt", "metric ton" -> "Ton"
+         * "cum", "m3" -> "m3"
+         * "sqm", "m2" -> "m2"
+         * "bags", "nos", "number", "numbers" -> "nos"
+         * "rm", "running meter" -> "rm"
+       - Example: "42 bags" => quantity: 42, unit: "nos".
+       - Example: "37 m3 of C25" => quantity: 37, unit: "m3".
 
     3. DESCRIPTIONS:
-       - Keep activityDescription concise (e.g., "Rebar installation").
-       - Convert grade "M25" to "C25".
+       - Clean description (e.g., "Rebar installation").
+       - Keep grade labels like "C25".
 
     HIERARCHY:
     ${hierarchyString}
+
+    RECOGNIZED ITEM TYPES:
+    ${itemTypesString}
     ---------------------------------------------------------
 
     RAW INPUT:
@@ -102,7 +119,8 @@ export const parseConstructionData = async (
                     activityDescription: { type: Type.STRING },
                     plannedNextActivity: { type: Type.STRING },
                     quantity: { type: Type.NUMBER },
-                    unit: { type: Type.STRING }
+                    unit: { type: Type.STRING },
+                    itemType: { type: Type.STRING }
                   },
                   required: ["location", "activityDescription"],
                 },
@@ -117,7 +135,10 @@ export const parseConstructionData = async (
       const result = JSON.parse(response.text);
       
       const processedItems = result.items.map((item: any) => {
-          const desc = (item.activityDescription || "").replace(/\bM(\d{2})\b/gi, "C$1");
+          const desc = item.activityDescription || "";
+          // If AI provided itemType, use it, otherwise detect it
+          const type = item.itemType && item.itemType !== "Other" ? item.itemType : identifyItemType(desc, customItemTypes);
+          
           return {
               location: item.location || "Unclassified",
               component: item.component || "",
@@ -127,8 +148,8 @@ export const parseConstructionData = async (
               activityDescription: desc,
               plannedNextActivity: item.plannedNextActivity || "As per plan",
               quantity: item.quantity || 0,
-              unit: item.unit ? item.unit.toLowerCase() : '',
-              itemType: identifyItemType(desc)
+              unit: item.unit || "m3",
+              itemType: type
           };
       });
 

@@ -45,7 +45,6 @@ export const LOCATION_HIERARCHY: Record<string, string[]> = {
   ]
 };
 
-// Defined sort order for the report
 export const LOCATION_SORT_ORDER = [
   "Headworks",
   "Headrace Tunnel (HRT)",
@@ -62,24 +61,17 @@ export const getLocationPriority = (location: string): number => {
   return index === -1 ? 999 : index;
 };
 
-// Default regex patterns to identify item types
 export const ITEM_PATTERNS = [
-  // --- PLUM CONCRETE ---
   { name: "C25 Plum Concrete", pattern: /\b(c25|grade 25|m25).*(plum)|(plum).*(c25|grade 25|m25)\b/i, defaultUnit: 'm3' },
   { name: "C15 Plum Concrete", pattern: /\b(c15|grade 15|m15).*(plum)|(plum).*(c15|grade 15|m15)\b/i, defaultUnit: 'm3' },
   { name: "C10 Plum Concrete", pattern: /\b(plum)\b/i, defaultUnit: 'm3' },
-
   { name: "Shotcrete", pattern: /\b(shotcrete|s\/c)\b/i, defaultUnit: 'm3' },
-
-  // --- CONCRETE GRADES ---
   { name: "C35 Concrete", pattern: /\b(c35|grade 35|m35)\b/i, defaultUnit: 'm3' },
   { name: "C30 Concrete", pattern: /\b(c30|grade 30|m30|(2nd|second)\s+stage)\b/i, defaultUnit: 'm3' },
   { name: "C25 Concrete", pattern: /\b(c25|grade 25|m25|concrete|conc\.?|rcc)\b/i, defaultUnit: 'm3' },
   { name: "C20 Concrete", pattern: /\b(c20|grade 20|m20)\b/i, defaultUnit: 'm3' },
   { name: "C15 Concrete", pattern: /\b(c15|grade 15|m15)\b/i, defaultUnit: 'm3' },
   { name: "C10 Concrete", pattern: /\b(c10|pcc|infill|grade 10|m10)\b/i, defaultUnit: 'm3' },
-
-  // --- OTHER ITEMS ---
   { name: "Rebar", pattern: /\b(rebar|reinforcement|steel|tmt|bar|tor)\b/i, defaultUnit: 'Ton' },
   { name: "Formwork", pattern: /\b(formwork|shuttering)\b/i, defaultUnit: 'm2' },
   { name: "Stone Masonry", pattern: /\b(masonry|rrm|ms wall|stone soling|soling)\b/i, defaultUnit: 'm3' },
@@ -89,6 +81,7 @@ export const ITEM_PATTERNS = [
   { name: "Backfill", pattern: /\b(backfill|backfilling)\b/i, defaultUnit: 'm3' },
   { name: "Rock Bolt", pattern: /\b(rock bolt|bolt|anchor)\b/i, defaultUnit: 'nos' },
   { name: "Gabion", pattern: /\b(gabion)\b/i, defaultUnit: 'm3' },
+  { name: "Grouting", pattern: /\b(grouting|cement\s+consumption|bags|consolidation|contact)\b/i, defaultUnit: 'nos' },
 ];
 
 export const STRUCTURAL_ELEMENTS = [
@@ -126,15 +119,10 @@ export const STRUCTURAL_ELEMENTS = [
   { regex: /\b(right\s+bank)\b/i, label: "RB" },
 ];
 
-export const CHAINAGE_PATTERN = /(?:ch\.?|chainage|chain|@)\s*(\d+\+\d+(?:\.\d+)?|[\d\+\-\.]+)(?:\s*(?:to|-)\s*(\d+\+\d+(?:\.\d+)?|[\d\+\-\.]+))?/i;
-export const ELEVATION_PATTERN = /(?:el\.?|elevation|level|lvl)\s*([\d\+\-\.]+)(?:\s*(?:to|-)\s*([\d\+\-\.]+))?/i;
-
-// --- Helper Functions ---
-
 export const identifyItemType = (text: string, customItems?: any[]): string => {
   const itemsToUse = customItems ? customItems.map(i => ({
       name: i.name,
-      pattern: new RegExp(i.pattern, 'i')
+      pattern: typeof i.pattern === 'string' ? new RegExp(i.pattern, 'i') : i.pattern
   })) : ITEM_PATTERNS;
 
   for (const item of itemsToUse) {
@@ -143,31 +131,6 @@ export const identifyItemType = (text: string, customItems?: any[]): string => {
     }
   }
   return "Other";
-};
-
-const formatChainageNumber = (valStr: string): string => {
-  const clean = valStr.replace(/\+/g, '').replace(/m$/i, '').trim();
-  const num = parseFloat(clean);
-  if (isNaN(num)) return valStr;
-
-  const km = Math.floor(num / 1000);
-  const m = Math.round(num % 1000);
-  return `${km}+${m.toString().padStart(3, '0')}`;
-};
-
-export const extractChainageAndFormat = (text: string): string | null => {
-  const match = text.match(CHAINAGE_PATTERN);
-  if (match) {
-    const startRaw = match[1];
-    const endRaw = match[2];
-    const start = formatChainageNumber(startRaw);
-    if (endRaw) {
-      const end = formatChainageNumber(endRaw);
-      return `${start} to ${end} m`;
-    }
-    return `${start} m`;
-  }
-  return null;
 };
 
 export const parseQuantityDetails = (
@@ -187,27 +150,9 @@ export const parseQuantityDetails = (
     }
   });
 
-  let chainageFromInput = extractChainageAndFormat(chainageOrAreaInput);
-  const elMatchInput = chainageOrAreaInput.match(ELEVATION_PATTERN);
-
-  if (chainageFromInput) chainageStr += (chainageStr ? ", " : "") + chainageFromInput;
-  if (elMatchInput) chainageStr += (chainageStr ? ", " : "") + elMatchInput[0].trim();
-
-  if (!chainageStr) {
-      const chDesc = extractChainageAndFormat(description);
-      if (chDesc) chainageStr += (chainageStr ? ", " : "") + chDesc;
-      const elDesc = description.match(ELEVATION_PATTERN);
-      if (elDesc) chainageStr += (chainageStr ? ", " : "") + elDesc[0].trim();
-  }
-
-  if (!component) {
-      if (chainageFromInput || elMatchInput) component = location;
-      else component = chainageOrAreaInput;
-  }
-
   return {
-    structure: component,
+    structure: component || location,
     detailElement: Array.from(elements).join(', '),
-    detailLocation: chainageStr
+    detailLocation: chainageOrAreaInput
   };
 };

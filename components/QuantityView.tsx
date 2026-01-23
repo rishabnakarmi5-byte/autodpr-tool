@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { DailyReport, DPRItem } from '../types';
+import { DailyReport, DPRItem, ItemTypeDefinition } from '../types';
 import { ITEM_PATTERNS } from '../utils/constants';
 
 interface QuantityViewProps {
@@ -8,9 +8,10 @@ interface QuantityViewProps {
   user?: any;
   onInspectItem?: (item: DPRItem) => void;
   onHardSync?: () => void;
+  customItemTypes?: ItemTypeDefinition[];
 }
 
-export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectItem, onHardSync }) => {
+export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectItem, onHardSync, customItemTypes }) => {
   const [filterType, setFilterType] = useState('All');
   const [filterLocation, setFilterLocation] = useState('All');
   const [search, setSearch] = useState('');
@@ -23,11 +24,24 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
     return Array.from(locs).sort();
   }, [reports]);
 
+  const availableItemTypes = useMemo(() => {
+    const types = new Set<string>();
+    // Default patterns
+    ITEM_PATTERNS.forEach(p => types.add(p.name));
+    // User custom patterns
+    if (customItemTypes) {
+      customItemTypes.forEach(t => types.add(t.name));
+    }
+    // Existing data (in case some were typed manually)
+    reports.forEach(r => r.entries.forEach(e => { if(e.itemType) types.add(e.itemType); }));
+    return Array.from(types).sort();
+  }, [reports, customItemTypes]);
+
   const quantities = useMemo(() => {
     const list: (DPRItem & { date: string })[] = [];
     reports.forEach(r => {
       r.entries.forEach(e => {
-        // Fix: Show even if itemType is "Other" if there's a quantity
+        // Show even if itemType is "Other" if there's a quantity
         if (e.quantity > 0 || e.itemType !== 'Other') {
           list.push({ ...e, date: r.date });
         }
@@ -87,7 +101,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
             <div>
                 <select className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold" value={filterType} onChange={e => setFilterType(e.target.value)}>
                     <option value="All">All Item Types</option>
-                    {ITEM_PATTERNS.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+                    {availableItemTypes.map(name => <option key={name} value={name}>{name}</option>)}
                 </select>
             </div>
             <div>

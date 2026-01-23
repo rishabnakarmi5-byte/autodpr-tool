@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
-import { DPRItem, BackupEntry } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { DPRItem, BackupEntry, ItemTypeDefinition } from '../types';
 import { getBackupById } from '../services/firebaseService';
 import { ITEM_PATTERNS } from '../utils/constants';
 import { parseConstructionData } from '../services/geminiService';
@@ -13,9 +13,10 @@ interface MasterRecordModalProps {
   onSplit: (item: DPRItem) => void;
   onDelete: (id: string) => void;
   hierarchy: Record<string, string[]>;
+  customItemTypes?: ItemTypeDefinition[];
 }
 
-export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOpen, onClose, onUpdate, onSplit, onDelete, hierarchy }) => {
+export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOpen, onClose, onUpdate, onSplit, onDelete, hierarchy, customItemTypes }) => {
   const [localItem, setLocalItem] = useState<DPRItem>(item);
   const [sourceBackup, setSourceBackup] = useState<BackupEntry | null>(null);
   const [activeTab, setActiveTab] = useState<'source' | 'history'>('source');
@@ -35,6 +36,14 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
     }
   }, [item, isOpen]);
 
+  const allItemTypes = useMemo(() => {
+      const types = [...ITEM_PATTERNS.map(p => p.name)];
+      if (customItemTypes) {
+          customItemTypes.forEach(t => { if(!types.includes(t.name)) types.push(t.name); });
+      }
+      return types.sort();
+  }, [customItemTypes]);
+
   const handleChange = (field: keyof DPRItem, value: any) => {
     setLocalItem(prev => ({ ...prev, [field]: value }));
   };
@@ -51,19 +60,22 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
       try {
           const { items } = await parseConstructionData(
               sourceBackup.rawInput, 
-              "STRICT MODE: The user is re-scanning this specific entry. Look specifically for multiple quantities or combined activities like 'rebar AND concrete'. Break them apart.",
+              "STRICT MODE: The user is re-scanning this specific entry. Look specifically for multiple quantities or combined activities like 'rebar AND concrete'. Break them apart. Look for units like 'bags' and convert to 'nos'.",
               [item.location],
               [item.component || ""],
-              hierarchy
+              hierarchy,
+              customItemTypes
           );
           if (items.length > 0) {
               const bestMatch = items[0];
-              onUpdate(item.id, {
+              const updates = {
                   activityDescription: bestMatch.activityDescription,
                   quantity: bestMatch.quantity,
                   unit: bestMatch.unit,
                   itemType: bestMatch.itemType
-              });
+              };
+              setLocalItem(prev => ({ ...prev, ...updates }));
+              onUpdate(item.id, updates);
               alert(`AI suggests: ${bestMatch.activityDescription} (${bestMatch.quantity} ${bestMatch.unit}). Updating...`);
           }
       } catch (e) {
@@ -150,19 +162,23 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
               <div className="space-y-4">
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Classification</label>
-                  <select className="w-full p-2.5 border border-slate-200 rounded-lg text-sm" value={localItem.itemType} onChange={e => { handleChange('itemType', e.target.value); onUpdate(item.id, {itemType: e.target.value}); }}>
+                  <select 
+                    className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold bg-white" 
+                    value={localItem.itemType} 
+                    onChange={e => { handleChange('itemType', e.target.value); onUpdate(item.id, {itemType: e.target.value}); }}
+                  >
                     <option value="Other">Unclassified</option>
-                    {ITEM_PATTERNS.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+                    {allItemTypes.map(name => <option key={name} value={name}>{name}</option>)}
                   </select>
                 </div>
                 <div className="flex gap-4">
                   <div className="flex-1">
                     <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Quantity</label>
-                    <input type="number" className="w-full p-3 border border-slate-200 rounded-lg text-2xl font-bold text-indigo-600" value={localItem.quantity} onChange={e => handleChange('quantity', parseFloat(e.target.value))} onBlur={() => handleBlur('quantity')} />
+                    <input type="number" step="any" className="w-full p-3 border border-slate-200 rounded-lg text-2xl font-bold text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-500" value={localItem.quantity || ''} onChange={e => handleChange('quantity', parseFloat(e.target.value) || 0)} onBlur={() => handleBlur('quantity')} />
                   </div>
                   <div className="w-1/4">
                     <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Unit</label>
-                    <select className="w-full p-3 border border-slate-200 rounded-lg text-lg h-[58px]" value={localItem.unit} onChange={e => { handleChange('unit', e.target.value); onUpdate(item.id, {unit: e.target.value}); }}>
+                    <select className="w-full p-3 border border-slate-200 rounded-lg text-lg h-[58px] font-bold outline-none focus:ring-2 focus:ring-indigo-500" value={localItem.unit} onChange={e => { handleChange('unit', e.target.value); onUpdate(item.id, {unit: e.target.value}); }}>
                       <option value="m3">m3</option>
                       <option value="m2">m2</option>
                       <option value="Ton">Ton</option>
