@@ -86,7 +86,7 @@ export const autofillItemData = async (
     if (response.text) {
       const result = JSON.parse(response.text);
       const unitMap: Record<string, string> = {
-          'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'tons': 'Ton', 'nos': 'nos', 'rm': 'rm'
+          'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'nos': 'nos', 'rm': 'rm'
       };
       
       const finalUnit = unitMap[result.unit?.toLowerCase()] || "m3";
@@ -162,6 +162,11 @@ export const parseConstructionData = async (
     
     2. LOCATION CONTEXT:
        - Map "Apron" or "Key" to correct parent (Barrage, Weir, Stilling Basin).
+    
+    3. ACTIVITY DESCRIPTION:
+       - **IMPORTANT**: The 'activityDescription' field MUST include the quantity and unit text (e.g., "C25 Concrete work (15 m3)"). 
+       - Do not strip the quantity from the description.
+       - Ensure the description is human-readable and complete.
 
     RECOGNIZED ITEM TYPES:
     ${itemTypesToUse.map(t => t.name).join(', ')}
@@ -213,10 +218,22 @@ export const parseConstructionData = async (
       };
 
       const processedItems = result.items.map((item: any) => {
-          const desc = item.activityDescription || "";
+          let desc = item.activityDescription || "";
           const type = item.itemType && item.itemType !== "Other" ? item.itemType : identifyItemType(desc, customItemTypes);
           const finalUnit = unitMap[item.unit?.toLowerCase()] || item.unit || "m3";
+          const qty = item.quantity || 0;
           
+          // Fallback: Ensure quantity is in description if AI missed it
+          if (qty > 0) {
+             const normalizedDesc = desc.toLowerCase();
+             const normalizedUnit = finalUnit.toLowerCase(); 
+             
+             // If the description does NOT contain the unit (e.g. 'm3' or 'ton'), append the full quantity string
+             if (!normalizedDesc.includes(normalizedUnit)) {
+                 desc = `${desc} (${qty} ${finalUnit})`;
+             }
+          }
+
           return {
               location: item.location || contextLocations?.[0] || "Unclassified",
               component: item.component || contextComponents?.[0] || "",
@@ -225,7 +242,7 @@ export const parseConstructionData = async (
               chainageOrArea: `${item.chainage || ''} ${item.structuralElement || ''}`.trim(),
               activityDescription: desc,
               plannedNextActivity: item.plannedNextActivity || "As per plan",
-              quantity: item.quantity || 0,
+              quantity: qty,
               unit: finalUnit,
               itemType: type
           };

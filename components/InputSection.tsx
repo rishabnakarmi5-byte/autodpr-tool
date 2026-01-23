@@ -97,7 +97,28 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       setModalStep(1);
     } catch (err: any) {
       console.error(err);
-      setError(err.message ? `Error: ${err.message}` : "Processing failed. Please check your connection and try again.");
+      
+      let msg = err.message || "Processing failed.";
+      
+      // Parse detailed Google API errors if present
+      if (msg.includes('429') || msg.includes('Quota exceeded') || msg.includes('RESOURCE_EXHAUSTED')) {
+         msg = "⚠️ AI Daily Quota Exceeded. The free tier limit for Gemini has been reached. Please try again later or update the API Key.";
+      } else if (msg.includes('{') && msg.includes('error')) {
+         // Attempt to extract cleaner message from JSON dump
+         try {
+             // Find the start of the JSON object
+             const jsonStart = msg.indexOf('{');
+             const jsonStr = msg.substring(jsonStart);
+             const parsed = JSON.parse(jsonStr);
+             if (parsed.error && parsed.error.message) {
+                 msg = `AI Error: ${parsed.error.message}`;
+             }
+         } catch (e) {
+             // Fallback to original message if parse fails
+         }
+      }
+
+      setError(msg);
     } finally {
       setIsProcessing(false);
     }
