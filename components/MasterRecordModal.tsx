@@ -11,10 +11,11 @@ interface MasterRecordModalProps {
   onClose: () => void;
   onUpdate: (id: string, updates: Partial<DPRItem>) => void;
   onSplit: (item: DPRItem) => void;
+  onDelete: (id: string) => void;
   hierarchy: Record<string, string[]>;
 }
 
-export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOpen, onClose, onUpdate, onSplit, hierarchy }) => {
+export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOpen, onClose, onUpdate, onSplit, onDelete, hierarchy }) => {
   const [localItem, setLocalItem] = useState<DPRItem>(item);
   const [sourceBackup, setSourceBackup] = useState<BackupEntry | null>(null);
   const [activeTab, setActiveTab] = useState<'source' | 'history'>('source');
@@ -74,6 +75,8 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
 
   if (!isOpen) return null;
 
+  const splitFromLog = item.editHistory?.find(l => l.field === 'Source' && l.newValue.startsWith('Split from'));
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in">
       <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full h-[85vh] flex flex-col overflow-hidden border border-slate-700">
@@ -98,7 +101,13 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                 onClick={() => onSplit(item)}
                 className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2"
               >
-                  <i className="fas fa-columns"></i> Split Activity
+                  <i className="fas fa-columns"></i> Split
+              </button>
+              <button 
+                onClick={() => onDelete(item.id)}
+                className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 border border-red-500/20"
+              >
+                  <i className="fas fa-trash-alt"></i> Delete
               </button>
               <button onClick={onClose} className="w-10 h-10 bg-slate-800 hover:bg-slate-700 rounded-full flex items-center justify-center transition-colors">
                 <i className="fas fa-times"></i>
@@ -164,7 +173,12 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Activity Description</label>
-                  <textarea className="w-full p-3 border border-slate-200 rounded-lg text-sm min-h-[100px]" value={localItem.activityDescription} onChange={e => handleChange('activityDescription', e.target.value)} onBlur={() => handleBlur('activityDescription')} />
+                  <textarea 
+                    className="w-full p-3 border border-slate-200 rounded-lg text-sm min-h-[100px] outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 focus:bg-white transition-all" 
+                    value={localItem.activityDescription} 
+                    onChange={e => handleChange('activityDescription', e.target.value)} 
+                    onBlur={() => handleBlur('activityDescription')} 
+                  />
                 </div>
               </div>
             </div>
@@ -179,7 +193,13 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
             <div className="flex-1 overflow-y-auto p-6">
               {activeTab === 'source' ? (
                 loadingSource ? <div className="text-center p-10 text-slate-400">Loading original text...</div> : (
-                  sourceBackup ? (
+                  <div className="space-y-4">
+                    {splitFromLog && (
+                        <div className="bg-indigo-50 border border-indigo-200 p-3 rounded-lg flex items-center gap-3 text-indigo-700 text-xs font-bold animate-pulse">
+                            <i className="fas fa-columns"></i> {splitFromLog.newValue}
+                        </div>
+                    )}
+                    {sourceBackup ? (
                       <div className="space-y-4">
                         <div className="bg-slate-900 text-slate-300 p-4 rounded-xl font-mono text-xs leading-relaxed whitespace-pre-wrap shadow-inner">{sourceBackup.rawInput}</div>
                         <button 
@@ -191,7 +211,8 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                             AI Re-scan (Parse Harder)
                         </button>
                       </div>
-                  ) : <div className="text-center p-10 text-slate-400 italic">No source backup found for manual entry.</div>
+                    ) : <div className="text-center p-10 text-slate-400 italic">No source backup found (Manual or Split Entry).</div>}
+                  </div>
                 )
               ) : (
                 <div className="space-y-4">

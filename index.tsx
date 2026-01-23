@@ -12,9 +12,9 @@ import { HRTLiningView } from './components/HRTLiningView';
 import { ProjectSettingsView } from './components/ProjectSettings';
 import { ProfileView } from './components/ProfileView';
 import { MasterRecordModal } from './components/MasterRecordModal';
-import { subscribeToReports, saveReportToCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, getProjectSettings, saveProjectSettings, incrementUserStats } from './services/firebaseService';
+import { subscribeToReports, saveReportToCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, getProjectSettings, saveProjectSettings, incrementUserStats, moveItemToTrash } from './services/firebaseService';
 import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, EditHistory } from './types';
-import { getLocationPriority, LOCATION_HIERARCHY, parseQuantityDetails } from './utils/constants';
+import { getLocationPriority, LOCATION_HIERARCHY } from './utils/constants';
 
 const App = () => {
   const [user, setUser] = useState<any | null>(null);
@@ -63,19 +63,13 @@ const App = () => {
 
   const getUserName = () => user?.displayName || user?.email || 'Anonymous';
 
-  const saveState = async (entries: DPRItem[]) => {
-    setUndoStack(prev => [currentEntries, ...prev].slice(0, 20));
-    setRedoStack([]);
-    setCurrentEntries(entries);
-    
-    const id = currentReportId || crypto.randomUUID();
-    const report: DailyReport = {
-      id,
-      date: currentDate,
-      lastUpdated: new Date().toISOString(),
-      projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
-      entries
-    };
+  const saveReportState = async (report: DailyReport) => {
+    // If it's the active report, update local undo stack
+    if (report.date === currentDate) {
+      setUndoStack(prev => [currentEntries, ...prev].slice(0, 20));
+      setRedoStack([]);
+      setCurrentEntries(report.entries);
+    }
     
     setIsGlobalSaving(true);
     try {
@@ -87,23 +81,48 @@ const App = () => {
   };
 
   const handleUndo = () => {
-    if (undoStack.length === 0) return;
+    if (undoStack.length === 0 || !currentReportId) return;
     const prev = undoStack[0];
     setRedoStack(curr => [currentEntries, ...curr]);
     setUndoStack(curr => curr.slice(1));
-    saveState(prev);
+    
+    const report: DailyReport = {
+      id: currentReportId,
+      date: currentDate,
+      lastUpdated: new Date().toISOString(),
+      projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
+      companyName: settings?.companyName,
+      entries: prev
+    };
+    saveReportState(report);
   };
 
   const handleRedo = () => {
-    if (redoStack.length === 0) return;
+    if (redoStack.length === 0 || !currentReportId) return;
     const next = redoStack[0];
     setUndoStack(curr => [currentEntries, ...curr]);
     setRedoStack(curr => curr.slice(1));
-    saveState(next);
+    
+    const report: DailyReport = {
+      id: currentReportId,
+      date: currentDate,
+      lastUpdated: new Date().toISOString(),
+      projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
+      companyName: settings?.companyName,
+      entries: next
+    };
+    saveReportState(report);
+  };
+
+  const findReportForItem = (itemId: string): DailyReport | undefined => {
+    return reports.find(r => r.entries.some(e => e.id === itemId));
   };
 
   const handleUpdateItem = (id: string, updates: Partial<DPRItem>) => {
-    const newEntries = currentEntries.map(item => {
+    const targetReport = findReportForItem(id);
+    if (!targetReport) return;
+
+    const newEntries = targetReport.entries.map(item => {
       if (item.id === id) {
         const history: EditHistory[] = Object.entries(updates).map(([field, val]) => ({
           timestamp: new Date().toISOString(),
@@ -122,11 +141,15 @@ const App = () => {
       }
       return item;
     });
-    saveState(newEntries);
+
+    saveReportState({ ...targetReport, entries: newEntries, lastUpdated: new Date().toISOString() });
     if(inspectItem?.id === id) setInspectItem(prev => prev ? ({...prev, ...updates}) : null);
   };
 
   const handleSplitItem = (originalItem: DPRItem) => {
+    const targetReport = findReportForItem(originalItem.id);
+    if (!targetReport) return;
+
     const newItem: DPRItem = {
         ...originalItem,
         id: crypto.randomUUID(),
@@ -134,17 +157,36 @@ const App = () => {
         quantity: 0, 
         createdBy: getUserName(),
         lastModifiedAt: new Date().toISOString(),
-        editHistory: []
+        editHistory: [{
+          timestamp: new Date().toISOString(),
+          user: getUserName(),
+          field: 'Source',
+          oldValue: 'None',
+          newValue: `Split from ID ${originalItem.id.substring(0, 8)}`
+        }]
     };
     
-    // Insert after original
-    const index = currentEntries.findIndex(e => e.id === originalItem.id);
-    const newEntries = [...currentEntries];
+    const index = targetReport.entries.findIndex(e => e.id === originalItem.id);
+    const newEntries = [...targetReport.entries];
     newEntries.splice(index + 1, 0, newItem);
     
-    saveState(newEntries);
-    // Optionally alert or just log
-    logActivity(getUserName(), "Split Activity", `Split item ${originalItem.id}`, currentDate);
+    saveReportState({ ...targetReport, entries: newEntries, lastUpdated: new Date().toISOString() });
+    logActivity(getUserName(), "Split Activity", `Split item ${originalItem.id} in report ${targetReport.date}`, targetReport.date);
+  };
+
+  const handleDeleteItem = async (itemId: string) => {
+    const targetReport = findReportForItem(itemId);
+    if (!targetReport) return;
+
+    const itemToDelete = targetReport.entries.find(e => e.id === itemId);
+    if (!itemToDelete) return;
+
+    if (window.confirm("Archive this record? It will be moved to the Recycle Bin.")) {
+      await moveItemToTrash(itemToDelete, targetReport.id, targetReport.date, getUserName());
+      const newEntries = targetReport.entries.filter(e => e.id !== itemId);
+      await saveReportState({ ...targetReport, entries: newEntries, lastUpdated: new Date().toISOString() });
+      if (inspectItem?.id === itemId) setInspectItem(null);
+    }
   };
 
   const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
@@ -152,7 +194,17 @@ const App = () => {
     const backupId = await savePermanentBackup(currentDate, rawText, newItems, getUserName(), id);
     const stamped = newItems.map(i => ({...i, sourceBackupId: backupId || undefined}));
     const combined = [...currentEntries, ...stamped].sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
-    saveState(combined);
+    
+    const report: DailyReport = {
+      id,
+      date: currentDate,
+      lastUpdated: new Date().toISOString(),
+      projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
+      companyName: settings?.companyName,
+      entries: combined
+    };
+    
+    saveReportState(report);
     logActivity(getUserName(), "Items Added", `Added ${newItems.length} records`, currentDate, backupId || undefined);
     incrementUserStats(user?.uid, newItems.length);
   };
@@ -163,8 +215,8 @@ const App = () => {
   return (
     <Layout activeTab={activeTab} onTabChange={setActiveTab} user={user} onLogout={logoutUser}>
         {activeTab === TabView.INPUT && <InputSection currentDate={currentDate} onDateChange={setCurrentDate} onItemsAdded={handleItemsAdded} onViewReport={() => setActiveTab(TabView.VIEW_REPORT)} entryCount={currentEntries.length} user={user} hierarchy={hierarchy} />}
-        {activeTab === TabView.VIEW_REPORT && <ReportTable report={{id: currentReportId || '', date: currentDate, lastUpdated: '', projectTitle: settings?.projectName || '', entries: currentEntries}} onDeleteItem={(id) => saveState(currentEntries.filter(e => e.id !== id))} onUpdateItem={(id, f, v) => handleUpdateItem(id, {[f]: v})} onUpdateRow={handleUpdateItem} onUndo={handleUndo} canUndo={undoStack.length > 0} onRedo={handleRedo} canRedo={redoStack.length > 0} onInspectItem={setInspectItem} hierarchy={hierarchy} />}
-        {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={() => {/* Optional: Trigger refetch if needed, but Firebase syncs auto */}} />}
+        {activeTab === TabView.VIEW_REPORT && <ReportTable report={{id: currentReportId || '', date: currentDate, lastUpdated: '', projectTitle: settings?.projectName || '', companyName: settings?.companyName, entries: currentEntries}} onDeleteItem={handleDeleteItem} onUpdateItem={(id, f, v) => handleUpdateItem(id, {[f]: v})} onUpdateRow={handleUpdateItem} onUndo={handleUndo} canUndo={undoStack.length > 0} onRedo={handleRedo} canRedo={redoStack.length > 0} onInspectItem={setInspectItem} hierarchy={hierarchy} />}
+        {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={() => {/* Sync is auto via sub */}} />}
         {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onInspectItem={setInspectItem} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={(id) => { const r = reports.find(r=>r.id===id); if(r) setCurrentDate(r.date); setActiveTab(TabView.VIEW_REPORT); }} onDeleteReport={(id) => moveReportToTrash(reports.find(r=>r.id===id)!, getUserName())} onCreateNew={() => { setCurrentDate(new Date().toISOString().split('T')[0]); setActiveTab(TabView.INPUT); }} />}
         {activeTab === TabView.LOGS && <ActivityLogs logs={logs} />}
@@ -172,7 +224,7 @@ const App = () => {
         {activeTab === TabView.SETTINGS && <ProjectSettingsView currentSettings={settings} onSave={(s) => { setSettings(s); setHierarchy(s.locationHierarchy); saveProjectSettings(s); }} reports={reports} quantities={[]} user={user} />}
         {activeTab === TabView.PROFILE && <ProfileView user={user} />}
         
-        {inspectItem && <MasterRecordModal item={inspectItem} isOpen={true} onClose={() => setInspectItem(null)} onUpdate={handleUpdateItem} onSplit={handleSplitItem} hierarchy={hierarchy} />}
+        {inspectItem && <MasterRecordModal item={inspectItem} isOpen={true} onClose={() => setInspectItem(null)} onUpdate={handleUpdateItem} onSplit={handleSplitItem} onDelete={handleDeleteItem} hierarchy={hierarchy} />}
         {isGlobalSaving && <div className="fixed bottom-8 right-8 bg-slate-900 text-white px-4 py-2 rounded-lg shadow-xl animate-bounce z-50 text-xs font-bold uppercase tracking-wider">Cloud Syncing...</div>}
     </Layout>
   );
