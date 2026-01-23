@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { parseConstructionData } from '../services/geminiService';
 import { DPRItem } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
@@ -30,6 +30,16 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   
   // Modal State
   const [modalStep, setModalStep] = useState<number>(0);
+
+  // Derived state for available components based on selected locations
+  const availableComponents = useMemo(() => {
+    const comps = new Set<string>();
+    aiLocations.forEach(loc => {
+        const list = hierarchy[loc] || [];
+        list.forEach(c => comps.add(c));
+    });
+    return Array.from(comps);
+  }, [aiLocations, hierarchy]);
 
   const handleBulkLiningAdd = async () => {
     setIsProcessing(true);
@@ -64,21 +74,31 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   };
 
   const handleProcessAndAdd = async () => {
-    if (!rawText.trim() || aiLocations.length === 0 || aiComponents.length === 0) {
-        setError("Please select at least one Location and Component, and enter text.");
+    // Validation: Require text and at least one location.
+    if (!rawText.trim()) {
+        setError("Please enter some site activity text.");
         return;
     }
+    if (aiLocations.length === 0) {
+        setError("Please select a Main Location.");
+        return;
+    }
+    // Note: We don't strictly enforce component selection if none are desired/available,
+    // but usually it helps the AI.
     
     setIsProcessing(true);
     setError(null);
     try {
+      // If no components selected manually, pass empty array (AI will infer or leave blank)
       const { items } = await parseConstructionData(rawText, instructions, aiLocations, aiComponents, hierarchy);
       const stamped = items.map(item => ({ ...item, id: crypto.randomUUID(), createdBy: user?.displayName || user?.email || 'AI' })) as DPRItem[];
       onItemsAdded(stamped, rawText);
       setRawText('');
+      setAiLocations([]);
+      setAiComponents([]);
       setModalStep(1);
     } catch (err) {
-      setError("Processing failed.");
+      setError("Processing failed. Please try again.");
     } finally {
       setIsProcessing(false);
     }
@@ -141,14 +161,42 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
             {mode === 'ai' && (
                 <>
                     <div className="bg-indigo-50/50 p-5 rounded-xl border border-indigo-100">
-                        <label className="block text-xs font-bold text-indigo-800 uppercase mb-2">Select Locations</label>
+                        <label className="block text-xs font-bold text-indigo-800 uppercase mb-2">1. Select Locations (Context)</label>
                         <div className="flex flex-wrap gap-2">
                             {Object.keys(hierarchy).map(loc => (
                                 <button key={loc} onClick={() => setAiLocations(prev => prev.includes(loc) ? prev.filter(l => l !== loc) : [...prev, loc])} className={`px-4 py-2 rounded-lg text-xs font-bold border transition-all ${aiLocations.includes(loc) ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-indigo-200'}`}>{loc}</button>
                             ))}
                         </div>
+
+                        {/* COMPONENT SELECTION */}
+                        {availableComponents.length > 0 && (
+                            <div className="mt-4 animate-fade-in border-t border-indigo-200 pt-4">
+                                <label className="block text-xs font-bold text-indigo-800 uppercase mb-2">2. Select Components (Optional)</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {availableComponents.map(comp => (
+                                        <button 
+                                            key={comp} 
+                                            onClick={() => setAiComponents(prev => prev.includes(comp) ? prev.filter(c => c !== comp) : [...prev, comp])} 
+                                            className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${aiComponents.includes(comp) ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-indigo-200'}`}
+                                        >
+                                            {comp}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
-                    <textarea value={rawText} onChange={e => setRawText(e.target.value)} placeholder="Paste site update text..." className="w-full h-40 p-5 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono text-sm" />
+
+                    <div>
+                        <textarea value={rawText} onChange={e => setRawText(e.target.value)} placeholder="Paste site update text here..." className="w-full h-40 p-5 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono text-sm" />
+                    </div>
+
+                    {error && (
+                        <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2">
+                            <i className="fas fa-exclamation-triangle"></i> {error}
+                        </div>
+                    )}
+
                     <button onClick={handleProcessAndAdd} disabled={isProcessing} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2">
                         {isProcessing ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-wand-magic-sparkles"></i>}
                         Analyze & Add to Report
@@ -182,6 +230,13 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                         2026-01-22 CH 100 to 120 15m3
                     </div>
                     <textarea value={rawText} onChange={e => setRawText(e.target.value)} placeholder="Paste lining data rows..." className="w-full h-40 p-5 border border-slate-200 rounded-xl bg-slate-50 font-mono text-sm" />
+                    
+                    {error && (
+                        <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2">
+                            <i className="fas fa-exclamation-triangle"></i> {error}
+                        </div>
+                    )}
+                    
                     <button onClick={handleBulkLiningAdd} disabled={isProcessing} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2">
                         {isProcessing ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-table-list"></i>}
                         Parse Bulk Lining Entries
