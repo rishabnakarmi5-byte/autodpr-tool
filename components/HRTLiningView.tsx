@@ -6,11 +6,12 @@ interface HRTLiningViewProps {
   reports: DailyReport[];
   user: any;
   onInspectItem?: (item: DPRItem) => void;
+  onHardSync?: () => void;
 }
 
 const TOTAL_LENGTH = 2606;
 
-export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspectItem }) => {
+export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspectItem, onHardSync }) => {
   const [rangeStart, setRangeStart] = useState(0);
   const [rangeEnd, setRangeEnd] = useState(TOTAL_LENGTH);
 
@@ -49,10 +50,40 @@ export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspect
         }
       });
     });
-    return items;
+    return items.sort((a,b) => b.fromCh - a.fromCh);
   }, [reports]);
 
   const viewWidth = rangeEnd - rangeStart;
+
+  const renderEntryList = (title: string, colorClass: string, stage: string) => {
+    const items = liningItems.filter(i => i.stage === stage);
+    return (
+        <div className={`flex-1 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm`}>
+            <div className={`p-3 border-b border-slate-100 ${colorClass} bg-opacity-10`}>
+                <h3 className={`text-xs font-black uppercase tracking-wider ${colorClass.replace('bg-', 'text-')}`}>{title}</h3>
+                <span className="text-[10px] text-slate-400 font-bold">{items.length} Entries</span>
+            </div>
+            <div className="max-h-[300px] overflow-y-auto p-2 space-y-2">
+                {items.length === 0 ? <div className="text-center text-slate-300 text-xs italic py-4">No data</div> : 
+                 items.map(item => (
+                    <div 
+                        key={item.id} 
+                        onClick={() => onInspectItem?.(item)}
+                        className="p-3 bg-slate-50 hover:bg-white hover:shadow-md border border-slate-100 rounded-lg cursor-pointer transition-all group"
+                    >
+                        <div className="flex justify-between items-center mb-1">
+                            <span className="text-[10px] font-mono font-bold text-slate-500">{item.date}</span>
+                            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded text-white ${colorClass.replace('bg-opacity-10', '')}`}>{item.quantity > 0 ? `${item.quantity}${item.unit}` : '-'}</span>
+                        </div>
+                        <div className="text-xs font-bold text-slate-800">
+                             CH {item.fromCh} - {item.toCh}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+  };
 
   return (
     <div className="space-y-6 animate-fade-in pb-20">
@@ -62,17 +93,23 @@ export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspect
           <p className="text-sm text-slate-500 italic">Total Alignment: 2606.0m</p>
         </div>
         
-        <div className="flex flex-col gap-2 bg-slate-50 p-4 rounded-xl border border-slate-200 w-full md:w-auto">
-          <label className="text-[10px] font-black uppercase text-slate-400 flex justify-between">
-            <span>Break Profile Sections (Coordinate Control)</span>
-            <span className="text-indigo-600">{rangeStart}m - {rangeEnd}m</span>
-          </label>
-          <div className="flex gap-4 items-center">
-             <input type="number" value={rangeStart} onChange={e => setRangeStart(Math.max(0, parseInt(e.target.value) || 0))} className="w-24 p-2 border rounded-lg text-xs font-bold" />
-             <div className="w-20 h-1 bg-slate-200 rounded"></div>
-             <input type="number" value={rangeEnd} onChange={e => setRangeEnd(Math.min(TOTAL_LENGTH, parseInt(e.target.value) || TOTAL_LENGTH))} className="w-24 p-2 border rounded-lg text-xs font-bold" />
-             <button onClick={() => { setRangeStart(0); setRangeEnd(TOTAL_LENGTH); }} className="text-[10px] font-black text-indigo-600 hover:underline uppercase">Reset</button>
-          </div>
+        <div className="flex items-center gap-4">
+            <button onClick={onHardSync} className="bg-white text-indigo-600 border border-indigo-200 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-indigo-50 transition-all">
+                <i className="fas fa-sync-alt"></i> Sync Data
+            </button>
+
+            <div className="flex flex-col gap-2 bg-slate-50 p-4 rounded-xl border border-slate-200 w-full md:w-auto">
+            <label className="text-[10px] font-black uppercase text-slate-400 flex justify-between">
+                <span>Break Profile Sections (Coordinate Control)</span>
+                <span className="text-indigo-600">{rangeStart}m - {rangeEnd}m</span>
+            </label>
+            <div className="flex gap-4 items-center">
+                <input type="number" value={rangeStart} onChange={e => setRangeStart(Math.max(0, parseInt(e.target.value) || 0))} className="w-24 p-2 border rounded-lg text-xs font-bold" />
+                <div className="w-20 h-1 bg-slate-200 rounded"></div>
+                <input type="number" value={rangeEnd} onChange={e => setRangeEnd(Math.min(TOTAL_LENGTH, parseInt(e.target.value) || TOTAL_LENGTH))} className="w-24 p-2 border rounded-lg text-xs font-bold" />
+                <button onClick={() => { setRangeStart(0); setRangeEnd(TOTAL_LENGTH); }} className="text-[10px] font-black text-indigo-600 hover:underline uppercase">Reset</button>
+            </div>
+            </div>
         </div>
       </div>
 
@@ -114,13 +151,10 @@ export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspect
         </div>
       </div>
 
-      <div className="bg-amber-50 border border-amber-200 p-6 rounded-2xl flex gap-4">
-        <i className="fas fa-info-circle text-amber-500 text-xl"></i>
-        <div className="text-sm text-amber-800 leading-relaxed">
-          <p className="font-bold uppercase tracking-tight mb-1">Visualization Note</p>
-          Each block in the chart represents a Master Record activity. This is 100% accurate based on site-reported chainages.
-          Click any block to verify the <strong>quantity, material grade, or raw WhatsApp source</strong>.
-        </div>
+      <div className="flex flex-col md:flex-row gap-6">
+          {renderEntryList("Invert Progress", "bg-blue-500", "Invert")}
+          {renderEntryList("Kicker Progress", "bg-green-500", "Kicker")}
+          {renderEntryList("Gantry Progress", "bg-red-500", "Gantry")}
       </div>
     </div>
   );

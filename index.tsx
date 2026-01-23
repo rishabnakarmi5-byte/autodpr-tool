@@ -126,6 +126,27 @@ const App = () => {
     if(inspectItem?.id === id) setInspectItem(prev => prev ? ({...prev, ...updates}) : null);
   };
 
+  const handleSplitItem = (originalItem: DPRItem) => {
+    const newItem: DPRItem = {
+        ...originalItem,
+        id: crypto.randomUUID(),
+        activityDescription: `${originalItem.activityDescription} (Split)`,
+        quantity: 0, 
+        createdBy: getUserName(),
+        lastModifiedAt: new Date().toISOString(),
+        editHistory: []
+    };
+    
+    // Insert after original
+    const index = currentEntries.findIndex(e => e.id === originalItem.id);
+    const newEntries = [...currentEntries];
+    newEntries.splice(index + 1, 0, newItem);
+    
+    saveState(newEntries);
+    // Optionally alert or just log
+    logActivity(getUserName(), "Split Activity", `Split item ${originalItem.id}`, currentDate);
+  };
+
   const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
     const id = currentReportId || crypto.randomUUID();
     const backupId = await savePermanentBackup(currentDate, rawText, newItems, getUserName(), id);
@@ -143,7 +164,7 @@ const App = () => {
     <Layout activeTab={activeTab} onTabChange={setActiveTab} user={user} onLogout={logoutUser}>
         {activeTab === TabView.INPUT && <InputSection currentDate={currentDate} onDateChange={setCurrentDate} onItemsAdded={handleItemsAdded} onViewReport={() => setActiveTab(TabView.VIEW_REPORT)} entryCount={currentEntries.length} user={user} hierarchy={hierarchy} />}
         {activeTab === TabView.VIEW_REPORT && <ReportTable report={{id: currentReportId || '', date: currentDate, lastUpdated: '', projectTitle: settings?.projectName || '', entries: currentEntries}} onDeleteItem={(id) => saveState(currentEntries.filter(e => e.id !== id))} onUpdateItem={(id, f, v) => handleUpdateItem(id, {[f]: v})} onUpdateRow={handleUpdateItem} onUndo={handleUndo} canUndo={undoStack.length > 0} onRedo={handleRedo} canRedo={redoStack.length > 0} onInspectItem={setInspectItem} hierarchy={hierarchy} />}
-        {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} />}
+        {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={() => {/* Optional: Trigger refetch if needed, but Firebase syncs auto */}} />}
         {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onInspectItem={setInspectItem} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={(id) => { const r = reports.find(r=>r.id===id); if(r) setCurrentDate(r.date); setActiveTab(TabView.VIEW_REPORT); }} onDeleteReport={(id) => moveReportToTrash(reports.find(r=>r.id===id)!, getUserName())} onCreateNew={() => { setCurrentDate(new Date().toISOString().split('T')[0]); setActiveTab(TabView.INPUT); }} />}
         {activeTab === TabView.LOGS && <ActivityLogs logs={logs} />}
@@ -151,7 +172,7 @@ const App = () => {
         {activeTab === TabView.SETTINGS && <ProjectSettingsView currentSettings={settings} onSave={(s) => { setSettings(s); setHierarchy(s.locationHierarchy); saveProjectSettings(s); }} reports={reports} quantities={[]} user={user} />}
         {activeTab === TabView.PROFILE && <ProfileView user={user} />}
         
-        {inspectItem && <MasterRecordModal item={inspectItem} isOpen={true} onClose={() => setInspectItem(null)} onUpdate={handleUpdateItem} onSplit={(item) => {/* handle split */}} hierarchy={hierarchy} />}
+        {inspectItem && <MasterRecordModal item={inspectItem} isOpen={true} onClose={() => setInspectItem(null)} onUpdate={handleUpdateItem} onSplit={handleSplitItem} hierarchy={hierarchy} />}
         {isGlobalSaving && <div className="fixed bottom-8 right-8 bg-slate-900 text-white px-4 py-2 rounded-lg shadow-xl animate-bounce z-50 text-xs font-bold uppercase tracking-wider">Cloud Syncing...</div>}
     </Layout>
   );

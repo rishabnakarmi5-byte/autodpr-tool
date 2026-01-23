@@ -17,7 +17,7 @@ interface ReportTableProps {
 }
 
 export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUndo, onRedo, canRedo, onInspectItem }) => {
-  const [zoom, setZoom] = useState(100);
+  const [fontSize, setFontSize] = useState(12); // Base font size in pixels
   const reportRef = useRef<HTMLDivElement>(null);
 
   const exportToJPG = async () => {
@@ -43,9 +43,9 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
         </div>
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-xl">
-            <i className="fas fa-magnifying-glass text-slate-400"></i>
-            <input type="range" min="50" max="200" value={zoom} onChange={e => setZoom(parseInt(e.target.value))} className="w-24 accent-indigo-600" />
-            <span className="text-xs font-bold text-slate-500 w-8">{zoom}%</span>
+            <i className="fas fa-text-height text-slate-400"></i>
+            <input type="range" min="8" max="18" value={fontSize} onChange={e => setFontSize(parseInt(e.target.value))} className="w-24 accent-indigo-600" />
+            <span className="text-xs font-bold text-slate-500 w-8">{fontSize}px</span>
           </div>
           <button onClick={exportToJPG} className="bg-slate-900 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg flex items-center gap-2 hover:bg-black transition-all">
             <i className="fas fa-image"></i> Export JPG
@@ -53,7 +53,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
         </div>
       </div>
 
-      <div ref={reportRef} id="printable-report" className="bg-white shadow-2xl p-10 rounded-2xl border border-slate-100 transition-all origin-top mx-auto" style={{ transform: `scale(${zoom / 100})`, width: '100%', maxWidth: '210mm', marginBottom: `${(zoom - 100) * 5}px` }}>
+      <div ref={reportRef} id="printable-report" className="bg-white shadow-2xl p-10 rounded-2xl border border-slate-100 transition-all origin-top mx-auto" style={{ width: '100%', maxWidth: '210mm' }}>
         <div className="border-b-4 border-slate-900 pb-6 mb-8 flex justify-between items-end">
           <div>
             <h1 className="text-4xl text-slate-900 font-black uppercase tracking-tighter">Daily Progress Report</h1>
@@ -68,7 +68,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
           </div>
         </div>
 
-        <table className="w-full border-collapse border-2 border-slate-900 text-xs">
+        <table className="w-full border-collapse border-2 border-slate-900" style={{ fontSize: `${fontSize}px` }}>
           <thead>
             <tr className="bg-white text-slate-900 uppercase tracking-wider border-b-2 border-slate-900">
               <th className="border-r border-slate-900 p-3 w-[15%] text-left font-black">Location</th>
@@ -89,7 +89,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
                 <td className="border-r border-slate-900 p-2">
                   <div className="font-medium text-slate-800 leading-snug">
                     {item.activityDescription}
-                    {item.quantity > 0 && <span className="ml-2 px-1.5 py-0.5 bg-indigo-50 text-indigo-700 font-black rounded border border-indigo-100">{item.quantity} {item.unit}</span>}
+                    {item.quantity > 0 && <span className="ml-2 px-1.5 py-0.5 bg-indigo-50 text-indigo-700 font-black rounded border border-indigo-100" style={{ fontSize: '0.85em' }}>{item.quantity} {item.unit}</span>}
                   </div>
                 </td>
                 <td className="p-2 text-slate-400 italic leading-tight">{item.plannedNextActivity}</td>
@@ -97,13 +97,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
             ))}
           </tbody>
         </table>
-
-        <div className="mt-8 flex justify-between items-center text-[9px] text-slate-400 font-bold uppercase tracking-wider">
-           <div>Total unique activities: {report.entries.length}</div>
-           <div className="flex items-center gap-2">
-              <i className="fas fa-sync-alt"></i> Auto-synced with Master Records
-           </div>
-        </div>
       </div>
     </div>
   );
