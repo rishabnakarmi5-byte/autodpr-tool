@@ -66,8 +66,8 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       onItemsAdded(stamped, rawText);
       setRawText('');
       setModalStep(1);
-    } catch(e) {
-      setError("Failed to parse bulk lining data.");
+    } catch(e: any) {
+      setError(e.message || "Failed to parse bulk lining data.");
     } finally {
       setIsProcessing(false);
     }
@@ -83,8 +83,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         setError("Please select a Main Location.");
         return;
     }
-    // Note: We don't strictly enforce component selection if none are desired/available,
-    // but usually it helps the AI.
     
     setIsProcessing(true);
     setError(null);
@@ -97,8 +95,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       setAiLocations([]);
       setAiComponents([]);
       setModalStep(1);
-    } catch (err) {
-      setError("Processing failed. Please try again.");
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message ? `Error: ${err.message}` : "Processing failed. Please check your connection and try again.");
     } finally {
       setIsProcessing(false);
     }

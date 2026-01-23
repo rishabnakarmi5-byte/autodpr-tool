@@ -141,6 +141,13 @@ export const parseConstructionData = async (
     You are a construction site data extraction engine.
     Convert raw site update text into a structured JSON array.
 
+    CONTEXT LOCATIONS: ${contextLocations?.length ? contextLocations.join(', ') : "None specified"}
+    CONTEXT COMPONENTS: ${contextComponents?.length ? contextComponents.join(', ') : "None specified"}
+    
+    Instructions for Context:
+    - If specific LOCATIONS or COMPONENTS are provided above, prefer mapping items to them.
+    - If the user selected a component (e.g., "Apron"), explicitly use it in the output.
+
     ${instructions ? `USER SPECIFIC INSTRUCTIONS: ${instructions}` : ''}
     ${trainingExamplesText}
 
@@ -211,8 +218,8 @@ export const parseConstructionData = async (
           const finalUnit = unitMap[item.unit?.toLowerCase()] || item.unit || "m3";
           
           return {
-              location: item.location || "Unclassified",
-              component: item.component || "",
+              location: item.location || contextLocations?.[0] || "Unclassified",
+              component: item.component || contextComponents?.[0] || "",
               structuralElement: item.structuralElement || "",
               chainage: item.chainage || "",
               chainageOrArea: `${item.chainage || ''} ${item.structuralElement || ''}`.trim(),
