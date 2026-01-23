@@ -27,6 +27,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
     const list: (DPRItem & { date: string })[] = [];
     reports.forEach(r => {
       r.entries.forEach(e => {
+        // Fix: Show even if itemType is "Other" if there's a quantity
         if (e.quantity > 0 || e.itemType !== 'Other') {
           list.push({ ...e, date: r.date });
         }
@@ -65,7 +66,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex justify-between items-center">
         <div>
           <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Quantity Ledger</h2>
-          <p className="text-sm text-slate-500 font-medium">Derived directly from Master Records.</p>
+          <p className="text-sm text-slate-500 font-medium">Synced Master Records ledger.</p>
         </div>
         <div className="flex gap-3">
           <button onClick={onHardSync} className="bg-white text-indigo-600 border border-indigo-200 px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-50 transition-all">
@@ -81,7 +82,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="md:col-span-2 relative">
                 <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
-                <input className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-sm" placeholder="Search entries..." value={search} onChange={e => setSearch(e.target.value)} />
+                <input className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-sm font-bold" placeholder="Search entries..." value={search} onChange={e => setSearch(e.target.value)} />
             </div>
             <div>
                 <select className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold" value={filterType} onChange={e => setFilterType(e.target.value)}>
@@ -105,7 +106,7 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
                 <span className="text-[10px] font-bold text-slate-400 uppercase ml-2">To:</span>
                 <input type="date" className="bg-transparent border-none text-sm font-bold outline-none" value={dateEnd} onChange={e => setDateEnd(e.target.value)} />
             </div>
-            <button onClick={() => { setDateStart(''); setDateEnd(''); setSearch(''); setFilterType('All'); setFilterLocation('All'); }} className="text-xs font-bold text-slate-400 hover:text-red-500 px-4">Reset Filters</button>
+            <button onClick={() => { setDateStart(''); setDateEnd(''); setSearch(''); setFilterType('All'); setFilterLocation('All'); }} className="text-xs font-bold text-slate-400 hover:text-red-500 px-4 uppercase tracking-wider">Clear Filters</button>
         </div>
       </div>
 
@@ -130,8 +131,12 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
                   <div className="text-[10px] text-slate-400 uppercase font-medium">{q.component}</div>
                 </td>
                 <td className="p-4 text-sm text-slate-600 leading-snug">{q.activityDescription}</td>
-                <td className="p-4"><span className="bg-slate-100 text-[10px] font-black px-2 py-1 rounded-md text-slate-500 uppercase">{q.itemType}</span></td>
-                <td className="p-4 text-right font-black text-indigo-600 text-lg">{q.quantity}</td>
+                <td className="p-4">
+                  <span className={`text-[10px] font-black px-2 py-1 rounded-md uppercase ${q.itemType === 'Other' ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>
+                    {q.itemType}
+                  </span>
+                </td>
+                <td className="p-4 text-right font-black text-indigo-600 text-lg">{q.quantity || '-'}</td>
                 <td className="p-4 text-[10px] font-black text-slate-400 uppercase">{q.unit}</td>
               </tr>
             ))}

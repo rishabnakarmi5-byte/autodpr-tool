@@ -7,7 +7,7 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const getMoodMessage = async (mood: string, userName: string): Promise<string> => {
   const prompt = `
-    You are a supportive, witty, and professional assistant for a Construction Manager named ${userName}.
+    You are a supportive assistant for a Construction Manager named ${userName}.
     The user just reported feeling "${mood}".
     Generate a short, 1-sentence response.
   `;
@@ -33,55 +33,49 @@ export const parseConstructionData = async (
   
   const hierarchyToUse = customHierarchy || LOCATION_HIERARCHY;
   const instructionBlock = instructions 
-    ? `USER SPECIFIC INSTRUCTIONS (Prioritize these): ${instructions}` 
+    ? `USER SPECIFIC INSTRUCTIONS (CRITICAL): ${instructions}` 
     : 'No specific user instructions.';
 
   let contextBlock = "";
   if (contextLocations && contextLocations.length > 0) {
-      contextBlock += `\n    SELECTED LOCATIONS CONTEXT: ${JSON.stringify(contextLocations)}`;
+      contextBlock += `\n    FORCE LOCATIONS: ${JSON.stringify(contextLocations)}`;
       if (contextComponents && contextComponents.length > 0) {
-          contextBlock += `\n    SELECTED COMPONENTS CONTEXT: ${JSON.stringify(contextComponents)}`;
+          contextBlock += `\n    FORCE COMPONENTS: ${JSON.stringify(contextComponents)}`;
       }
-      contextBlock += `\n    IMPORTANT: The user has explicitly selected the above context. Assume all items in the text belong to these Locations and Components unless the text EXPLICITLY mentions a completely different location.`;
+      contextBlock += `\n    IMPORTANT: Use these selected contexts if the text doesn't specify otherwise.`;
   }
 
   const hierarchyString = Object.entries(hierarchyToUse).map(([loc, comps]) => {
-      return `LOCATION: "${loc}" contains COMPONENTS: [${comps.join(', ')}]`;
+      return `LOC: "${loc}" -> COMPS: [${comps.join(', ')}]`;
   }).join('\n    ');
 
   const prompt = `
-    You are a construction site data entry assistant.
-    I will provide raw text from a WhatsApp message sent by a site engineer.
-    Your job is to extract the construction activities into a structured JSON array.
+    You are a construction site data extraction engine.
+    Convert raw WhatsApp messages into a structured JSON array of construction activities.
 
     ${instructionBlock}
     ${contextBlock}
 
     ---------------------------------------------------------
-    CRITICAL FORMATTING & VOCABULARY RULES:
-    1. ACTIVITY DESCRIPTION: 
-       - Format: "[Element] [Material/Grade]" (Do NOT include quantity here if possible).
-       - Example: "Gantry C25" (Good).
+    STRICT EXTRACTION RULES:
+    1. SPLIT COMBINED ACTIVITIES: 
+       - If one sentence mentions rebar, formwork, AND concrete, you MUST create THREE separate objects.
+       - NEVER bundle rebar and concrete in the same activityDescription unless specifically requested.
     
-    2. QUANTITY EXTRACTION:
-       - Extract the numeric quantity and the unit (m3, m2, nos, rm, ton) into separate fields.
-       - If no unit is found but it's concrete, assume 'm3'.
+    2. QUANTITY PRECISION:
+       - Extract ALL numeric quantities.
+       - Mapping: "mt" or "metric ton" -> "Ton", "cum" or "m3" -> "m3", "sqm" or "m2" -> "m2", "bags" or "nos" -> "nos".
+       - If no unit is mentioned but it is 'C25', assume 'm3'.
 
-    3. CONCRETE GRADES:
-       - Convert ALL "M" grades to "C" grades.
-       - "M25" -> "C25".
+    3. DESCRIPTIONS:
+       - Keep activityDescription concise (e.g., "Rebar installation").
+       - Convert grade "M25" to "C25".
 
-    4. SPLIT COMBINED ENTRIES (IMPORTANT):
-       - If a single sentence mentions TWO separate activities, create TWO separate JSON items.
-       - Example Input: "Wall concreting 20m3 and Soling 5m3 done."
-       - Output Item 1: "Wall C25", Qty: 20, Unit: m3
-       - Output Item 2: "Soling", Qty: 5, Unit: m3
-
-    VALID HIERARCHY REFERENCE:
+    HIERARCHY:
     ${hierarchyString}
     ---------------------------------------------------------
 
-    Here is the raw text:
+    RAW INPUT:
     """
     ${rawText}
     """
@@ -110,13 +104,10 @@ export const parseConstructionData = async (
                     quantity: { type: Type.NUMBER },
                     unit: { type: Type.STRING }
                   },
-                  required: ["location", "activityDescription", "plannedNextActivity"],
+                  required: ["location", "activityDescription"],
                 },
              },
-             warnings: {
-               type: Type.ARRAY,
-               items: { type: Type.STRING }
-             }
+             warnings: { type: Type.ARRAY, items: { type: Type.STRING } }
           }
         },
       },
@@ -126,29 +117,15 @@ export const parseConstructionData = async (
       const result = JSON.parse(response.text);
       
       const processedItems = result.items.map((item: any) => {
-          const clean = (val: string) => {
-              if(!val) return "";
-              const v = val.trim().toLowerCase();
-              if(v === "not specified" || v === "n/a" || v === "unknown" || v === "none") return "";
-              return val;
-          };
-
-          const chainageVal = clean(item.chainage);
-          const elementVal = clean(item.structuralElement);
-          
-          let desc = item.activityDescription || "";
-          desc = desc.replace(/\bM(\d{2})\b/gi, "C$1");
-          desc = desc.replace(/\bMS\s*Wall\b/gi, "Stone Masonry Wall");
-          desc = desc.replace(/\bMS\b/g, "Stone Masonry");
-
+          const desc = (item.activityDescription || "").replace(/\bM(\d{2})\b/gi, "C$1");
           return {
-              location: item.location || "Unclassified / Needs Fix",
+              location: item.location || "Unclassified",
               component: item.component || "",
-              structuralElement: elementVal,
-              chainage: chainageVal,
-              chainageOrArea: `${chainageVal} ${elementVal}`.trim(),
+              structuralElement: item.structuralElement || "",
+              chainage: item.chainage || "",
+              chainageOrArea: `${item.chainage || ''} ${item.structuralElement || ''}`.trim(),
               activityDescription: desc,
-              plannedNextActivity: item.plannedNextActivity,
+              plannedNextActivity: item.plannedNextActivity || "As per plan",
               quantity: item.quantity || 0,
               unit: item.unit ? item.unit.toLowerCase() : '',
               itemType: identifyItemType(desc)
@@ -159,7 +136,7 @@ export const parseConstructionData = async (
     }
     return { items: [], warnings: [] };
   } catch (error) {
-    console.error("Error parsing construction data:", error);
+    console.error("AI Parsing Error:", error);
     throw error;
   }
 };
