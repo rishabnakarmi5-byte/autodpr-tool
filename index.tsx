@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Layout } from './components/Layout';
@@ -12,7 +13,7 @@ import { ProjectSettingsView } from './components/ProjectSettings';
 import { ProfileView } from './components/ProfileView';
 import { MasterRecordModal } from './components/MasterRecordModal';
 import { subscribeToReports, saveReportToCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, getProjectSettings, saveProjectSettings, incrementUserStats, moveItemToTrash } from './services/firebaseService';
-import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, EditHistory } from './types';
+import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, EditHistory, BackupEntry } from './types';
 import { getLocationPriority, LOCATION_HIERARCHY } from './utils/constants';
 import { autofillItemData } from './services/geminiService';
 
@@ -59,6 +60,7 @@ const App = () => {
       setCurrentReportId(existing.id);
       setCurrentEntries(existing.entries);
     } else {
+      // Only reset if we are sure (this might conflict with optimistic updates, but saveReportState handles the reports array update now)
       setCurrentReportId(null);
       setCurrentEntries([]);
     }
@@ -69,10 +71,23 @@ const App = () => {
   const getUserName = () => user?.displayName || user?.email || 'Anonymous';
 
   const saveReportState = async (report: DailyReport) => {
+    // OPTIMISTIC UPDATE: Update the global reports list immediately to prevent UI flicker/data loss during sync
+    setReports(prev => {
+        const idx = prev.findIndex(r => r.id === report.id);
+        if (idx >= 0) {
+            const copy = [...prev];
+            copy[idx] = report;
+            return copy;
+        } else {
+            return [report, ...prev];
+        }
+    });
+
     if (report.date === currentDate) {
       setUndoStack(prev => [currentEntries, ...prev].slice(0, 20));
       setRedoStack([]);
       setCurrentEntries(report.entries);
+      setCurrentReportId(report.id);
     }
     
     setIsGlobalSaving(true);
@@ -292,6 +307,60 @@ const App = () => {
     logActivity(getUserName(), "Items Added", `Added ${newItems.length} records`, currentDate, backupId || undefined);
     incrementUserStats(user?.uid, newItems.length);
   };
+  
+  const handleRecoverBackups = async (backups: BackupEntry[]) => {
+      // Group backups by date
+      const byDate: Record<string, DPRItem[]> = {};
+      
+      backups.forEach(b => {
+          if(!byDate[b.date]) byDate[b.date] = [];
+          const items = b.parsedItems.map(i => ({
+              ...i,
+              id: crypto.randomUUID(), // New ID to avoid collision
+              sourceBackupId: b.id,
+              isRecovered: true
+          }));
+          byDate[b.date].push(...items);
+      });
+
+      setIsGlobalSaving(true);
+      try {
+          let restoredCount = 0;
+          for (const [date, items] of Object.entries(byDate)) {
+             // Find existing report for this date
+             const existingReport = reports.find(r => r.date === date);
+             const newId = existingReport?.id || crypto.randomUUID();
+             const existingEntries = existingReport?.entries || [];
+             
+             const combined = [...existingEntries, ...items].sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
+             restoredCount += items.length;
+
+             const report: DailyReport = {
+                 id: newId,
+                 date: date,
+                 lastUpdated: new Date().toISOString(),
+                 projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
+                 companyName: settings?.companyName,
+                 entries: combined,
+                 isRecovered: true
+             };
+             
+             // Reuse saveReportState if it matches current date to get optimistic updates
+             if (date === currentDate) {
+                 await saveReportState(report);
+             } else {
+                 // Or manually update cloud and rely on subscription
+                 await saveReportToCloud(report);
+             }
+          }
+          alert(`Recovery Complete. Restored ${restoredCount} items.`);
+      } catch(e) {
+          console.error(e);
+          alert("Recovery failed.");
+      } finally {
+          setIsGlobalSaving(false);
+      }
+  };
 
   const handleToggleBlockItem = async (itemId: string) => {
       if(!settings) return;
@@ -318,7 +387,7 @@ const App = () => {
         {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={handleHardSync} blockedItemIds={settings?.blockedLiningItemIds || []} onToggleBlock={handleToggleBlockItem} />}
         {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={handleHardSync} customItemTypes={settings?.itemTypes} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={(id) => { const r = reports.find(r=>r.id===id); if(r) setCurrentDate(r.date); setActiveTab(TabView.VIEW_REPORT); }} onDeleteReport={(id) => moveReportToTrash(reports.find(r=>r.id===id)!, getUserName())} onCreateNew={() => { setCurrentDate(new Date().toISOString().split('T')[0]); setActiveTab(TabView.INPUT); }} />}
-        {activeTab === TabView.LOGS && <ActivityLogs logs={logs} />}
+        {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRecover={handleRecoverBackups} />}
         {activeTab === TabView.RECYCLE_BIN && <RecycleBin logs={logs} trashItems={trashItems} onRestore={restoreTrashItem} />}
         {activeTab === TabView.SETTINGS && <ProjectSettingsView currentSettings={settings} onSave={(s) => { setSettings(s); setHierarchy(s.locationHierarchy); saveProjectSettings(s); }} reports={reports} quantities={[]} user={user} />}
         {activeTab === TabView.PROFILE && <ProfileView user={user} />}

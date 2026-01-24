@@ -70,6 +70,17 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
       return backups.filter(b => selectedBackupIds.has(b.id));
   };
 
+  const handleRestoreSingleItem = (backup: BackupEntry, item: DPRItem) => {
+      if(!onRecover) return;
+      const syntheticBackup: BackupEntry = {
+          ...backup,
+          parsedItems: [item]
+      };
+      if(window.confirm(`Add this item to report for ${backup.date}?`)) {
+          onRecover([syntheticBackup]);
+      }
+  };
+
   // --- LOG GROUPING LOGIC ---
   const groupedLogs = useMemo(() => {
       if (logs.length === 0) return [];
@@ -350,7 +361,7 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
                       {selectedBackupIds.size > 0 ? (
                           <div className="space-y-6 max-w-4xl mx-auto">
                               
-                              <div className="flex justify-between items-center">
+                              <div className="flex justify-between items-center sticky top-0 bg-slate-50 pt-2 pb-4 z-10 border-b border-slate-200 mb-4">
                                   <div>
                                      <h2 className="text-2xl font-bold text-slate-800">Preview Reconstruction</h2>
                                      <p className="text-sm text-slate-500 font-mono">{selectedBackupIds.size} backups selected</p>
@@ -378,16 +389,29 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
                                       
                                       <div className="grid grid-cols-1 divide-y divide-slate-100">
                                           {backup.parsedItems.map((item, i) => (
-                                              <div key={i} className="p-4 hover:bg-slate-50 flex gap-4">
+                                              <div key={i} className="p-4 hover:bg-slate-50 flex gap-4 group">
                                                   <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-xs font-bold border border-emerald-100 flex-shrink-0">
                                                       {i + 1}
                                                   </div>
-                                                  <div>
+                                                  <div className="flex-1">
                                                       <div className="flex items-center gap-2 mb-1">
                                                           <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{item.location}</span>
                                                           <span className="text-xs text-slate-500">{item.component}</span>
                                                       </div>
                                                       <p className="text-sm text-slate-700 leading-relaxed">{item.activityDescription}</p>
+                                                      <div className="flex gap-2 mt-2">
+                                                        <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded font-mono">
+                                                           {item.quantity} {item.unit}
+                                                        </span>
+                                                      </div>
+                                                  </div>
+                                                  <div className="flex items-center">
+                                                      <button 
+                                                         onClick={() => handleRestoreSingleItem(backup, item)}
+                                                         className="bg-white border border-slate-200 text-slate-400 hover:text-indigo-600 hover:border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm opacity-50 group-hover:opacity-100"
+                                                      >
+                                                         <i className="fas fa-plus-circle mr-1"></i> Add to Report
+                                                      </button>
                                                   </div>
                                               </div>
                                           ))}
