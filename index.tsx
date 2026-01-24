@@ -280,7 +280,11 @@ const App = () => {
   };
 
   const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
-    const id = currentReportId || crypto.randomUUID();
+    // CRITICAL FIX: Look up the report directly from 'reports' state to avoid stale closure issues
+    // or race conditions with 'currentReportId'.
+    const existingReport = reports.find(r => r.date === currentDate);
+    const id = existingReport ? existingReport.id : crypto.randomUUID();
+    const existingEntries = existingReport ? existingReport.entries : [];
     
     // HYDRATION: Ensure every item has an explicit unit string before saving
     const hydratedItems = newItems.map(item => ({
@@ -292,7 +296,9 @@ const App = () => {
 
     const backupId = await savePermanentBackup(currentDate, rawText, hydratedItems, getUserName(), id);
     const stamped = hydratedItems.map(i => ({...i, sourceBackupId: backupId || undefined}));
-    const combined = [...currentEntries, ...stamped].sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
+    
+    // Combine with LATEST entries from state, not potentially stale 'currentEntries' variable
+    const combined = [...existingEntries, ...stamped].sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
     
     const report: DailyReport = {
       id,
@@ -308,6 +314,40 @@ const App = () => {
     incrementUserStats(user?.uid, newItems.length);
   };
   
+  const handleRestoreItemToDate = async (item: DPRItem, targetDate: string) => {
+      // Logic for adding a single recovered item to a specific date
+      const existingReport = reports.find(r => r.date === targetDate);
+      const reportId = existingReport ? existingReport.id : crypto.randomUUID();
+      const existingEntries = existingReport ? existingReport.entries : [];
+
+      const newItem = {
+          ...item,
+          id: crypto.randomUUID(), // New ID to be safe
+          isRecovered: true
+      };
+      
+      const combined = [...existingEntries, newItem].sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
+
+      const report: DailyReport = {
+          id: reportId,
+          date: targetDate,
+          lastUpdated: new Date().toISOString(),
+          projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
+          companyName: settings?.companyName,
+          entries: combined,
+          isRecovered: true
+      };
+
+      // Use saveReportState if it affects the currently viewed date to get immediate UI update
+      if (targetDate === currentDate) {
+          await saveReportState(report);
+      } else {
+          // Otherwise just push to cloud
+          await saveReportToCloud(report);
+      }
+      alert(`Item added to report for ${targetDate}`);
+  };
+
   const handleRecoverBackups = async (backups: BackupEntry[]) => {
       // Group backups by date
       const byDate: Record<string, DPRItem[]> = {};
@@ -345,11 +385,9 @@ const App = () => {
                  isRecovered: true
              };
              
-             // Reuse saveReportState if it matches current date to get optimistic updates
              if (date === currentDate) {
                  await saveReportState(report);
              } else {
-                 // Or manually update cloud and rely on subscription
                  await saveReportToCloud(report);
              }
           }
@@ -387,7 +425,7 @@ const App = () => {
         {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={handleHardSync} blockedItemIds={settings?.blockedLiningItemIds || []} onToggleBlock={handleToggleBlockItem} />}
         {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={handleHardSync} customItemTypes={settings?.itemTypes} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={(id) => { const r = reports.find(r=>r.id===id); if(r) setCurrentDate(r.date); setActiveTab(TabView.VIEW_REPORT); }} onDeleteReport={(id) => moveReportToTrash(reports.find(r=>r.id===id)!, getUserName())} onCreateNew={() => { setCurrentDate(new Date().toISOString().split('T')[0]); setActiveTab(TabView.INPUT); }} />}
-        {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRecover={handleRecoverBackups} />}
+        {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRecover={handleRecoverBackups} onRestoreItem={handleRestoreItemToDate} />}
         {activeTab === TabView.RECYCLE_BIN && <RecycleBin logs={logs} trashItems={trashItems} onRestore={restoreTrashItem} />}
         {activeTab === TabView.SETTINGS && <ProjectSettingsView currentSettings={settings} onSave={(s) => { setSettings(s); setHierarchy(s.locationHierarchy); saveProjectSettings(s); }} reports={reports} quantities={[]} user={user} />}
         {activeTab === TabView.PROFILE && <ProfileView user={user} />}

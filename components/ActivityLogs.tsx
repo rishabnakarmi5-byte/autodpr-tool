@@ -6,9 +6,10 @@ import { getBackups } from '../services/firebaseService';
 interface ActivityLogsProps {
   logs: LogEntry[];
   onRecover?: (backups: BackupEntry[]) => void;
+  onRestoreItem?: (item: DPRItem, date: string) => void;
 }
 
-export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) => {
+export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover, onRestoreItem }) => {
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
   
   // Backup / Storage State
@@ -17,6 +18,10 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
   const [loadingBackups, setLoadingBackups] = useState(false);
   const [selectedBackupIds, setSelectedBackupIds] = useState<Set<string>>(new Set());
   
+  // Single Restore Modal State
+  const [restoreDateModal, setRestoreDateModal] = useState<{item: DPRItem, backupDate: string} | null>(null);
+  const [targetDate, setTargetDate] = useState('');
+
   // Storage Filters
   const [backupStartDate, setBackupStartDate] = useState<string>(
     new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().split('T')[0]
@@ -70,14 +75,15 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
       return backups.filter(b => selectedBackupIds.has(b.id));
   };
 
-  const handleRestoreSingleItem = (backup: BackupEntry, item: DPRItem) => {
-      if(!onRecover) return;
-      const syntheticBackup: BackupEntry = {
-          ...backup,
-          parsedItems: [item]
-      };
-      if(window.confirm(`Add this item to report for ${backup.date}?`)) {
-          onRecover([syntheticBackup]);
+  const initiateRestoreSingleItem = (backup: BackupEntry, item: DPRItem) => {
+      setTargetDate(backup.date); // Default to original date
+      setRestoreDateModal({ item, backupDate: backup.date });
+  };
+
+  const confirmRestore = () => {
+      if (onRestoreItem && restoreDateModal && targetDate) {
+          onRestoreItem(restoreDateModal.item, targetDate);
+          setRestoreDateModal(null);
       }
   };
 
@@ -249,6 +255,35 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
         </div>
       )}
 
+      {/* RESTORE DATE SELECTION MODAL */}
+      {restoreDateModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
+           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
+              <div className="mb-4">
+                 <h3 className="text-lg font-bold text-slate-800">Restore to Report</h3>
+                 <p className="text-sm text-slate-500 mt-1">Select which date to add this item to.</p>
+              </div>
+              
+              <div className="mb-6">
+                 <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Target Date</label>
+                 <input 
+                    type="date" 
+                    value={targetDate} 
+                    onChange={e => setTargetDate(e.target.value)} 
+                    className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 font-bold"
+                 />
+              </div>
+
+              <div className="flex gap-3">
+                 <button onClick={() => setRestoreDateModal(null)} className="flex-1 py-3 text-sm font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl">Cancel</button>
+                 <button onClick={confirmRestore} className="flex-1 py-3 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-lg shadow-indigo-200">
+                    <i className="fas fa-plus-circle mr-2"></i> Add Item
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+
       {/* RECOVERY CENTER MODAL */}
       {isStorageOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in">
@@ -393,12 +428,12 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
                                                   <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-xs font-bold border border-emerald-100 flex-shrink-0">
                                                       {i + 1}
                                                   </div>
-                                                  <div className="flex-1">
+                                                  <div className="flex-1 min-w-0">
                                                       <div className="flex items-center gap-2 mb-1">
-                                                          <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{item.location}</span>
-                                                          <span className="text-xs text-slate-500">{item.component}</span>
+                                                          <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 whitespace-nowrap">{item.location}</span>
+                                                          <span className="text-xs text-slate-500 truncate">{item.component}</span>
                                                       </div>
-                                                      <p className="text-sm text-slate-700 leading-relaxed">{item.activityDescription}</p>
+                                                      <p className="text-sm text-slate-700 leading-relaxed break-words">{item.activityDescription}</p>
                                                       <div className="flex gap-2 mt-2">
                                                         <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded font-mono">
                                                            {item.quantity} {item.unit}
@@ -406,12 +441,14 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover }) =
                                                       </div>
                                                   </div>
                                                   <div className="flex items-center">
-                                                      <button 
-                                                         onClick={() => handleRestoreSingleItem(backup, item)}
-                                                         className="bg-white border border-slate-200 text-slate-400 hover:text-indigo-600 hover:border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm opacity-50 group-hover:opacity-100"
-                                                      >
-                                                         <i className="fas fa-plus-circle mr-1"></i> Add to Report
-                                                      </button>
+                                                      {onRestoreItem && (
+                                                          <button 
+                                                            onClick={() => initiateRestoreSingleItem(backup, item)}
+                                                            className="bg-white border border-slate-200 text-slate-400 hover:text-indigo-600 hover:border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm opacity-50 group-hover:opacity-100 whitespace-nowrap"
+                                                          >
+                                                            <i className="fas fa-plus-circle mr-1"></i> Add to Report
+                                                          </button>
+                                                      )}
                                                   </div>
                                               </div>
                                           ))}
