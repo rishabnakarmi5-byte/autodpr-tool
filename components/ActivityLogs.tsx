@@ -7,9 +7,10 @@ interface ActivityLogsProps {
   logs: LogEntry[];
   onRecover?: (backups: BackupEntry[]) => void;
   onRestoreItem?: (item: DPRItem, date: string) => void;
+  onRestoreRaw?: (backup: BackupEntry, date: string) => void;
 }
 
-export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover, onRestoreItem }) => {
+export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover, onRestoreItem, onRestoreRaw }) => {
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
   
   // Backup / Storage State
@@ -19,7 +20,7 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover, onR
   const [selectedBackupIds, setSelectedBackupIds] = useState<Set<string>>(new Set());
   
   // Single Restore Modal State
-  const [restoreDateModal, setRestoreDateModal] = useState<{item: DPRItem, backupDate: string} | null>(null);
+  const [restoreDateModal, setRestoreDateModal] = useState<{item?: DPRItem, backup?: BackupEntry, backupDate: string, type: 'item' | 'raw'} | null>(null);
   const [targetDate, setTargetDate] = useState('');
 
   // Storage Filters
@@ -77,12 +78,21 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover, onR
 
   const initiateRestoreSingleItem = (backup: BackupEntry, item: DPRItem) => {
       setTargetDate(backup.date); // Default to original date
-      setRestoreDateModal({ item, backupDate: backup.date });
+      setRestoreDateModal({ item, backupDate: backup.date, type: 'item' });
+  };
+
+  const initiateRestoreRaw = (backup: BackupEntry) => {
+      setTargetDate(backup.date);
+      setRestoreDateModal({ backup, backupDate: backup.date, type: 'raw' });
   };
 
   const confirmRestore = () => {
-      if (onRestoreItem && restoreDateModal && targetDate) {
-          onRestoreItem(restoreDateModal.item, targetDate);
+      if (restoreDateModal && targetDate) {
+          if (restoreDateModal.type === 'item' && onRestoreItem && restoreDateModal.item) {
+             onRestoreItem(restoreDateModal.item, targetDate);
+          } else if (restoreDateModal.type === 'raw' && onRestoreRaw && restoreDateModal.backup) {
+             onRestoreRaw(restoreDateModal.backup, targetDate);
+          }
           setRestoreDateModal(null);
       }
   };
@@ -260,7 +270,9 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover, onR
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
               <div className="mb-4">
-                 <h3 className="text-lg font-bold text-slate-800">Restore to Report</h3>
+                 <h3 className="text-lg font-bold text-slate-800">
+                     {restoreDateModal.type === 'raw' ? 'Convert Raw Text to Record' : 'Restore to Report'}
+                 </h3>
                  <p className="text-sm text-slate-500 mt-1">Select which date to add this item to.</p>
               </div>
               
@@ -277,7 +289,7 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover, onR
               <div className="flex gap-3">
                  <button onClick={() => setRestoreDateModal(null)} className="flex-1 py-3 text-sm font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl">Cancel</button>
                  <button onClick={confirmRestore} className="flex-1 py-3 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-lg shadow-indigo-200">
-                    <i className="fas fa-plus-circle mr-2"></i> Add Item
+                    <i className="fas fa-plus-circle mr-2"></i> {restoreDateModal.type === 'raw' ? 'Create Record' : 'Add Item'}
                  </button>
               </div>
            </div>
@@ -377,7 +389,7 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover, onR
                                                             <div className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center text-[8px] font-bold text-slate-600">{item.user.charAt(0)}</div>
                                                             {item.user.split(' ')[0]}
                                                         </div>
-                                                        <div className="flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-full">
+                                                        <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${item.parsedItems.length === 0 ? 'bg-red-100 text-red-600' : 'bg-slate-100'}`}>
                                                             <i className="fas fa-layer-group text-[10px]"></i> {item.parsedItems.length} items
                                                         </div>
                                                     </div>
@@ -422,37 +434,54 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onRecover, onR
                                           <div className="text-xs text-slate-400 font-mono">ID: {backup.id.substring(0,8)}...</div>
                                       </div>
                                       
-                                      <div className="grid grid-cols-1 divide-y divide-slate-100">
-                                          {backup.parsedItems.map((item, i) => (
-                                              <div key={i} className="p-4 hover:bg-slate-50 flex gap-4 group">
-                                                  <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-xs font-bold border border-emerald-100 flex-shrink-0">
-                                                      {i + 1}
-                                                  </div>
-                                                  <div className="flex-1 min-w-0">
-                                                      <div className="flex items-center gap-2 mb-1">
-                                                          <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 whitespace-nowrap">{item.location}</span>
-                                                          <span className="text-xs text-slate-500 truncate">{item.component}</span>
-                                                      </div>
-                                                      <p className="text-sm text-slate-700 leading-relaxed break-words">{item.activityDescription}</p>
-                                                      <div className="flex gap-2 mt-2">
-                                                        <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded font-mono">
-                                                           {item.quantity} {item.unit}
-                                                        </span>
-                                                      </div>
-                                                  </div>
-                                                  <div className="flex items-center">
-                                                      {onRestoreItem && (
-                                                          <button 
-                                                            onClick={() => initiateRestoreSingleItem(backup, item)}
-                                                            className="bg-white border border-slate-200 text-slate-400 hover:text-indigo-600 hover:border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm opacity-50 group-hover:opacity-100 whitespace-nowrap"
-                                                          >
-                                                            <i className="fas fa-plus-circle mr-1"></i> Add to Report
-                                                          </button>
-                                                      )}
-                                                  </div>
-                                              </div>
-                                          ))}
-                                      </div>
+                                      {backup.parsedItems.length === 0 ? (
+                                         <div className="p-6">
+                                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+                                                <p className="text-xs font-bold text-amber-700 uppercase mb-2"><i className="fas fa-exclamation-triangle mr-1"></i> No Structured Data Found</p>
+                                                <p className="text-sm text-slate-700 font-mono whitespace-pre-wrap bg-white p-3 rounded border border-amber-100">
+                                                    {backup.rawInput}
+                                                </p>
+                                            </div>
+                                            <button 
+                                                onClick={() => initiateRestoreRaw(backup)}
+                                                className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2"
+                                            >
+                                                <i className="fas fa-wand-magic-sparkles"></i> Convert Raw Text to Record
+                                            </button>
+                                         </div>
+                                      ) : (
+                                        <div className="grid grid-cols-1 divide-y divide-slate-100">
+                                            {backup.parsedItems.map((item, i) => (
+                                                <div key={i} className="p-4 hover:bg-slate-50 flex gap-4 group">
+                                                    <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-xs font-bold border border-emerald-100 flex-shrink-0">
+                                                        {i + 1}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 whitespace-nowrap">{item.location}</span>
+                                                            <span className="text-xs text-slate-500 truncate">{item.component}</span>
+                                                        </div>
+                                                        <p className="text-sm text-slate-700 leading-relaxed break-words">{item.activityDescription}</p>
+                                                        <div className="flex gap-2 mt-2">
+                                                            <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded font-mono">
+                                                            {item.quantity} {item.unit}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center">
+                                                        {onRestoreItem && (
+                                                            <button 
+                                                                onClick={() => initiateRestoreSingleItem(backup, item)}
+                                                                className="bg-white border border-slate-200 text-slate-600 hover:text-indigo-600 hover:border-indigo-200 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm whitespace-nowrap"
+                                                            >
+                                                                <i className="fas fa-plus-circle mr-1"></i> Add to Report
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                      )}
                                   </div>
                               ))}
                           </div>

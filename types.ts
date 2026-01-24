@@ -27,6 +27,7 @@ export interface DPRItem {
   lastModifiedBy?: string;
   lastModifiedAt?: string;
   editHistory?: EditHistory[]; 
+  isRecovered?: boolean;
 }
 
 export interface DailyReport {

@@ -284,7 +284,9 @@ const App = () => {
     // or race conditions with 'currentReportId'.
     const existingReport = reports.find(r => r.date === currentDate);
     const id = existingReport ? existingReport.id : crypto.randomUUID();
-    const existingEntries = existingReport ? existingReport.entries : [];
+    
+    // SAFETY: Ensure entries is an array even if data is malformed
+    const existingEntries = existingReport && Array.isArray(existingReport.entries) ? existingReport.entries : [];
     
     // HYDRATION: Ensure every item has an explicit unit string before saving
     const hydratedItems = newItems.map(item => ({
@@ -346,6 +348,41 @@ const App = () => {
           await saveReportToCloud(report);
       }
       alert(`Item added to report for ${targetDate}`);
+  };
+
+  const handleRestoreRawText = async (backup: BackupEntry, targetDate: string) => {
+      // Create a new Master Record from raw text
+      const newItem: DPRItem = {
+          id: crypto.randomUUID(),
+          location: 'General', // Default, user can edit
+          component: '',
+          structuralElement: '',
+          chainageOrArea: '',
+          activityDescription: backup.rawInput,
+          plannedNextActivity: 'Continue works',
+          quantity: 0,
+          unit: 'm3',
+          itemType: 'Other',
+          sourceBackupId: backup.id,
+          isRecovered: true,
+          createdBy: getUserName(),
+          lastModifiedAt: new Date().toISOString()
+      };
+
+      // Add to report immediately
+      await handleRestoreItemToDate(newItem, targetDate);
+      
+      // Open inspector to allow immediate editing
+      if (targetDate === currentDate) {
+          setInspectItem(newItem);
+      } else {
+          // If restored to another date, switch view to that date then open
+          setCurrentDate(targetDate);
+          // Wait for state update is tricky, but inspector relies on ID match.
+          // Since we just saved it to state via handleRestoreItemToDate -> saveReportState -> setReports,
+          // setting inspectItem should work if we delay slightly or just set it.
+          setInspectItem(newItem);
+      }
   };
 
   const handleRecoverBackups = async (backups: BackupEntry[]) => {
@@ -425,7 +462,7 @@ const App = () => {
         {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={handleHardSync} blockedItemIds={settings?.blockedLiningItemIds || []} onToggleBlock={handleToggleBlockItem} />}
         {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={handleHardSync} customItemTypes={settings?.itemTypes} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={(id) => { const r = reports.find(r=>r.id===id); if(r) setCurrentDate(r.date); setActiveTab(TabView.VIEW_REPORT); }} onDeleteReport={(id) => moveReportToTrash(reports.find(r=>r.id===id)!, getUserName())} onCreateNew={() => { setCurrentDate(new Date().toISOString().split('T')[0]); setActiveTab(TabView.INPUT); }} />}
-        {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRecover={handleRecoverBackups} onRestoreItem={handleRestoreItemToDate} />}
+        {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRecover={handleRecoverBackups} onRestoreItem={handleRestoreItemToDate} onRestoreRaw={handleRestoreRawText} />}
         {activeTab === TabView.RECYCLE_BIN && <RecycleBin logs={logs} trashItems={trashItems} onRestore={restoreTrashItem} />}
         {activeTab === TabView.SETTINGS && <ProjectSettingsView currentSettings={settings} onSave={(s) => { setSettings(s); setHierarchy(s.locationHierarchy); saveProjectSettings(s); }} reports={reports} quantities={[]} user={user} />}
         {activeTab === TabView.PROFILE && <ProfileView user={user} />}

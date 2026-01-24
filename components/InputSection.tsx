@@ -42,6 +42,10 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   }, [aiLocations, hierarchy]);
 
   const handleBulkLiningAdd = async () => {
+    if (!rawText.trim()) {
+        setError("Please enter lining data.");
+        return;
+    }
     setIsProcessing(true);
     try {
       // Inject the selected stage into the prompt context if selected
@@ -57,7 +61,27 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         hierarchy
       );
       
-      const stamped = items.map(item => ({ 
+      let finalItems = items;
+
+      // FAILSAFE FOR BULK MODE: If AI returns 0 items, create a single fallback item
+      if (finalItems.length === 0) {
+          console.warn("Bulk AI returned 0 items. Using fallback.");
+          finalItems = [{
+             location: "Headrace Tunnel (HRT)",
+             component: "HRT from Inlet",
+             structuralElement: bulkStage || "Lining",
+             chainageOrArea: "",
+             activityDescription: `RAW LINING DATA: ${rawText}`,
+             plannedNextActivity: 'Check Data',
+             quantity: 0,
+             unit: 'm3',
+             itemType: 'C25 Concrete'
+          }];
+          // Notify user
+          setError("Auto-parsing failed. Added as raw text for manual edit.");
+      }
+      
+      const stamped = finalItems.map(item => ({ 
         ...item, 
         id: crypto.randomUUID(),
         createdBy: user?.displayName || user?.email || 'System'
@@ -74,22 +98,46 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   };
 
   const handleProcessAndAdd = async () => {
-    // Validation: Require text and at least one location.
+    // Validation: Require text.
     if (!rawText.trim()) {
         setError("Please enter some site activity text.");
         return;
     }
-    if (aiLocations.length === 0) {
-        setError("Please select a Main Location.");
-        return;
-    }
+    
+    // Default location if none selected
+    const locationsToUse = aiLocations.length > 0 ? aiLocations : [Object.keys(hierarchy)[0] || "General"];
     
     setIsProcessing(true);
     setError(null);
     try {
       // If no components selected manually, pass empty array (AI will infer or leave blank)
-      const { items } = await parseConstructionData(rawText, instructions, aiLocations, aiComponents, hierarchy);
-      const stamped = items.map(item => ({ ...item, id: crypto.randomUUID(), createdBy: user?.displayName || user?.email || 'AI' })) as DPRItem[];
+      const { items } = await parseConstructionData(rawText, instructions, locationsToUse, aiComponents, hierarchy);
+      
+      let finalItems = items;
+      
+      // FAILSAFE: If AI returns 0 items but we have text, create a fallback item
+      // This prevents "Added 0 records" ghost entries
+      if (finalItems.length === 0 && rawText.trim().length > 0) {
+          console.warn("AI returned 0 items. Using fallback.");
+          finalItems = [{
+             location: locationsToUse[0],
+             component: '',
+             structuralElement: '',
+             chainageOrArea: '',
+             activityDescription: rawText, // Use raw text as description
+             plannedNextActivity: 'Continue works',
+             quantity: 0,
+             unit: 'm3',
+             itemType: 'Other'
+          }];
+      }
+
+      const stamped = finalItems.map(item => ({ 
+          ...item, 
+          id: crypto.randomUUID(), 
+          createdBy: user?.displayName || user?.email || 'AI' 
+      })) as DPRItem[];
+
       onItemsAdded(stamped, rawText);
       setRawText('');
       setAiLocations([]);
@@ -100,22 +148,8 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       
       let msg = err.message || "Processing failed.";
       
-      // Parse detailed Google API errors if present
-      if (msg.includes('429') || msg.includes('Quota exceeded') || msg.includes('RESOURCE_EXHAUSTED')) {
-         msg = "⚠️ AI Daily Quota Exceeded. The free tier limit for Gemini has been reached. Please try again later or update the API Key.";
-      } else if (msg.includes('{') && msg.includes('error')) {
-         // Attempt to extract cleaner message from JSON dump
-         try {
-             // Find the start of the JSON object
-             const jsonStart = msg.indexOf('{');
-             const jsonStr = msg.substring(jsonStart);
-             const parsed = JSON.parse(jsonStr);
-             if (parsed.error && parsed.error.message) {
-                 msg = `AI Error: ${parsed.error.message}`;
-             }
-         } catch (e) {
-             // Fallback to original message if parse fails
-         }
+      if (msg.includes('429') || msg.includes('Quota exceeded')) {
+         msg = "⚠️ AI Daily Quota Exceeded. Please try again later.";
       }
 
       setError(msg);
