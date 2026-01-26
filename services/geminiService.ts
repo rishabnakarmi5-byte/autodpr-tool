@@ -26,7 +26,6 @@ export const getMoodMessage = async (mood: string, userName: string): Promise<st
 
 /**
  * Lightweight extraction for a single item.
- * Now supports 'learnedContext' to maintain consistency with previous user edits.
  */
 export const autofillItemData = async (
   description: string,
@@ -53,8 +52,8 @@ export const autofillItemData = async (
        - Map parts to parent structures (Barrage, Weir, Stilling Basin).
     
     2. QUANTITY & UNIT:
-       - Extract numeric values precisely (e.g., "0.458", "9.15").
-       - UNIT MAPPING: "sqm" -> "m2", "cum" -> "m3", "mt" -> "Ton".
+       - Extract numeric values precisely.
+       - UNIT MAPPING: "sqm" -> "m2", "cum" -> "m3", "mt" -> "Ton", "kg" -> "Ton" (divide kg by 1000).
        - If no unit is found, default to "m3".
     
     3. CLASSIFICATION: Choose from: ${itemTypesString}.
@@ -126,60 +125,30 @@ export const parseConstructionData = async (
       defaultUnit: p.defaultUnit
   }));
 
-  let trainingExamplesText = "";
-  try {
-    const examples = await getTrainingExamples();
-    if (examples.length > 0) {
-      trainingExamplesText = "\nFOLLOW THESE USER-PROVIDED EXAMPLES (FEW-SHOT LEARNING):\n" + 
-        examples.slice(0, 10).map(ex => `INPUT: "${ex.rawInput}"\nEXPECTED OUTPUT: ${ex.expectedOutput}`).join('\n\n');
-    }
-  } catch (e) {
-    console.warn("Could not load training examples for AI prompt.");
-  }
-
   const prompt = `
-    You are a construction site data extraction engine.
+    You are a high-precision construction site data extraction engine.
     Convert raw site update text into a structured JSON array.
 
-    CONTEXT LOCATIONS: ${contextLocations?.length ? contextLocations.join(', ') : "None specified"}
-    CONTEXT COMPONENTS: ${contextComponents?.length ? contextComponents.join(', ') : "None specified"}
-    
-    Instructions for Context:
-    - If specific LOCATIONS or COMPONENTS are provided above, prefer mapping items to them.
-    - If the user selected a component (e.g., "Apron"), explicitly use it in the output.
+    STRICT ATOMIC RULES:
+    1. ONE RECORD PER ACTIVITY: If an input mentions multiple materials or activities (e.g., "Rebar AND Concrete" or "M35 concrete AND formwork"), you MUST create TWO separate items in the JSON array.
+    2. NO META-TALK: NEVER include explanations like "kg to Ton conversion applied" or "mapped for clarity" in any text field. Keep 'activityDescription' purely about the site work.
+    3. COMPONENT FALLBACKS:
+       - If an activity belongs to "Headworks" but no specific component matches, use "Other Headworks".
+       - If it belongs to "Headrace Tunnel (HRT)", use "Other HRT Works".
+       - Map specific items like "Weir" or "Syphon" or "Undersluice" to the 'component' field if they appear in the hierarchy or context.
+    4. UNIT CONVERSION:
+       - If user provides "kg", convert to "Ton" (value / 1000) for the 'quantity' field. Set unit to "Ton".
+       - Standardize: "sqm" -> "m2", "cum" -> "m3".
+    5. PLANNED NEXT ACTIVITY: Always infer a short next step (e.g. "Concreting", "Curing", "Mucking").
+
+    HIERARCHY REFERENCE:
+    ${JSON.stringify(hierarchyToUse)}
+
+    CONTEXT:
+    Locations: ${contextLocations?.join(', ') || 'None'}
+    Components: ${contextComponents?.join(', ') || 'None'}
 
     ${instructions ? `USER SPECIFIC INSTRUCTIONS: ${instructions}` : ''}
-    ${trainingExamplesText}
-
-    ---------------------------------------------------------
-    STRICT EXTRACTION RULES:
-    1. QUANTITY & UNITS: 
-       - "sqm" or "m2" MUST be unit "m2".
-       - "cum" or "m3" MUST be unit "m3".
-       - "mt" or "ton" MUST be unit "Ton".
-       - If unit is missing, use "m3".
-       - Numeric quantities MUST be extracted precisely (e.g., 9.6, 0.458).
-    
-    2. LOCATION CONTEXT:
-       - Map "Apron" or "Key" to correct parent (Barrage, Weir, Stilling Basin).
-    
-    3. ACTIVITY DESCRIPTION:
-       - **IMPORTANT**: The 'activityDescription' field MUST include the quantity and unit text (e.g., "C25 Concrete work (15 m3)"). 
-       - Do not strip the quantity from the description.
-       - Ensure the description is human-readable and complete.
-    
-    4. PLANNED NEXT ACTIVITY:
-       - Infer the next logical construction step based on the current activity.
-       - Examples: 
-         - "Excavation" -> "Soling & PCC"
-         - "Rebar/Formwork" -> "Concreting"
-         - "Concreting" -> "Curing & De-shuttering"
-       - If the activity is ongoing or unclear, use "Continue works" or "Work in progress".
-       - DO NOT use "As per plan".
-
-    RECOGNIZED ITEM TYPES:
-    ${itemTypesToUse.map(t => t.name).join(', ')}
-    ---------------------------------------------------------
 
     RAW INPUT:
     """
@@ -232,17 +201,6 @@ export const parseConstructionData = async (
           const finalUnit = unitMap[item.unit?.toLowerCase()] || item.unit || "m3";
           const qty = item.quantity || 0;
           
-          // Fallback: Ensure quantity is in description if AI missed it
-          if (qty > 0) {
-             const normalizedDesc = desc.toLowerCase();
-             const normalizedUnit = finalUnit.toLowerCase(); 
-             
-             // If the description does NOT contain the unit (e.g. 'm3' or 'ton'), append the full quantity string
-             if (!normalizedDesc.includes(normalizedUnit)) {
-                 desc = `${desc} (${qty} ${finalUnit})`;
-             }
-          }
-
           return {
               location: item.location || contextLocations?.[0] || "Unclassified",
               component: item.component || contextComponents?.[0] || "",
