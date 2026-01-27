@@ -127,19 +127,29 @@ export const parseConstructionData = async (
 
   const prompt = `
     You are a high-precision construction site data extraction engine.
-    Convert raw site update text into a structured JSON array.
+    Convert raw site update text into a structured JSON array for a Daily Progress Report (DPR).
 
     STRICT ATOMIC RULES:
-    1. ONE RECORD PER ACTIVITY: If an input mentions multiple materials or activities (e.g., "Rebar AND Concrete" or "M35 concrete AND formwork"), you MUST create TWO separate items in the JSON array.
-    2. NO META-TALK: NEVER include explanations like "kg to Ton conversion applied" or "mapped for clarity" in any text field. Keep 'activityDescription' purely about the site work.
-    3. COMPONENT FALLBACKS:
-       - If an activity belongs to "Headworks" but no specific component matches, use "Other Headworks".
-       - If it belongs to "Headrace Tunnel (HRT)", use "Other HRT Works".
-       - Map specific items like "Weir" or "Syphon" or "Undersluice" to the 'component' field if they appear in the hierarchy or context.
-    4. UNIT CONVERSION:
-       - If user provides "kg", convert to "Ton" (value / 1000) for the 'quantity' field. Set unit to "Ton".
-       - Standardize: "sqm" -> "m2", "cum" -> "m3".
-    5. PLANNED NEXT ACTIVITY: Always infer a short next step (e.g. "Concreting", "Curing", "Mucking").
+    1. **SPLIT AGGRESSIVELY**: Every distinct activity or material must be its own record. 
+       - If a line says "Rebar 5t and Concrete 10m3", output TWO separate JSON objects.
+       - If a line says "Excavation of Weir and Syphon", output TWO separate JSON objects.
+
+    2. **READABLE DESCRIPTIONS (READY-TO-PRINT)**: 
+       - The 'activityDescription' field should be a concise, readable sentence that **includes the quantity and unit at the end**.
+       - Format: "[Material/Work] at [Element] [Quantity][Unit]"
+       - Examples: "Rebar installation 3.28Ton", "C25 Concrete pouring 45.5m3", "Excavation of weir 120m3".
+       - DO NOT include meta-commentary like "kg to Ton conversion applied" or internal reasoning.
+
+    3. **COMPONENT FALLBACKS**:
+       - Use the HIERARCHY provided. 
+       - If a user mentions a sub-item like "Undersluice" or "Syphon" that is not a top-level component:
+         - First, check if it fits under a nearby component (e.g., "Barrage").
+         - If not, use a general fallback like "Other Headworks" or "Other HRT Works" based on the location.
+       - Map specific elements like "beam" or "raft" to the 'structuralElement' field.
+
+    4. **UNIT STANDARDIZATION**:
+       - Convert "kg" to "Ton" (value / 1000). Set unit to "Ton".
+       - Convert "sqm" to "m2", "cum" to "m3".
 
     HIERARCHY REFERENCE:
     ${JSON.stringify(hierarchyToUse)}
@@ -201,6 +211,12 @@ export const parseConstructionData = async (
           const finalUnit = unitMap[item.unit?.toLowerCase()] || item.unit || "m3";
           const qty = item.quantity || 0;
           
+          // Secondary Check: Ensure description contains quantity/unit if not already there
+          const qtyString = `${qty}${finalUnit}`;
+          if (qty > 0 && !desc.toLowerCase().includes(qtyString.toLowerCase())) {
+              desc = `${desc} ${qtyString}`.trim();
+          }
+
           return {
               location: item.location || contextLocations?.[0] || "Unclassified",
               component: item.component || contextComponents?.[0] || "",
