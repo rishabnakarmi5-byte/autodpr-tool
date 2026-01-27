@@ -181,6 +181,11 @@ const App = () => {
   };
 
   const handleHardSync = async () => {
+    alert("Global Sync is temporarily paused to prevent 'Model Overloaded' errors. Please fix individual records using the 'Autofill' button inside each Master Record card.");
+    return;
+    
+    // Paused logic below:
+    /*
     if (!window.confirm("Perform Global Autofill? The AI will learn from your manually corrected entries to fix old data. Proceed?")) return;
     
     setIsGlobalSaving(true);
@@ -236,6 +241,7 @@ const App = () => {
     } finally {
       setIsGlobalSaving(false);
     }
+    */
   };
 
   const handleSplitItem = (originalItem: DPRItem) => {

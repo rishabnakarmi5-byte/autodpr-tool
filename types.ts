@@ -126,6 +126,15 @@ export interface ProjectSettings {
   blockedLiningItemIds?: string[];
 }
 
+// Added UserMood interface for MoodTracker component
+export interface UserMood {
+  id: string;
+  uid: string;
+  mood: 'Happy' | 'Excited' | 'Tired' | 'Frustrated' | 'Sad';
+  note: string;
+  timestamp: string;
+}
+
 export interface UserProfile {
   uid: string;
   displayName: string;
@@ -135,14 +144,6 @@ export interface UserProfile {
   level: number;
   xp: number;
   joinedDate: string;
-}
-
-export interface UserMood {
-  id: string;
-  uid: string;
-  mood: 'Happy' | 'Excited' | 'Tired' | 'Frustrated' | 'Sad';
-  note?: string;
-  timestamp: string;
 }
 
 export interface SystemCheckpoint {

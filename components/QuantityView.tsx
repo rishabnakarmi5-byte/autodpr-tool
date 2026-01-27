@@ -95,8 +95,8 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
           <p className="text-sm text-slate-500 font-medium">Filtered Master Records view.</p>
         </div>
         <div className="flex gap-3 w-full md:w-auto">
-          <button onClick={onHardSync} className="flex-1 md:flex-none bg-white text-indigo-600 border border-indigo-200 px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-50 transition-all">
-            <i className="fas fa-sync-alt"></i> Sync
+          <button onClick={onHardSync} className="flex-1 md:flex-none bg-slate-100 text-slate-400 border border-slate-200 px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 cursor-not-allowed" title="Paused to prevent AI overload">
+            <i className="fas fa-pause-circle"></i> Sync Paused
           </button>
           <button onClick={exportCSV} className="flex-1 md:flex-none bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all">
             <i className="fas fa-file-csv"></i> Export

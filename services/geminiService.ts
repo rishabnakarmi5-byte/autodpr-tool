@@ -6,24 +6,6 @@ import { getTrainingExamples } from "./firebaseService";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-export const getMoodMessage = async (mood: string, userName: string): Promise<string> => {
-  const prompt = `
-    You are a supportive assistant for a Construction Manager named ${userName}.
-    The user just reported feeling "${mood}".
-    Generate a short, 1-sentence response.
-  `;
-
-  try {
-    const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-    });
-    return response.text || "Keep building strong!";
-  } catch (error) {
-    return "Keep up the great work!";
-  }
-};
-
 /**
  * Lightweight extraction for a single item.
  */

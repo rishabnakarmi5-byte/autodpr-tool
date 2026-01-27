@@ -2,7 +2,7 @@
 import * as _app from "firebase/app";
 import * as _firestore from "firebase/firestore";
 import * as _auth from "firebase/auth";
-import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry, ProjectSettings, UserProfile, UserMood, LiningEntry, SystemCheckpoint, TrainingExample } from "../types";
+import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry, ProjectSettings, UserProfile, LiningEntry, SystemCheckpoint, TrainingExample, UserMood } from "../types";
 import { LOCATION_HIERARCHY, identifyItemType, parseQuantityDetails } from "../utils/constants";
 
 // Workaround for potential type definition mismatches
@@ -51,10 +51,10 @@ const REPORT_HISTORY_COLLECTION = "report_history";
 const QUANTITY_COLLECTION = "quantities";
 const SETTINGS_COLLECTION = "project_settings";
 const USER_COLLECTION = "user_profiles";
-const MOOD_COLLECTION = "user_moods";
 const LINING_COLLECTION = "lining_data";
 const CHECKPOINT_COLLECTION = "system_checkpoints";
 const TRAINING_COLLECTION = "ai_training_examples";
+const MOOD_COLLECTION = "user_moods";
 
 // --- Authentication & Profile ---
 
@@ -112,6 +112,37 @@ export const incrementUserStats = async (uid: string | undefined, entriesCount: 
         totalEntries: increment(entriesCount),
         xp: increment(entriesCount * 5)
     });
+};
+
+// --- User Mood Tracking ---
+
+// Added saveUserMood to persist user emotional status
+export const saveUserMood = async (uid: string, mood: string, note: string) => {
+  if (!db) return;
+  const today = new Date().toISOString().split('T')[0];
+  const docId = `${uid}_${today}`;
+  const moodData = {
+    id: docId,
+    uid,
+    mood,
+    note,
+    timestamp: new Date().toISOString()
+  };
+  await setDoc(doc(db, MOOD_COLLECTION, docId), moodData);
+};
+
+// Added subscribeToTodayMood to listen for current day's mood updates
+export const subscribeToTodayMood = (uid: string, callback: (mood: UserMood | null) => void): any => {
+  if (!db) {
+    callback(null);
+    return () => {};
+  }
+  const today = new Date().toISOString().split('T')[0];
+  const docId = `${uid}_${today}`;
+  return onSnapshot(doc(db, MOOD_COLLECTION, docId), (docSnap: any) => {
+    if (docSnap.exists()) callback(docSnap.data() as UserMood);
+    else callback(null);
+  });
 };
 
 // --- Reports ---
@@ -372,30 +403,6 @@ export const getProjectSettings = async (): Promise<ProjectSettings | null> => {
 export const saveProjectSettings = async (settings: ProjectSettings) => {
     if (!db) return;
     await setDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'), settings);
-};
-
-// --- User Mood ---
-
-export const saveUserMood = async (uid: string, mood: any, note?: string) => {
-  if (!db) return;
-  const today = new Date().toISOString().split('T')[0];
-  const moodEntry: UserMood = {
-    id: `${uid}_${today}`,
-    uid,
-    mood,
-    note,
-    timestamp: new Date().toISOString()
-  };
-  await setDoc(doc(db, MOOD_COLLECTION, moodEntry.id), moodEntry);
-};
-
-export const subscribeToTodayMood = (uid: string, callback: (mood: UserMood | null) => void): any => {
-  if (!db) return () => {};
-  const today = new Date().toISOString().split('T')[0];
-  return onSnapshot(doc(db, MOOD_COLLECTION, `${uid}_${today}`), (doc: any) => {
-    if (doc.exists()) callback(doc.data() as UserMood);
-    else callback(null);
-  });
 };
 
 // --- System Checkpoints ---
