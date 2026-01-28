@@ -19,34 +19,6 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
 
-  const locations = useMemo(() => {
-    const locs = new Set<string>();
-    reports.forEach(r => r.entries.forEach(e => {
-        if (e.location) locs.add(e.location);
-    }));
-    return Array.from(locs).sort();
-  }, [reports]);
-
-  const componentsForLocation = useMemo(() => {
-    const comps = new Set<string>();
-    reports.forEach(r => r.entries.forEach(e => {
-        if (filterLocation === 'All' || e.location === filterLocation) {
-            if (e.component) comps.add(e.component);
-        }
-    }));
-    return Array.from(comps).sort();
-  }, [reports, filterLocation]);
-
-  const availableItemTypes = useMemo(() => {
-    const types = new Set<string>();
-    ITEM_PATTERNS.forEach(p => types.add(p.name));
-    if (customItemTypes) {
-      customItemTypes.forEach(t => types.add(t.name));
-    }
-    reports.forEach(r => r.entries.forEach(e => { if(e.itemType) types.add(e.itemType); }));
-    return Array.from(types).sort();
-  }, [reports, customItemTypes]);
-
   const quantities = useMemo(() => {
     const list: (DPRItem & { date: string })[] = [];
     reports.forEach(r => {
@@ -58,6 +30,35 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
     });
     return list.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [reports]);
+
+  const locations = useMemo(() => {
+    const locs = new Set<string>();
+    quantities.forEach(q => {
+        if (q.location) locs.add(q.location);
+    });
+    // Filter out component names that might have accidentally leaked into location field in historical data
+    return Array.from(locs).filter(l => l !== "HRT from Inlet" && l !== "HRT from Adit").sort();
+  }, [quantities]);
+
+  const componentsForLocation = useMemo(() => {
+    const comps = new Set<string>();
+    quantities.forEach(q => {
+        if (filterLocation === 'All' || q.location === filterLocation) {
+            if (q.component) comps.add(q.component);
+        }
+    });
+    return Array.from(comps).sort();
+  }, [quantities, filterLocation]);
+
+  const availableItemTypes = useMemo(() => {
+    const types = new Set<string>();
+    ITEM_PATTERNS.forEach(p => types.add(p.name));
+    if (customItemTypes) {
+      customItemTypes.forEach(t => types.add(t.name));
+    }
+    quantities.forEach(q => { if(q.itemType) types.add(q.itemType); });
+    return Array.from(types).sort();
+  }, [quantities, customItemTypes]);
 
   const filtered = useMemo(() => {
     return quantities.filter(q => {

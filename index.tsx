@@ -14,7 +14,7 @@ import { ProfileView } from './components/ProfileView';
 import { MasterRecordModal } from './components/MasterRecordModal';
 import { subscribeToReports, saveReportToCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, getProjectSettings, saveProjectSettings, incrementUserStats, moveItemToTrash } from './services/firebaseService';
 import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, EditHistory, BackupEntry } from './types';
-import { getLocationPriority, LOCATION_HIERARCHY } from './utils/constants';
+import { getLocationPriority, LOCATION_HIERARCHY, standardizeHRTMapping } from './utils/constants';
 import { autofillItemData } from './services/geminiService';
 
 const App = () => {
@@ -60,7 +60,6 @@ const App = () => {
       setCurrentReportId(existing.id);
       setCurrentEntries(existing.entries);
     } else {
-      // Only reset if we are sure (this might conflict with optimistic updates, but saveReportState handles the reports array update now)
       setCurrentReportId(null);
       setCurrentEntries([]);
     }
@@ -71,29 +70,36 @@ const App = () => {
   const getUserName = () => user?.displayName || user?.email || 'Anonymous';
 
   const saveReportState = async (report: DailyReport) => {
-    // OPTIMISTIC UPDATE: Update the global reports list immediately to prevent UI flicker/data loss during sync
+    // Standardize all entries before saving to ensure HRT hierarchy is clean
+    const cleanedEntries = report.entries.map(e => {
+        const { location, component } = standardizeHRTMapping(e.location, e.component);
+        return { ...e, location, component };
+    });
+    
+    const cleanedReport = { ...report, entries: cleanedEntries };
+
     setReports(prev => {
-        const idx = prev.findIndex(r => r.id === report.id);
+        const idx = prev.findIndex(r => r.id === cleanedReport.id);
         if (idx >= 0) {
             const copy = [...prev];
-            copy[idx] = report;
+            copy[idx] = cleanedReport;
             return copy;
         } else {
-            return [report, ...prev];
+            return [cleanedReport, ...prev];
         }
     });
 
-    if (report.date === currentDate) {
+    if (cleanedReport.date === currentDate) {
       setUndoStack(prev => [currentEntries, ...prev].slice(0, 20));
       setRedoStack([]);
-      setCurrentEntries(report.entries);
-      setCurrentReportId(report.id);
+      setCurrentEntries(cleanedReport.entries);
+      setCurrentReportId(cleanedReport.id);
     }
     
     setIsGlobalSaving(true);
     try {
-      await saveReportToCloud(report);
-      saveReportHistory(report);
+      await saveReportToCloud(cleanedReport);
+      saveReportHistory(cleanedReport);
     } finally {
       setIsGlobalSaving(false);
     }
@@ -141,7 +147,6 @@ const App = () => {
     const targetReport = findReportForItem(id);
     if (!targetReport) return;
 
-    // Logic to calculate derived fields (Auto-refresh 'Area / CH' column)
     let derivedUpdates: Partial<DPRItem> = {};
     const currentItem = targetReport.entries.find(e => e.id === id);
     
@@ -163,7 +168,7 @@ const App = () => {
         return { 
           ...item, 
           ...updates,
-          ...derivedUpdates, // Apply derived field updates
+          ...derivedUpdates,
           lastModifiedBy: getUserName(), 
           lastModifiedAt: new Date().toISOString(),
           editHistory: [...(item.editHistory || []), ...history]
@@ -174,74 +179,13 @@ const App = () => {
 
     saveReportState({ ...targetReport, entries: newEntries, lastUpdated: new Date().toISOString() });
     
-    // Update the inspector modal live if it's open, including derived fields
     if(inspectItem?.id === id) {
         setInspectItem(prev => prev ? ({...prev, ...updates, ...derivedUpdates}) : null);
     }
   };
 
   const handleHardSync = async () => {
-    alert("Global Sync is temporarily paused to prevent 'Model Overloaded' errors. Please fix individual records using the 'Autofill' button inside each Master Record card.");
-    return;
-    
-    // Paused logic below:
-    /*
-    if (!window.confirm("Perform Global Autofill? The AI will learn from your manually corrected entries to fix old data. Proceed?")) return;
-    
-    setIsGlobalSaving(true);
-    let updatedCount = 0;
-
-    try {
-      const verifiedItems: DPRItem[] = [];
-      reports.forEach(r => {
-          r.entries.forEach(e => {
-              const hasHistory = e.editHistory && e.editHistory.length > 0;
-              const hasComplexLocation = e.component && (e.activityDescription.toLowerCase().includes('apron') || e.activityDescription.toLowerCase().includes('key'));
-              if ((hasHistory || hasComplexLocation) && e.quantity > 0 && e.unit) {
-                  if (verifiedItems.length < 25) verifiedItems.push(e);
-              }
-          });
-      });
-
-      const learnedContext = verifiedItems.map(v => 
-          `USER VERIFIED MAPPING: Text "${v.activityDescription}" maps to [Location: ${v.location}, Component: ${v.component}, Element: ${v.structuralElement}, Qty: ${v.quantity}, Unit: ${v.unit}, Type: ${v.itemType}]`
-      ).join('\n');
-
-      for (const report of reports) {
-        let reportModified = false;
-        const newEntries = await Promise.all(report.entries.map(async (item) => {
-          // If record is "thin" (no quantity, no unit, or unclassified), re-parse
-          const needsRepair = !item.quantity || item.quantity === 0 || !item.unit || item.unit === "" || item.itemType === 'Other';
-          
-          if (needsRepair && item.activityDescription) {
-            const result = await autofillItemData(item.activityDescription, settings?.itemTypes, learnedContext);
-            if (result.quantity !== undefined || result.unit) {
-              reportModified = true;
-              updatedCount++;
-              return { 
-                ...item, 
-                ...result, 
-                unit: result.unit || item.unit || 'm3', // Absolute fallback
-                lastModifiedBy: 'AI Global Sync',
-                lastModifiedAt: new Date().toISOString() 
-              };
-            }
-          }
-          return item;
-        }));
-
-        if (reportModified) {
-          await saveReportToCloud({ ...report, entries: newEntries, lastUpdated: new Date().toISOString() });
-        }
-      }
-      alert(`Hard Sync Complete! Successfully updated ${updatedCount} records.`);
-    } catch (e) {
-      console.error(e);
-      alert("Hard Sync failed.");
-    } finally {
-      setIsGlobalSaving(false);
-    }
-    */
+    alert("Global Sync is temporarily paused. Fix individual records inside the Master Record cards.");
   };
 
   const handleSplitItem = (originalItem: DPRItem) => {
@@ -286,26 +230,27 @@ const App = () => {
   };
 
   const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
-    // CRITICAL FIX: Look up the report directly from 'reports' state to avoid stale closure issues
-    // or race conditions with 'currentReportId'.
     const existingReport = reports.find(r => r.date === currentDate);
     const id = existingReport ? existingReport.id : crypto.randomUUID();
     
-    // SAFETY: Ensure entries is an array even if data is malformed
     const existingEntries = existingReport && Array.isArray(existingReport.entries) ? existingReport.entries : [];
     
-    // HYDRATION: Ensure every item has an explicit unit string before saving
-    const hydratedItems = newItems.map(item => ({
-        ...item,
-        unit: item.unit || 'm3', // Enforce 'm3' default if empty
-        id: item.id || crypto.randomUUID(),
-        createdBy: item.createdBy || getUserName()
-    }));
+    const hydratedItems = newItems.map(item => {
+        // APPLY STANDARDIZATION TO ALL NEW ITEMS
+        const { location, component } = standardizeHRTMapping(item.location, item.component);
+        return {
+            ...item,
+            location,
+            component,
+            unit: item.unit || 'm3',
+            id: item.id || crypto.randomUUID(),
+            createdBy: item.createdBy || getUserName()
+        };
+    });
 
     const backupId = await savePermanentBackup(currentDate, rawText, hydratedItems, getUserName(), id);
     const stamped = hydratedItems.map(i => ({...i, sourceBackupId: backupId || undefined}));
     
-    // Combine with LATEST entries from state, not potentially stale 'currentEntries' variable
     const combined = [...existingEntries, ...stamped].sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
     
     const report: DailyReport = {
@@ -323,14 +268,13 @@ const App = () => {
   };
   
   const handleRestoreItemToDate = async (item: DPRItem, targetDate: string) => {
-      // Logic for adding a single recovered item to a specific date
       const existingReport = reports.find(r => r.date === targetDate);
       const reportId = existingReport ? existingReport.id : crypto.randomUUID();
       const existingEntries = existingReport ? existingReport.entries : [];
 
       const newItem = {
           ...item,
-          id: crypto.randomUUID(), // New ID to be safe
+          id: crypto.randomUUID(),
           isRecovered: true
       };
       
@@ -346,21 +290,18 @@ const App = () => {
           isRecovered: true
       };
 
-      // Use saveReportState if it affects the currently viewed date to get immediate UI update
       if (targetDate === currentDate) {
           await saveReportState(report);
       } else {
-          // Otherwise just push to cloud
           await saveReportToCloud(report);
       }
       alert(`Item added to report for ${targetDate}`);
   };
 
   const handleRestoreRawText = async (backup: BackupEntry, targetDate: string) => {
-      // Create a new Master Record from raw text
       const newItem: DPRItem = {
           id: crypto.randomUUID(),
-          location: 'General', // Default, user can edit
+          location: 'General',
           component: '',
           structuralElement: '',
           chainageOrArea: '',
@@ -375,31 +316,23 @@ const App = () => {
           lastModifiedAt: new Date().toISOString()
       };
 
-      // Add to report immediately
       await handleRestoreItemToDate(newItem, targetDate);
-      
-      // Open inspector to allow immediate editing
       if (targetDate === currentDate) {
           setInspectItem(newItem);
       } else {
-          // If restored to another date, switch view to that date then open
           setCurrentDate(targetDate);
-          // Wait for state update is tricky, but inspector relies on ID match.
-          // Since we just saved it to state via handleRestoreItemToDate -> saveReportState -> setReports,
-          // setting inspectItem should work if we delay slightly or just set it.
           setInspectItem(newItem);
       }
   };
 
   const handleRecoverBackups = async (backups: BackupEntry[]) => {
-      // Group backups by date
       const byDate: Record<string, DPRItem[]> = {};
       
       backups.forEach(b => {
           if(!byDate[b.date]) byDate[b.date] = [];
           const items = b.parsedItems.map(i => ({
               ...i,
-              id: crypto.randomUUID(), // New ID to avoid collision
+              id: crypto.randomUUID(),
               sourceBackupId: b.id,
               isRecovered: true
           }));
@@ -410,7 +343,6 @@ const App = () => {
       try {
           let restoredCount = 0;
           for (const [date, items] of Object.entries(byDate)) {
-             // Find existing report for this date
              const existingReport = reports.find(r => r.date === date);
              const newId = existingReport?.id || crypto.randomUUID();
              const existingEntries = existingReport?.entries || [];

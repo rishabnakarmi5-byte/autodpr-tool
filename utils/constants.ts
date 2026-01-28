@@ -52,6 +52,24 @@ export const LOCATION_SORT_ORDER = [
   "Powerhouse"
 ];
 
+/**
+ * Standardizes Location/Component mapping for Headrace Tunnel logic.
+ */
+export const standardizeHRTMapping = (location: string, component?: string): { location: string, component: string } => {
+    let loc = location || "Unclassified";
+    let comp = component || "";
+
+    // If Inlet/Adit accidentally became the main location
+    if (loc === "HRT from Inlet" || loc === "HRT from Adit") {
+        comp = loc;
+        loc = "Headrace Tunnel (HRT)";
+    }
+    
+    // Reverse check: If location is HRT but component is missing and found in desc
+    // (This part is handled better in Gemini prompt, but this is a safety fallback)
+    return { location: loc, component: comp };
+};
+
 export const getLocationPriority = (location: string): number => {
   if (!location) return 999;
   const index = LOCATION_SORT_ORDER.findIndex(key => 

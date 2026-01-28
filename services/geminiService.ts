@@ -32,6 +32,8 @@ export const autofillItemData = async (
     STRICT RULES:
     1. HIERARCHY MAPPING:
        - Map parts to parent structures (Barrage, Weir, Stilling Basin).
+       - IMPORTANT: For Tunneling, the 'location' must be "Headrace Tunnel (HRT)". 
+       - If you see "Inlet" or "Adit", set 'location' to "Headrace Tunnel (HRT)" and 'component' to "HRT from Inlet" or "HRT from Adit".
     
     2. QUANTITY & UNIT:
        - Extract numeric values precisely.
@@ -113,25 +115,18 @@ export const parseConstructionData = async (
 
     STRICT ATOMIC RULES:
     1. **SPLIT AGGRESSIVELY**: Every distinct activity or material must be its own record. 
-       - If a line says "Rebar 5t and Concrete 10m3", output TWO separate JSON objects.
-       - If a line says "Excavation of Weir and Syphon", output TWO separate JSON objects.
 
-    2. **READABLE DESCRIPTIONS (READY-TO-PRINT)**: 
+    2. **HRT HIERARCHY RULE**: 
+       - "HRT from Inlet" and "HRT from Adit" are **COMPONENTS**, not Locations.
+       - Their 'location' must ALWAYS be "Headrace Tunnel (HRT)".
+       - NEVER output "HRT from Inlet" in the 'location' field.
+
+    3. **READABLE DESCRIPTIONS (READY-TO-PRINT)**: 
        - The 'activityDescription' field should be a concise, readable sentence that **includes the quantity and unit at the end**.
        - Format: "[Material/Work] at [Element] [Quantity][Unit]"
-       - Examples: "Rebar installation 3.28Ton", "C25 Concrete pouring 45.5m3", "Excavation of weir 120m3".
-       - DO NOT include meta-commentary like "kg to Ton conversion applied" or internal reasoning.
-
-    3. **COMPONENT FALLBACKS**:
-       - Use the HIERARCHY provided. 
-       - If a user mentions a sub-item like "Undersluice" or "Syphon" that is not a top-level component:
-         - First, check if it fits under a nearby component (e.g., "Barrage").
-         - If not, use a general fallback like "Other Headworks" or "Other HRT Works" based on the location.
-       - Map specific elements like "beam" or "raft" to the 'structuralElement' field.
 
     4. **UNIT STANDARDIZATION**:
        - Convert "kg" to "Ton" (value / 1000). Set unit to "Ton".
-       - Convert "sqm" to "m2", "cum" to "m3".
 
     HIERARCHY REFERENCE:
     ${JSON.stringify(hierarchyToUse)}
@@ -193,6 +188,14 @@ export const parseConstructionData = async (
           const finalUnit = unitMap[item.unit?.toLowerCase()] || item.unit || "m3";
           const qty = item.quantity || 0;
           
+          // Standardization for HRT
+          let loc = item.location || contextLocations?.[0] || "Unclassified";
+          let comp = item.component || contextComponents?.[0] || "";
+          if (loc === "HRT from Inlet" || loc === "HRT from Adit") {
+              comp = loc;
+              loc = "Headrace Tunnel (HRT)";
+          }
+
           // Secondary Check: Ensure description contains quantity/unit if not already there
           const qtyString = `${qty}${finalUnit}`;
           if (qty > 0 && !desc.toLowerCase().includes(qtyString.toLowerCase())) {
@@ -200,8 +203,8 @@ export const parseConstructionData = async (
           }
 
           return {
-              location: item.location || contextLocations?.[0] || "Unclassified",
-              component: item.component || contextComponents?.[0] || "",
+              location: loc,
+              component: comp,
               structuralElement: item.structuralElement || "",
               chainage: item.chainage || "",
               chainageOrArea: `${item.chainage || ''} ${item.structuralElement || ''}`.trim(),
