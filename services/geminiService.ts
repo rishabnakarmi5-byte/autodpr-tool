@@ -40,7 +40,10 @@ export const autofillItemData = async (
        - UNIT MAPPING: "sqm" -> "m2", "cum" -> "m3", "mt" -> "Ton", "kg" -> "Ton" (divide kg by 1000).
        - If no unit is found, default to "m3".
     
-    3. CLASSIFICATION: Choose from: ${itemTypesString}.
+    3. CLASSIFICATION: 
+       - Choose from: ${itemTypesString}.
+       - "M25", "Grade 25", "M-25" -> "C25 Concrete"
+       - "Formworks", "Shuttering" -> "Formwork"
 
     Output ONLY a valid JSON object.
   `;
@@ -121,12 +124,16 @@ export const parseConstructionData = async (
        - Their 'location' must ALWAYS be "Headrace Tunnel (HRT)".
        - NEVER output "HRT from Inlet" in the 'location' field.
 
-    3. **READABLE DESCRIPTIONS (READY-TO-PRINT)**: 
-       - The 'activityDescription' field should be a concise, readable sentence that **includes the quantity and unit at the end**.
-       - Format: "[Material/Work] at [Element] [Quantity][Unit]"
+    3. **READABLE DESCRIPTIONS**: 
+       - Keep the original description readable.
+       - Clean up the description if it contains just raw numbers that are extracted elsewhere.
 
     4. **UNIT STANDARDIZATION**:
        - Convert "kg" to "Ton" (value / 1000). Set unit to "Ton".
+
+    5. **ITEM TYPING MAPPING**:
+       - "M25", "M-25", "Grade 25", "Grade-25" -> map to itemType "C25 Concrete".
+       - "Formworks" (plural) or "Shuttering" -> map to itemType "Formwork".
 
     HIERARCHY REFERENCE:
     ${JSON.stringify(hierarchyToUse)}
@@ -184,7 +191,13 @@ export const parseConstructionData = async (
 
       const processedItems = result.items.map((item: any) => {
           let desc = item.activityDescription || "";
-          const type = item.itemType && item.itemType !== "Other" ? item.itemType : identifyItemType(desc, customItemTypes);
+          
+          // Re-evaluate itemType to catch M25 if AI missed it but text has it
+          let type = item.itemType;
+          if (!type || type === "Other") {
+               type = identifyItemType(desc, customItemTypes);
+          }
+          
           const finalUnit = unitMap[item.unit?.toLowerCase()] || item.unit || "m3";
           const qty = item.quantity || 0;
           
@@ -196,10 +209,15 @@ export const parseConstructionData = async (
               loc = "Headrace Tunnel (HRT)";
           }
 
-          // Secondary Check: Ensure description contains quantity/unit if not already there
-          const qtyString = `${qty}${finalUnit}`;
-          if (qty > 0 && !desc.toLowerCase().includes(qtyString.toLowerCase())) {
-              desc = `${desc} ${qtyString}`.trim();
+          // INTELLIGENT DESCRIPTION SUFFIXING
+          // Only append the standardized quantity if the number isn't present in the description.
+          // This prevents "30 cum 30m3".
+          // We check if the exact quantity number (e.g. "30") exists as a whole word in the description.
+          if (qty > 0) {
+             const qtyPattern = new RegExp(`\\b${qty}\\b`);
+             if (!qtyPattern.test(desc)) {
+                 desc = `${desc} ${qty}${finalUnit}`;
+             }
           }
 
           return {
@@ -208,7 +226,7 @@ export const parseConstructionData = async (
               structuralElement: item.structuralElement || "",
               chainage: item.chainage || "",
               chainageOrArea: `${item.chainage || ''} ${item.structuralElement || ''}`.trim(),
-              activityDescription: desc,
+              activityDescription: desc.trim(),
               plannedNextActivity: item.plannedNextActivity || "Continue works",
               quantity: qty,
               unit: finalUnit,
