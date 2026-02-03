@@ -27,7 +27,7 @@ export const autofillItemData = async (
     
     ${learnedContext ? `GOLD STANDARD EXAMPLES (Follow these user-verified mappings exactly):\n${learnedContext}\n` : ''}
 
-    Your task is to extract the quantity, unit, and item classification.
+    Your task is to extract the quantity, unit, item classification, and any planned next activity.
     
     STRICT RULES:
     1. HIERARCHY MAPPING:
@@ -36,14 +36,20 @@ export const autofillItemData = async (
        - If you see "Inlet" or "Adit", set 'location' to "Headrace Tunnel (HRT)" and 'component' to "HRT from Inlet" or "HRT from Adit".
     
     2. QUANTITY & UNIT:
-       - Extract numeric values precisely.
-       - UNIT MAPPING: "sqm" -> "m2", "cum" -> "m3", "mt" -> "Ton", "kg" -> "Ton" (divide kg by 1000).
-       - If no unit is found, default to "m3".
+       - **CONCRETE**: If description has linear dimensions (e.g. 40m) AND volume (e.g. 24m3), **ALWAYS EXTRACT THE VOLUME (24)** as the quantity. Ignore the linear dimension.
+       - **REBAR**: Always use "Ton". If text is in kg, divide by 1000. Round to 2 decimal places.
+       - **FORMWORK**: Default to "rm" (running meters). Do not use "m2" unless explicitly stated.
+       - UNIT MAPPING: "sqm" -> "m2", "cum" -> "m3", "mt" -> "Ton".
     
     3. CLASSIFICATION: 
        - Choose from: ${itemTypesString}.
        - "M25", "Grade 25", "M-25" -> "C25 Concrete"
+       - "Concrete", "Conc", "RCC" (without specified grade) -> "C25 Concrete"
        - "Formworks", "Shuttering" -> "Formwork"
+
+    4. NEXT PLAN EXTRACTION:
+       - If the text includes "next plan", "next day", "tomorrow", "planning" etc., extract that text into 'plannedNextActivity'.
+       - **REMOVE** this planning text from the 'activityDescription'.
 
     Output ONLY a valid JSON object.
   `;
@@ -62,7 +68,8 @@ export const autofillItemData = async (
             structuralElement: { type: Type.STRING },
             quantity: { type: Type.NUMBER },
             unit: { type: Type.STRING },
-            itemType: { type: Type.STRING }
+            itemType: { type: Type.STRING },
+            plannedNextActivity: { type: Type.STRING }
           },
           required: ["quantity", "unit", "itemType"]
         }
@@ -76,14 +83,21 @@ export const autofillItemData = async (
       };
       
       const finalUnit = unitMap[result.unit?.toLowerCase()] || "m3";
+      let finalQty = result.quantity || 0;
+
+      // Force Rounding for Rebar
+      if (result.itemType === 'Rebar' || finalUnit === 'Ton') {
+          finalQty = Math.round(finalQty * 100) / 100;
+      }
       
       return {
         location: result.location,
         component: result.component,
         structuralElement: result.structuralElement,
-        quantity: result.quantity || 0,
+        quantity: finalQty,
         unit: finalUnit,
-        itemType: result.itemType || identifyItemType(description, customItemTypes)
+        itemType: result.itemType || identifyItemType(description, customItemTypes),
+        plannedNextActivity: result.plannedNextActivity
       };
     }
   } catch (e) {
@@ -129,11 +143,21 @@ export const parseConstructionData = async (
        - Clean up the description if it contains just raw numbers that are extracted elsewhere.
 
     4. **UNIT STANDARDIZATION**:
-       - Convert "kg" to "Ton" (value / 1000). Set unit to "Ton".
+       - Convert "kg" to "Ton" (value / 1000). Round to 2 decimal places. Set unit to "Ton".
+       - **CONCRETE QUANTITY**: If text contains a linear dimension (e.g. 40m) AND a volume (e.g. 24m3), **USE THE VOLUME** for quantity. Ignore the linear dimension.
+       - **FORMWORK**: Default unit is "rm" (running meters). Never use "m2" unless clearly specified.
 
     5. **ITEM TYPING MAPPING**:
        - "M25", "M-25", "Grade 25", "Grade-25" -> map to itemType "C25 Concrete".
+       - "Concrete", "Conc", "RCC" (if no grade specified) -> map to itemType "C25 Concrete".
        - "Formworks" (plural) or "Shuttering" -> map to itemType "Formwork".
+
+    6. **NEXT PLAN EXTRACTION**:
+       - Identify phrases like "next plan", "next day", "tomorrow", "planning".
+       - EXTRACT the text following these phrases into the 'plannedNextActivity' field.
+       - **REMOVE** that text from the 'activityDescription' to keep it clean.
+       - Example: "doing x next plan doing y" -> activityDescription: "doing x", plannedNextActivity: "doing y".
+       - Default 'plannedNextActivity' to "Continue works" if not found.
 
     HIERARCHY REFERENCE:
     ${JSON.stringify(hierarchyToUse)}
@@ -199,7 +223,12 @@ export const parseConstructionData = async (
           }
           
           const finalUnit = unitMap[item.unit?.toLowerCase()] || item.unit || "m3";
-          const qty = item.quantity || 0;
+          let qty = item.quantity || 0;
+
+          // Force Rounding for Rebar
+          if (type === 'Rebar' || finalUnit === 'Ton') {
+               qty = Math.round(qty * 100) / 100;
+          }
           
           // Standardization for HRT
           let loc = item.location || contextLocations?.[0] || "Unclassified";
