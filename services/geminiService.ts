@@ -29,6 +29,11 @@ export const autofillItemData = async (
   }));
 
   const itemTypesString = itemTypesToUse.map(t => `"${t.name}"`).join(', ');
+  
+  // Flatten hierarchy for context
+  const hierarchyString = Object.entries(LOCATION_HIERARCHY)
+    .map(([loc, comps]) => `${loc} (Components: ${comps.join(', ')})`)
+    .join('; ');
 
   const prompt = `
     Act as a construction data specialist. Analyze this activity description: "${description}"
@@ -39,7 +44,8 @@ export const autofillItemData = async (
     
     STRICT RULES:
     1. HIERARCHY MAPPING:
-       - Map parts to parent structures (Barrage, Weir, Stilling Basin).
+       - Known Hierarchy: ${hierarchyString}
+       - Map parts to parent structures (e.g. Barrage -> Headworks).
        - IMPORTANT: For Tunneling, the 'location' must be "Headrace Tunnel (HRT)". 
        - If you see "Inlet" or "Adit", set 'location' to "Headrace Tunnel (HRT)" and 'component' to "HRT from Inlet" or "HRT from Adit".
     
@@ -133,6 +139,11 @@ export const parseConstructionData = async (
   const itemTypesToUse = customItemTypes || ITEM_PATTERNS;
   const itemTypeContext = itemTypesToUse.map(t => `${t.name} (keywords: ${t.pattern.toString()})`).join(', ');
 
+  // Flatten hierarchy for prompt to guide location inference
+  const hierarchyString = Object.entries(hierarchyToUse)
+    .map(([loc, comps]) => `- ${loc} contains components: [${comps.join(', ')}]`)
+    .join('\n    ');
+
   const prompt = `
     You are a high-precision construction site data extraction engine.
     Convert raw site update text into a structured JSON array.
@@ -140,9 +151,11 @@ export const parseConstructionData = async (
     STRICT ATOMIC RULES:
     1. **SPLIT AGGRESSIVELY**: Every distinct activity or material must be its own record. 
 
-    2. **HRT HIERARCHY RULE**: 
-       - "HRT from Inlet" and "HRT from Adit" are **COMPONENTS**, not Locations.
-       - Their 'location' must ALWAYS be "Headrace Tunnel (HRT)".
+    2. **HIERARCHY & LOCATION INFERENCE**: 
+       - Use this hierarchy to correctly map Components to Locations:
+    ${hierarchyString}
+       - **CRITICAL**: If the text contains a known component (e.g. "Barrage", "Intake", "Powerhouse"), FORCE the 'location' to its parent from the list above (e.g. "Headworks").
+       - "HRT from Inlet" and "HRT from Adit" -> Location "Headrace Tunnel (HRT)".
 
     3. **BULK MODE (DATE EXTRACTION)**:
        - If a row contains a date (e.g. 08/11/2025, 2026-01-22), extract it as 'extractedDate' in YYYY-MM-DD format.
@@ -158,7 +171,9 @@ export const parseConstructionData = async (
        - Map "M25", "Concrete", "RCC", "Lining" -> "C25 Concrete".
        - Map "Shuttering", "Formworks" -> "Formwork".
 
-    6. **CLEANUP**: Remove planning text ("next day", "tomorrow") from 'activityDescription' and move to 'plannedNextActivity'.
+    6. **DESCRIPTION & CLEANUP**: 
+       - Remove planning text ("next day", "tomorrow") from 'activityDescription' and move to 'plannedNextActivity'.
+       - **IMPORTANT**: Append the quantity to the end of the 'activityDescription' for reference, e.g. "Wall concreting works (113 m3)".
 
     RAW INPUT:
     """
