@@ -173,6 +173,11 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Activity Description</label>
                    <textarea className="w-full p-3 border border-slate-200 rounded-lg text-sm min-h-[100px] outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 focus:bg-white transition-all" value={localItem.activityDescription} onChange={e => handleChange('activityDescription', e.target.value)} onBlur={() => handleBlur('activityDescription')} />
                 </div>
+
+                <div>
+                   <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Next Plan</label>
+                   <textarea className="w-full p-3 border border-slate-200 rounded-lg text-sm min-h-[60px] outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 focus:bg-white transition-all" value={localItem.plannedNextActivity || ''} onChange={e => handleChange('plannedNextActivity', e.target.value)} onBlur={() => handleBlur('plannedNextActivity')} />
+                </div>
               </div>
             </div>
           </div>
