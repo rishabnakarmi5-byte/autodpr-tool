@@ -26,6 +26,7 @@ export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspect
     return (parseFloat(parts[0]) * 1000) + (parseFloat(parts[1]) || 0);
   };
 
+  // 1. Extract all relevant lining items
   const allRelevantItems = useMemo(() => {
     const items: (DPRItem & { fromCh: number, toCh: number, stage: string, date: string })[] = [];
     const regex = /(?:ch\.?|chainage|@)\s*([0-9\+\.]+)(?:\s*(?:to|[-–—])\s*([0-9\+\.]+))?/i;
@@ -64,6 +65,29 @@ export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspect
     return items;
   }, [reports]);
 
+  // 2. Compute Physical Conflicts (Overlapping chainages in same stage)
+  const conflicts = useMemo(() => {
+    const conflictMap: Record<string, string[]> = {}; // itemId -> array of clashing itemIds
+    
+    allRelevantItems.forEach(itemA => {
+      allRelevantItems.forEach(itemB => {
+        if (itemA.id === itemB.id) return;
+        if (itemA.stage !== itemB.stage) return;
+        
+        // Check for overlap: [startA, endA] overlaps [startB, endB]
+        const hasOverlap = (itemA.fromCh < itemB.toCh && itemA.toCh > itemB.fromCh);
+        
+        if (hasOverlap) {
+          if (!conflictMap[itemA.id]) conflictMap[itemA.id] = [];
+          if (!conflictMap[itemA.id].includes(itemB.id)) {
+            conflictMap[itemA.id].push(itemB.id);
+          }
+        }
+      });
+    });
+    return conflictMap;
+  }, [allRelevantItems]);
+
   const liningItems = useMemo(() => {
       return allRelevantItems.filter(i => !blockedItemIds.includes(i.id)).sort((a,b) => b.fromCh - a.fromCh);
   }, [allRelevantItems, blockedItemIds]);
@@ -77,47 +101,78 @@ export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspect
   const renderEntryList = (title: string, colorClass: string, stage: string) => {
     const items = liningItems.filter(i => i.stage === stage);
     return (
-        <div className={`flex-1 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm`}>
-            <div className={`p-3 border-b border-slate-100 ${colorClass} bg-opacity-10`}>
+        <div className={`flex-1 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm flex flex-col`}>
+            <div className={`p-3 border-b border-slate-100 ${colorClass} bg-opacity-10 shrink-0`}>
                 <h3 className={`text-xs font-black uppercase tracking-wider ${colorClass.replace('bg-', 'text-')}`}>{title}</h3>
                 <div className="flex justify-between items-center mt-1">
                    <span className="text-[10px] text-slate-400 font-bold">{items.length} Concrete Pours</span>
                 </div>
             </div>
-            <div className="max-h-[350px] overflow-y-auto p-2 space-y-2">
+            <div className="flex-1 overflow-y-auto p-2 space-y-2 max-h-[400px]">
                 {items.length === 0 ? <div className="text-center text-slate-300 text-xs italic py-10">No C25 Concrete data for {stage}</div> : 
-                 items.map(item => (
-                    <div 
-                        key={item.id} 
-                        className="p-3 bg-white hover:bg-indigo-50/30 hover:shadow-md border border-slate-100 rounded-lg cursor-pointer transition-all group relative overflow-hidden"
-                    >
-                        <div className="flex justify-between items-center mb-1">
-                            <span className="text-[10px] font-mono font-bold text-slate-400" onClick={() => onInspectItem?.(item)}>{item.date}</span>
-                            <div className="flex items-center gap-2">
-                               <button 
-                                  onClick={(e) => { e.stopPropagation(); if(confirm("Exclude this record from lining progress view permanently?")) onToggleBlock(item.id); }}
-                                  className="w-5 h-5 rounded-full bg-slate-100 hover:bg-red-500 hover:text-white flex items-center justify-center text-[10px] text-slate-400 transition-all opacity-0 group-hover:opacity-100"
-                                  title="Block Item"
-                               >
-                                  <i className="fas fa-times"></i>
-                               </button>
-                               <span onClick={() => onInspectItem?.(item)} className={`text-[10px] font-black px-1.5 py-0.5 rounded shadow-sm border ${colorClass === 'bg-blue-500' ? 'bg-blue-600 border-blue-700' : colorClass === 'bg-green-500' ? 'bg-green-600 border-green-700' : 'bg-red-600 border-red-700'} text-white`}>
-                                   {item.quantity > 0 ? `${item.quantity}${item.unit || 'm3'}` : '-'}
-                               </span>
+                 items.map(item => {
+                    const itemConflicts = conflicts[item.id] || [];
+                    const hasConflict = itemConflicts.length > 0;
+                    
+                    return (
+                        <div 
+                            key={item.id} 
+                            className={`p-3 bg-white hover:bg-indigo-50/30 hover:shadow-md border rounded-lg cursor-pointer transition-all group relative overflow-hidden ${hasConflict ? 'border-red-200 bg-red-50/30' : 'border-slate-100'}`}
+                            onClick={() => onInspectItem?.(item)}
+                        >
+                            <div className="flex justify-between items-center mb-1">
+                                <span className="text-[10px] font-mono font-bold text-slate-400">{item.date}</span>
+                                <div className="flex items-center gap-2">
+                                   <button 
+                                      onClick={(e) => { e.stopPropagation(); if(confirm("Exclude this record from lining progress view permanently?")) onToggleBlock(item.id); }}
+                                      className="w-5 h-5 rounded-full bg-slate-100 hover:bg-red-500 hover:text-white flex items-center justify-center text-[10px] text-slate-400 transition-all opacity-0 group-hover:opacity-100"
+                                      title="Block Item"
+                                   >
+                                      <i className="fas fa-times"></i>
+                                   </button>
+                                   <span className={`text-[10px] font-black px-1.5 py-0.5 rounded shadow-sm border ${colorClass === 'bg-blue-500' ? 'bg-blue-600 border-blue-700' : colorClass === 'bg-green-500' ? 'bg-green-600 border-green-700' : 'bg-red-600 border-red-700'} text-white`}>
+                                       {item.quantity > 0 ? `${item.quantity}${item.unit || 'm3'}` : '-'}
+                                   </span>
+                                </div>
                             </div>
+                            
+                            <div className="flex items-center justify-between">
+                                <div className="text-sm font-bold text-slate-800">
+                                     CH {item.fromCh} - {item.toCh}
+                                </div>
+                                {hasConflict && (
+                                    <div className="text-[9px] font-black text-red-600 bg-red-100 px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse">
+                                        <i className="fas fa-exclamation-triangle"></i> OVERLAP
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="text-[10px] text-slate-400 font-medium truncate mt-1">
+                               {item.activityDescription.substring(0, 40)}...
+                            </div>
+
+                            {hasConflict && (
+                                <div className="mt-2 pt-2 border-t border-red-100">
+                                    <div className="text-[9px] font-bold text-red-400 uppercase">Clashing with:</div>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                        {itemConflicts.map(cid => {
+                                            const clashingItem = allRelevantItems.find(i => i.id === cid);
+                                            return clashingItem ? (
+                                                <span key={cid} className="text-[8px] bg-red-100 text-red-700 px-1 rounded">{clashingItem.date}</span>
+                                            ) : null;
+                                        })}
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                        <div className="text-sm font-bold text-slate-800" onClick={() => onInspectItem?.(item)}>
-                             CH {item.fromCh} - {item.toCh}
-                        </div>
-                        <div className="text-[10px] text-slate-400 font-medium truncate mt-1" onClick={() => onInspectItem?.(item)}>
-                           {item.activityDescription.substring(0, 40)}...
-                        </div>
-                    </div>
-                ))}
+                    );
+                 })}
             </div>
         </div>
     );
   };
+
+  const totalConflictCount = Object.keys(conflicts).length;
 
   return (
     <div className="space-y-6 animate-fade-in pb-20">
@@ -125,6 +180,13 @@ export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspect
         <div>
           <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">HRT Progress Profile</h2>
           <p className="text-sm text-slate-500 italic">Tracking C25 Concrete pours across 2606.0m alignment</p>
+          
+          {totalConflictCount > 0 && (
+             <div className="mt-2 inline-flex items-center gap-2 bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100">
+                <i className="fas fa-exclamation-circle animate-bounce"></i>
+                {totalConflictCount / 2} physical overlap conflicts detected!
+             </div>
+          )}
         </div>
         
         <div className="flex items-center gap-3">
@@ -171,15 +233,51 @@ export const HRTLiningView: React.FC<HRTLiningViewProps> = ({ reports, onInspect
 
             <line x1={rangeStart} y1="125" x2={rangeEnd} y2="125" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="5,5" vectorEffect="non-scaling-stroke" />
 
-            {liningItems.filter(i => i.stage === 'Invert').map(i => (
-              <rect key={i.id} x={i.fromCh} y="170" width={Math.max(i.toCh - i.fromCh, 2)} height="40" fill="#3b82f6" fillOpacity="0.8" className="hover:fill-blue-400 cursor-pointer transition-colors" onClick={() => onInspectItem?.(i)} />
-            ))}
-            {liningItems.filter(i => i.stage === 'Kicker').map(i => (
-              <rect key={i.id} x={i.fromCh} y="130" width={Math.max(i.toCh - i.fromCh, 2)} height="40" fill="#22c55e" fillOpacity="0.8" className="hover:fill-green-400 cursor-pointer transition-colors" onClick={() => onInspectItem?.(i)} />
-            ))}
-            {liningItems.filter(i => i.stage === 'Gantry').map(i => (
-              <rect key={i.id} x={i.fromCh} y="60" width={Math.max(i.toCh - i.fromCh, 2)} height="60" fill="#ef4444" fillOpacity="0.8" className="hover:fill-red-400 cursor-pointer transition-colors" onClick={() => onInspectItem?.(i)} />
-            ))}
+            {/* Render Rectangles */}
+            {liningItems.map(i => {
+                const isConflict = !!conflicts[i.id];
+                let y = 0;
+                let h = 0;
+                let color = "";
+                
+                if (i.stage === 'Invert') { y = 170; h = 40; color = "#3b82f6"; }
+                else if (i.stage === 'Kicker') { y = 130; h = 40; color = "#22c55e"; }
+                else if (i.stage === 'Gantry') { y = 60; h = 60; color = "#ef4444"; }
+
+                return (
+                    <g key={i.id} onClick={() => onInspectItem?.(i)}>
+                        <rect 
+                            x={i.fromCh} 
+                            y={y} 
+                            width={Math.max(i.toCh - i.fromCh, 2)} 
+                            height={h} 
+                            fill={color} 
+                            fillOpacity={isConflict ? "0.9" : "0.7"} 
+                            stroke={isConflict ? "#ffffff" : "none"}
+                            strokeWidth={isConflict ? "2" : "0"}
+                            vectorEffect="non-scaling-stroke"
+                            className="hover:brightness-110 cursor-pointer transition-all"
+                        />
+                        {isConflict && (
+                            <rect 
+                                x={i.fromCh} 
+                                y={y} 
+                                width={Math.max(i.toCh - i.fromCh, 2)} 
+                                height={h} 
+                                fill="url(#conflictPattern)"
+                                pointerEvents="none"
+                            />
+                        )}
+                    </g>
+                );
+            })}
+
+            {/* Conflict Pattern Definition */}
+            <defs>
+                <pattern id="conflictPattern" patternUnits="userSpaceOnUse" width="4" height="4">
+                    <path d="M-1,1 l2,-2 M0,4 l4,-4 M3,5 l2,-2" stroke="white" strokeWidth="0.5" opacity="0.3" />
+                </pattern>
+            </defs>
           </svg>
 
           <div className="absolute left-[-50px] top-[75px] text-[10px] font-black text-red-500 origin-center -rotate-90 uppercase">Gantry</div>
