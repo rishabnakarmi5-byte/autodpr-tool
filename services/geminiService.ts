@@ -43,7 +43,7 @@ export const autofillItemData = async (
     
     3. CLASSIFICATION: 
        - Choose from: ${itemTypesString}.
-       - "M25", "Grade 25", "M-25" -> "C25 Concrete"
+       - "M25", "Grade 25", "M-25", "Lining" -> "C25 Concrete"
        - "Concrete", "Conc", "RCC" (without specified grade) -> "C25 Concrete"
        - "Formworks", "Shuttering" -> "Formwork"
 
@@ -142,7 +142,7 @@ export const parseConstructionData = async (
        - **FORMWORK**: Default unit "rm".
 
     5. **ITEM TYPING**:
-       - Map "M25", "Concrete", "RCC" -> "C25 Concrete".
+       - Map "M25", "Concrete", "RCC", "Lining" -> "C25 Concrete".
        - Map "Shuttering", "Formworks" -> "Formwork".
 
     6. **CLEANUP**: Remove planning text ("next day", "tomorrow") from 'activityDescription' and move to 'plannedNextActivity'.

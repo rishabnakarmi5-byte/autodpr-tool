@@ -65,8 +65,6 @@ export const standardizeHRTMapping = (location: string, component?: string): { l
         loc = "Headrace Tunnel (HRT)";
     }
     
-    // Reverse check: If location is HRT but component is missing and found in desc
-    // (This part is handled better in Gemini prompt, but this is a safety fallback)
     return { location: loc, component: comp };
 };
 
@@ -89,8 +87,8 @@ export const ITEM_PATTERNS = [
   { name: "C20 Concrete", pattern: /\b(c[\-\s]?20|grade[\-\s]?20|m[\-\s]?20)\b/i, defaultUnit: 'm3' },
   { name: "C15 Concrete", pattern: /\b(c[\-\s]?15|grade[\-\s]?15|m[\-\s]?15)\b/i, defaultUnit: 'm3' },
   { name: "C10 Concrete", pattern: /\b(c[\-\s]?10|pcc|infill|grade[\-\s]?10|m[\-\s]?10)\b/i, defaultUnit: 'm3' },
-  // C25 matches generic "concrete", so it must come AFTER other specific grades
-  { name: "C25 Concrete", pattern: /\b(c[\-\s]?25|grade[\-\s]?25|m[\-\s]?25|concrete|conc\.?|rcc)\b/i, defaultUnit: 'm3' },
+  // IMPORTANT: Added 'lining' here. This MUST come before generic Excavation.
+  { name: "C25 Concrete", pattern: /\b(c[\-\s]?25|grade[\-\s]?25|m[\-\s]?25|concrete|conc\.?|rcc|lining)\b/i, defaultUnit: 'm3' },
   { name: "Rebar", pattern: /\b(rebar|reinforcement|steel|tmt|bar|tor)\b/i, defaultUnit: 'Ton' },
   { name: "Formwork", pattern: /\b(formwork|formworks|shuttering)\b/i, defaultUnit: 'rm' },
   { name: "Stone Masonry", pattern: /\b(masonry|rrm|ms wall|stone soling|soling)\b/i, defaultUnit: 'm3' },
@@ -160,7 +158,6 @@ export const parseQuantityDetails = (
   description: string
 ) => {
   const elements = new Set<string>();
-  let chainageStr = "";
   let component = componentInput || "";
   const combinedText = `${chainageOrAreaInput} ${description}`;
 
