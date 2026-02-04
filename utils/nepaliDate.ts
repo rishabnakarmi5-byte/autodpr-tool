@@ -1,3 +1,4 @@
+
 // Simplified AD to BS converter for 2024-2030 (2080-2087 BS)
 // This avoids heavy external dependencies while covering the project lifecycle.
 
@@ -31,8 +32,12 @@ const nepaliMonths = [
 ];
 
 export const getNepaliDate = (adDateString: string): string => {
+  if (!adDateString || adDateString === 'NaN' || adDateString === 'Invalid Date') return "Invalid Date";
+  
   try {
     const adDate = new Date(adDateString);
+    if (isNaN(adDate.getTime())) return "Invalid Date";
+
     adDate.setHours(0, 0, 0, 0);
 
     // Find the BS year

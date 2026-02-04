@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { parseConstructionData } from '../services/geminiService';
-import { DPRItem } from '../types';
+import { DPRItem, ItemTypeDefinition } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 
 interface InputSectionProps {
@@ -12,11 +12,12 @@ interface InputSectionProps {
   entryCount: number;
   user: any;
   hierarchy: Record<string, string[]>;
+  customItemTypes?: ItemTypeDefinition[];
 }
 
 type InputMode = 'ai' | 'manual' | 'bulk_lining';
 
-export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateChange, onItemsAdded, onViewReport, entryCount, user, hierarchy }) => {
+export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateChange, onItemsAdded, onViewReport, entryCount, user, hierarchy, customItemTypes }) => {
   const [mode, setMode] = useState<InputMode>('ai');
   const [rawText, setRawText] = useState('');
   const [instructions, setInstructions] = useState('');
@@ -58,12 +59,13 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         `BULK LINING MODE: The text contains multiple tunnel lining entries. ${stageContext} Expected format: Date CH. From To. Pour Quantity.`,
         ["Headrace Tunnel (HRT)"],
         ["HRT from Inlet", "HRT from Adit"],
-        hierarchy
+        hierarchy,
+        customItemTypes
       );
       
       let finalItems = items;
 
-      // FAILSAFE FOR BULK MODE: If AI returns 0 items, create a single fallback item
+      // FAILSAFE FOR BULK MODE
       if (finalItems.length === 0) {
           console.warn("Bulk AI returned 0 items. Using fallback.");
           finalItems = [{
@@ -77,7 +79,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
              unit: 'm3',
              itemType: 'C25 Concrete'
           }];
-          // Notify user
           setError("Auto-parsing failed. Added as raw text for manual edit.");
       }
       
@@ -98,7 +99,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   };
 
   const handleProcessAndAdd = async () => {
-    // Validation: Require text.
     if (!rawText.trim()) {
         setError("Please enter some site activity text.");
         return;
@@ -110,13 +110,11 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     setIsProcessing(true);
     setError(null);
     try {
-      // If no components selected manually, pass empty array (AI will infer or leave blank)
-      const { items } = await parseConstructionData(rawText, instructions, locationsToUse, aiComponents, hierarchy);
+      // PASS customItemTypes TO THE SERVICE HERE
+      const { items } = await parseConstructionData(rawText, instructions, locationsToUse, aiComponents, hierarchy, customItemTypes);
       
       let finalItems = items;
       
-      // FAILSAFE: If AI returns 0 items but we have text, create a fallback item
-      // This prevents "Added 0 records" ghost entries
       if (finalItems.length === 0 && rawText.trim().length > 0) {
           console.warn("AI returned 0 items. Using fallback.");
           finalItems = [{
@@ -124,7 +122,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
              component: '',
              structuralElement: '',
              chainageOrArea: '',
-             activityDescription: rawText, // Use raw text as description
+             activityDescription: rawText,
              plannedNextActivity: 'Continue works',
              quantity: 0,
              unit: 'm3',
@@ -145,13 +143,10 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       setModalStep(1);
     } catch (err: any) {
       console.error(err);
-      
       let msg = err.message || "Processing failed.";
-      
       if (msg.includes('429') || msg.includes('Quota exceeded')) {
          msg = "⚠️ AI Daily Quota Exceeded. Please try again later.";
       }
-
       setError(msg);
     } finally {
       setIsProcessing(false);
@@ -173,7 +168,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           lastModifiedAt: new Date().toISOString()
       };
       
-      // We pass "Manual Creation" as the raw text source
       onItemsAdded([blankItem], "Manual Creation (Blank Card)");
       setModalStep(1);
   };
@@ -242,7 +236,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                     </div>
 
                     <div>
-                        <textarea value={rawText} onChange={e => setRawText(e.target.value)} placeholder="Paste site update text here..." className="w-full h-40 p-5 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono text-sm" />
+                        <textarea value={rawText} onChange={e => setRawText(e.target.value)} placeholder="Paste site update text here... (e.g., 'Headworks: Stone soling works at upstream apron 15m3')" className="w-full h-40 p-5 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono text-sm" />
                     </div>
 
                     {error && (

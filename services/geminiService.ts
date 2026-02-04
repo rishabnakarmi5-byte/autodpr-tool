@@ -6,6 +6,14 @@ import { getTrainingExamples } from "./firebaseService";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+// Helper to safely clean strings from AI response
+const cleanStr = (val: any): string => {
+  if (val === null || val === undefined) return '';
+  const s = String(val).trim();
+  if (s.toLowerCase() === 'null') return '';
+  return s;
+};
+
 /**
  * Lightweight extraction for a single item.
  */
@@ -82,7 +90,7 @@ export const autofillItemData = async (
           'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'nos': 'nos', 'rm': 'rm'
       };
       
-      const finalUnit = unitMap[result.unit?.toLowerCase()] || "m3";
+      const finalUnit = unitMap[cleanStr(result.unit).toLowerCase()] || cleanStr(result.unit) || "m3";
       let finalQty = result.quantity || 0;
 
       // Force Rounding for Rebar
@@ -91,13 +99,13 @@ export const autofillItemData = async (
       }
       
       return {
-        location: result.location,
-        component: result.component,
-        structuralElement: result.structuralElement,
+        location: cleanStr(result.location),
+        component: cleanStr(result.component),
+        structuralElement: cleanStr(result.structuralElement),
         quantity: finalQty,
         unit: finalUnit,
-        itemType: result.itemType || identifyItemType(description, customItemTypes),
-        plannedNextActivity: result.plannedNextActivity
+        itemType: cleanStr(result.itemType) || identifyItemType(description, customItemTypes),
+        plannedNextActivity: cleanStr(result.plannedNextActivity)
       };
     }
   } catch (e) {
@@ -121,6 +129,10 @@ export const parseConstructionData = async (
   
   const hierarchyToUse = customHierarchy || LOCATION_HIERARCHY;
   
+  // Format custom item types for the prompt to ensure AI sees "Soling" etc.
+  const itemTypesToUse = customItemTypes || ITEM_PATTERNS;
+  const itemTypeContext = itemTypesToUse.map(t => `${t.name} (keywords: ${t.pattern.toString()})`).join(', ');
+
   const prompt = `
     You are a high-precision construction site data extraction engine.
     Convert raw site update text into a structured JSON array.
@@ -142,6 +154,7 @@ export const parseConstructionData = async (
        - **FORMWORK**: Default unit "rm".
 
     5. **ITEM TYPING**:
+       - PRIORITIZE these types: ${itemTypeContext}
        - Map "M25", "Concrete", "RCC", "Lining" -> "C25 Concrete".
        - Map "Shuttering", "Formworks" -> "Formwork".
 
@@ -194,31 +207,41 @@ export const parseConstructionData = async (
       };
 
       const processedItems = result.items.map((item: any) => {
-          let desc = item.activityDescription || "";
-          let type = item.itemType || identifyItemType(desc, customItemTypes);
-          const finalUnit = unitMap[item.unit?.toLowerCase()] || item.unit || "m3";
+          let desc = cleanStr(item.activityDescription);
+          let type = cleanStr(item.itemType) || identifyItemType(desc, customItemTypes);
+          const finalUnit = unitMap[cleanStr(item.unit).toLowerCase()] || cleanStr(item.unit) || "m3";
           let qty = item.quantity || 0;
 
           if (type === 'Rebar' || finalUnit === 'Ton') {
                qty = Math.round(qty * 100) / 100;
           }
           
-          let loc = item.location || contextLocations?.[0] || "Unclassified";
-          let comp = item.component || contextComponents?.[0] || "";
+          let loc = cleanStr(item.location) || contextLocations?.[0] || "Unclassified";
+          let comp = cleanStr(item.component) || contextComponents?.[0] || "";
+          
           if (loc === "HRT from Inlet" || loc === "HRT from Adit") {
               comp = loc;
               loc = "Headrace Tunnel (HRT)";
           }
 
+          const structuralElement = cleanStr(item.structuralElement);
+          const chainage = cleanStr(item.chainage);
+
+          // Validate date format YYYY-MM-DD
+          let validDate = cleanStr(item.extractedDate);
+          if (validDate && !/^\d{4}-\d{2}-\d{2}$/.test(validDate)) {
+             validDate = undefined; // Invalid format, let system fallback to current date
+          }
+
           return {
-              extractedDate: item.extractedDate,
+              extractedDate: validDate,
               location: loc,
               component: comp,
-              structuralElement: item.structuralElement || "",
-              chainage: item.chainage || "",
-              chainageOrArea: `${item.chainage || ''} ${item.structuralElement || ''}`.trim(),
-              activityDescription: desc.trim(),
-              plannedNextActivity: item.plannedNextActivity || "Continue works",
+              structuralElement: structuralElement,
+              chainage: chainage,
+              chainageOrArea: `${chainage} ${structuralElement}`.trim(),
+              activityDescription: desc,
+              plannedNextActivity: cleanStr(item.plannedNextActivity) || "Continue works",
               quantity: qty,
               unit: finalUnit,
               itemType: type

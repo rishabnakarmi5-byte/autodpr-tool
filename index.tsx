@@ -52,6 +52,7 @@ const App = () => {
   useEffect(() => { localStorage.setItem('activeTab', activeTab); }, [activeTab]);
 
   useEffect(() => {
+    // Strict date matching to prevent duplicates
     const existing = reports.find(r => r.date === currentDate);
     if (existing) {
       setCurrentReportId(existing.id);
@@ -102,9 +103,21 @@ const App = () => {
     try {
         // Group items by date. Fallback to current UI date if no date extracted from text.
         const itemsByDate: Record<string, DPRItem[]> = {};
+        const normalizeDate = (d: string) => {
+             // Ensure valid YYYY-MM-DD
+             if (!d || d === 'NaN' || d === 'Invalid Date') return currentDate;
+             // Attempt to fix simple formatting issues if necessary (e.g. 2026-2-4 -> 2026-02-04)
+             try {
+                return new Date(d).toISOString().split('T')[0];
+             } catch {
+                return currentDate;
+             }
+        };
         
         newItems.forEach(item => {
-            const targetDate = item.extractedDate || currentDate;
+            const rawDate = item.extractedDate || currentDate;
+            const targetDate = normalizeDate(rawDate);
+
             if (!itemsByDate[targetDate]) itemsByDate[targetDate] = [];
             
             const { location, component } = standardizeHRTMapping(item.location, item.component);
@@ -118,7 +131,7 @@ const App = () => {
             } as DPRItem);
         });
 
-        // Unique backup ID for the whole session
+        // Unique backup ID for the session
         const backupId = await savePermanentBackup(currentDate, rawText, newItems as DPRItem[], getUserName(), "Bulk Entry Session");
 
         // Sync each grouped date to Cloud
@@ -127,7 +140,13 @@ const App = () => {
             const reportId = existingReport ? existingReport.id : crypto.randomUUID();
             const existingEntries = existingReport?.entries || [];
 
-            const stampedItems = items.map(i => ({ ...i, sourceBackupId: backupId || undefined }));
+            // ONLY tag with backupId if it's a multi-item batch. 
+            // Single items are treated as manual/atomic entries to avoid "Bulk Entry" badge.
+            const stampedItems = items.map(i => ({ 
+                ...i, 
+                sourceBackupId: (items.length > 1) ? backupId : undefined 
+            }));
+            
             const combined = [...existingEntries, ...stampedItems].sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
 
             const report: DailyReport = {
@@ -146,7 +165,7 @@ const App = () => {
             }
         }
         
-        logActivity(getUserName(), "Bulk Add", `Imported ${newItems.length} records across ${Object.keys(itemsByDate).length} dates`, currentDate, backupId || undefined);
+        logActivity(getUserName(), "Add Items", `Added ${newItems.length} records`, currentDate, backupId || undefined);
         incrementUserStats(user?.uid, newItems.length);
     } finally {
         setIsGlobalSaving(false);
@@ -186,6 +205,84 @@ const App = () => {
     }
   };
 
+  const handleRecoverBackups = async (backups: BackupEntry[]) => {
+      const confirmMsg = backups.length === 1 
+        ? `Restore data from session ${backups[0].id.substring(0,8)}?` 
+        : `Restore data from ${backups.length} sessions?`;
+      
+      if (!window.confirm(confirmMsg + " Duplicates will be skipped.")) return;
+
+      setIsGlobalSaving(true);
+      try {
+          const reportsToSave = new Map<string, DailyReport>();
+          let restoreCount = 0;
+
+          const getReport = (date: string): DailyReport => {
+              if (reportsToSave.has(date)) return reportsToSave.get(date)!;
+              const existing = reports.find(r => r.date === date);
+              if (existing) return { ...existing, entries: [...existing.entries] }; 
+              return {
+                  id: crypto.randomUUID(),
+                  date: date,
+                  lastUpdated: new Date().toISOString(),
+                  projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
+                  companyName: settings?.companyName,
+                  entries: []
+              };
+          };
+
+          const allExistingIds = new Set<string>();
+          reports.forEach(r => r.entries.forEach(e => allExistingIds.add(e.id)));
+
+          for (const backup of backups) {
+              for (const item of backup.parsedItems) {
+                  if (allExistingIds.has(item.id)) continue; 
+
+                  // Determine date priority: extractedDate -> backup.date
+                  let targetDate = backup.date;
+                  const castItem = item as (DPRItem & { extractedDate?: string });
+                  if (castItem.extractedDate && /^\d{4}-\d{2}-\d{2}$/.test(castItem.extractedDate)) {
+                      targetDate = castItem.extractedDate;
+                  }
+
+                  const report = getReport(targetDate);
+                  
+                  const itemToRestore = { ...item };
+                  // Ensure ID linkage for revert capability
+                  if (!itemToRestore.sourceBackupId) {
+                      itemToRestore.sourceBackupId = backup.id;
+                  }
+                  
+                  const { location, component } = standardizeHRTMapping(itemToRestore.location, itemToRestore.component);
+                  itemToRestore.location = location;
+                  itemToRestore.component = component;
+                  
+                  report.entries.push(itemToRestore);
+                  report.entries.sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
+                  
+                  reportsToSave.set(targetDate, report);
+                  allExistingIds.add(item.id);
+                  restoreCount++;
+              }
+          }
+
+          if (restoreCount === 0) {
+              alert("No new items to restore (all items already exist).");
+          } else {
+              for (const report of reportsToSave.values()) {
+                  await saveReportToCloud(report);
+              }
+              logActivity(getUserName(), "Data Recovery", `Restored ${restoreCount} items from backups`, currentDate);
+              alert(`Successfully restored ${restoreCount} items.`);
+          }
+      } catch (e) {
+          console.error("Recovery failed", e);
+          alert("Recovery failed. Check console.");
+      } finally {
+          setIsGlobalSaving(false);
+      }
+  };
+
   const handleRevertBulkSession = async (backupId: string) => {
       if (!window.confirm("Permanently remove ALL items created during this bulk upload session? (Manual updates will be safe)")) return;
       setIsGlobalSaving(true);
@@ -206,12 +303,12 @@ const App = () => {
 
   return (
     <Layout activeTab={activeTab} onTabChange={setActiveTab} user={user} onLogout={logoutUser}>
-        {activeTab === TabView.INPUT && <InputSection currentDate={currentDate} onDateChange={setCurrentDate} onItemsAdded={handleItemsAdded} onViewReport={() => setActiveTab(TabView.VIEW_REPORT)} entryCount={currentEntries.length} user={user} hierarchy={hierarchy} />}
+        {activeTab === TabView.INPUT && <InputSection currentDate={currentDate} onDateChange={setCurrentDate} onItemsAdded={handleItemsAdded} onViewReport={() => setActiveTab(TabView.VIEW_REPORT)} entryCount={currentEntries.length} user={user} hierarchy={hierarchy} customItemTypes={settings?.itemTypes} />}
         {activeTab === TabView.VIEW_REPORT && <ReportTable report={{id: currentReportId || '', date: currentDate, lastUpdated: '', projectTitle: settings?.projectName || '', companyName: settings?.companyName, entries: currentEntries}} onDeleteItem={handleDeleteItem} onUpdateItem={(id, f, v) => handleUpdateItem(id, {[f]: v})} onUpdateRow={handleUpdateItem} onUndo={() => {}} canUndo={false} onRedo={() => {}} canRedo={false} onInspectItem={setInspectItem} hierarchy={hierarchy} />}
         {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={() => {}} blockedItemIds={settings?.blockedLiningItemIds || []} onToggleBlock={() => {}} />}
         {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={() => {}} customItemTypes={settings?.itemTypes} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={(id) => { const r = reports.find(r=>r.id===id); if(r) setCurrentDate(r.date); setActiveTab(TabView.VIEW_REPORT); }} onDeleteReport={(id) => moveReportToTrash(reports.find(r=>r.id===id)!, getUserName())} onCreateNew={() => setActiveTab(TabView.INPUT)} />}
-        {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRevertBulk={handleRevertBulkSession} />}
+        {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRevertBulk={handleRevertBulkSession} onRecover={handleRecoverBackups} />}
         {activeTab === TabView.RECYCLE_BIN && <RecycleBin logs={logs} trashItems={trashItems} onRestore={restoreTrashItem} />}
         {activeTab === TabView.SETTINGS && <ProjectSettingsView currentSettings={settings} onSave={(s) => { setSettings(s); setHierarchy(s.locationHierarchy); saveProjectSettings(s); }} reports={reports} quantities={[]} user={user} />}
         {activeTab === TabView.PROFILE && <ProfileView user={user} />}

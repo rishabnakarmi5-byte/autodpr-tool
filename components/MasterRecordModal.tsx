@@ -81,7 +81,7 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
               <div className="flex items-center gap-2">
                 <h2 className="text-lg md:text-xl font-bold tracking-wide uppercase">Master Record</h2>
                 {item.sourceBackupId && (
-                    <span className="text-[9px] bg-amber-500 text-white font-black px-1.5 py-0.5 rounded shadow-sm">BULK ENTRY</span>
+                    <span className="text-[9px] bg-amber-500 text-white font-black px-1.5 py-0.5 rounded shadow-sm">BATCH IMPORT</span>
                 )}
               </div>
               <div className="hidden md:flex items-center gap-3 text-xs text-slate-400 font-mono mt-1">
