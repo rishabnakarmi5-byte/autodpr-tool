@@ -117,18 +117,13 @@ export const parseConstructionData = async (
   contextComponents?: string[],
   customHierarchy?: Record<string, string[]>,
   customItemTypes?: any[]
-): Promise<{ items: Omit<DPRItem, 'id'>[], warnings: string[] }> => {
+): Promise<{ items: (Omit<DPRItem, 'id'> & { extractedDate?: string })[], warnings: string[] }> => {
   
   const hierarchyToUse = customHierarchy || LOCATION_HIERARCHY;
-  const itemTypesToUse = customItemTypes || ITEM_PATTERNS.map(p => ({
-      name: p.name,
-      pattern: p.pattern.toString().slice(1, -2),
-      defaultUnit: p.defaultUnit
-  }));
-
+  
   const prompt = `
     You are a high-precision construction site data extraction engine.
-    Convert raw site update text into a structured JSON array for a Daily Progress Report (DPR).
+    Convert raw site update text into a structured JSON array.
 
     STRICT ATOMIC RULES:
     1. **SPLIT AGGRESSIVELY**: Every distinct activity or material must be its own record. 
@@ -136,37 +131,21 @@ export const parseConstructionData = async (
     2. **HRT HIERARCHY RULE**: 
        - "HRT from Inlet" and "HRT from Adit" are **COMPONENTS**, not Locations.
        - Their 'location' must ALWAYS be "Headrace Tunnel (HRT)".
-       - NEVER output "HRT from Inlet" in the 'location' field.
 
-    3. **READABLE DESCRIPTIONS**: 
-       - Keep the original description readable.
-       - Clean up the description if it contains just raw numbers that are extracted elsewhere.
+    3. **BULK MODE (DATE EXTRACTION)**:
+       - If a row contains a date (e.g. 08/11/2025, 2026-01-22), extract it as 'extractedDate' in YYYY-MM-DD format.
+       - If no date is found, leave 'extractedDate' null.
 
     4. **UNIT STANDARDIZATION**:
-       - Convert "kg" to "Ton" (value / 1000). Round to 2 decimal places. Set unit to "Ton".
-       - **CONCRETE QUANTITY**: If text contains a linear dimension (e.g. 40m) AND a volume (e.g. 24m3), **USE THE VOLUME** for quantity. Ignore the linear dimension.
-       - **FORMWORK**: Default unit is "rm" (running meters). Never use "m2" unless clearly specified.
+       - Convert "kg" to "Ton" (value / 1000). Round to 2 decimal places.
+       - **CONCRETE**: Use volume (m3) for quantity. Ignore linear dimensions if volume is present.
+       - **FORMWORK**: Default unit "rm".
 
-    5. **ITEM TYPING MAPPING**:
-       - "M25", "M-25", "Grade 25", "Grade-25" -> map to itemType "C25 Concrete".
-       - "Concrete", "Conc", "RCC" (if no grade specified) -> map to itemType "C25 Concrete".
-       - "Formworks" (plural) or "Shuttering" -> map to itemType "Formwork".
+    5. **ITEM TYPING**:
+       - Map "M25", "Concrete", "RCC" -> "C25 Concrete".
+       - Map "Shuttering", "Formworks" -> "Formwork".
 
-    6. **NEXT PLAN EXTRACTION**:
-       - Identify phrases like "next plan", "next day", "tomorrow", "planning".
-       - EXTRACT the text following these phrases into the 'plannedNextActivity' field.
-       - **REMOVE** that text from the 'activityDescription' to keep it clean.
-       - Example: "doing x next plan doing y" -> activityDescription: "doing x", plannedNextActivity: "doing y".
-       - Default 'plannedNextActivity' to "Continue works" if not found.
-
-    HIERARCHY REFERENCE:
-    ${JSON.stringify(hierarchyToUse)}
-
-    CONTEXT:
-    Locations: ${contextLocations?.join(', ') || 'None'}
-    Components: ${contextComponents?.join(', ') || 'None'}
-
-    ${instructions ? `USER SPECIFIC INSTRUCTIONS: ${instructions}` : ''}
+    6. **CLEANUP**: Remove planning text ("next day", "tomorrow") from 'activityDescription' and move to 'plannedNextActivity'.
 
     RAW INPUT:
     """
@@ -188,6 +167,7 @@ export const parseConstructionData = async (
                 items: {
                   type: Type.OBJECT,
                   properties: {
+                    extractedDate: { type: Type.STRING },
                     location: { type: Type.STRING },
                     component: { type: Type.STRING },
                     structuralElement: { type: Type.STRING },
@@ -215,22 +195,14 @@ export const parseConstructionData = async (
 
       const processedItems = result.items.map((item: any) => {
           let desc = item.activityDescription || "";
-          
-          // Re-evaluate itemType to catch M25 if AI missed it but text has it
-          let type = item.itemType;
-          if (!type || type === "Other") {
-               type = identifyItemType(desc, customItemTypes);
-          }
-          
+          let type = item.itemType || identifyItemType(desc, customItemTypes);
           const finalUnit = unitMap[item.unit?.toLowerCase()] || item.unit || "m3";
           let qty = item.quantity || 0;
 
-          // Force Rounding for Rebar
           if (type === 'Rebar' || finalUnit === 'Ton') {
                qty = Math.round(qty * 100) / 100;
           }
           
-          // Standardization for HRT
           let loc = item.location || contextLocations?.[0] || "Unclassified";
           let comp = item.component || contextComponents?.[0] || "";
           if (loc === "HRT from Inlet" || loc === "HRT from Adit") {
@@ -238,18 +210,8 @@ export const parseConstructionData = async (
               loc = "Headrace Tunnel (HRT)";
           }
 
-          // INTELLIGENT DESCRIPTION SUFFIXING
-          // Only append the standardized quantity if the number isn't present in the description.
-          // This prevents "30 cum 30m3".
-          // We check if the exact quantity number (e.g. "30") exists as a whole word in the description.
-          if (qty > 0) {
-             const qtyPattern = new RegExp(`\\b${qty}\\b`);
-             if (!qtyPattern.test(desc)) {
-                 desc = `${desc} ${qty}${finalUnit}`;
-             }
-          }
-
           return {
+              extractedDate: item.extractedDate,
               location: loc,
               component: comp,
               structuralElement: item.structuralElement || "",

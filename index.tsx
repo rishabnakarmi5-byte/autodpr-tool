@@ -28,11 +28,8 @@ const App = () => {
   const [currentEntries, setCurrentEntries] = useState<DPRItem[]>([]);
   const [currentReportId, setCurrentReportId] = useState<string | null>(null);
   
-  // Undo/Redo Engine
   const [undoStack, setUndoStack] = useState<DPRItem[][]>([]);
   const [redoStack, setRedoStack] = useState<DPRItem[][]>([]);
-  
-  // Master Record Inspector
   const [inspectItem, setInspectItem] = useState<DPRItem | null>(null);
   const [isGlobalSaving, setIsGlobalSaving] = useState(false);
   const [settings, setSettings] = useState<ProjectSettings | null>(null);
@@ -63,19 +60,15 @@ const App = () => {
       setCurrentReportId(null);
       setCurrentEntries([]);
     }
-    setUndoStack([]);
-    setRedoStack([]);
   }, [currentDate, reports]);
 
   const getUserName = () => user?.displayName || user?.email || 'Anonymous';
 
   const saveReportState = async (report: DailyReport) => {
-    // Standardize all entries before saving to ensure HRT hierarchy is clean
     const cleanedEntries = report.entries.map(e => {
         const { location, component } = standardizeHRTMapping(e.location, e.component);
         return { ...e, location, component };
     });
-    
     const cleanedReport = { ...report, entries: cleanedEntries };
 
     setReports(prev => {
@@ -91,7 +84,6 @@ const App = () => {
 
     if (cleanedReport.date === currentDate) {
       setUndoStack(prev => [currentEntries, ...prev].slice(0, 20));
-      setRedoStack([]);
       setCurrentEntries(cleanedReport.entries);
       setCurrentReportId(cleanedReport.id);
     }
@@ -105,119 +97,84 @@ const App = () => {
     }
   };
 
-  const handleUndo = () => {
-    if (undoStack.length === 0 || !currentReportId) return;
-    const prev = undoStack[0];
-    setRedoStack(curr => [currentEntries, ...curr]);
-    setUndoStack(curr => curr.slice(1));
-    
-    const report: DailyReport = {
-      id: currentReportId,
-      date: currentDate,
-      lastUpdated: new Date().toISOString(),
-      projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
-      companyName: settings?.companyName,
-      entries: prev
-    };
-    saveReportState(report);
-  };
+  const handleItemsAdded = async (newItems: (DPRItem & { extractedDate?: string })[], rawText: string) => {
+    setIsGlobalSaving(true);
+    try {
+        // Group items by date. Fallback to current UI date if no date extracted from text.
+        const itemsByDate: Record<string, DPRItem[]> = {};
+        
+        newItems.forEach(item => {
+            const targetDate = item.extractedDate || currentDate;
+            if (!itemsByDate[targetDate]) itemsByDate[targetDate] = [];
+            
+            const { location, component } = standardizeHRTMapping(item.location, item.component);
+            itemsByDate[targetDate].push({
+                ...item,
+                id: item.id || crypto.randomUUID(),
+                location,
+                component,
+                createdBy: getUserName(),
+                lastModifiedAt: new Date().toISOString()
+            } as DPRItem);
+        });
 
-  const handleRedo = () => {
-    if (redoStack.length === 0 || !currentReportId) return;
-    const next = redoStack[0];
-    setUndoStack(curr => [currentEntries, ...curr]);
-    setRedoStack(curr => curr.slice(1));
-    
-    const report: DailyReport = {
-      id: currentReportId,
-      date: currentDate,
-      lastUpdated: new Date().toISOString(),
-      projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
-      companyName: settings?.companyName,
-      entries: next
-    };
-    saveReportState(report);
-  };
+        // Unique backup ID for the whole session
+        const backupId = await savePermanentBackup(currentDate, rawText, newItems as DPRItem[], getUserName(), "Bulk Entry Session");
 
-  const findReportForItem = (itemId: string): DailyReport | undefined => {
-    return reports.find(r => r.entries.some(e => e.id === itemId));
+        // Sync each grouped date to Cloud
+        for (const [date, items] of Object.entries(itemsByDate)) {
+            const existingReport = reports.find(r => r.date === date);
+            const reportId = existingReport ? existingReport.id : crypto.randomUUID();
+            const existingEntries = existingReport?.entries || [];
+
+            const stampedItems = items.map(i => ({ ...i, sourceBackupId: backupId || undefined }));
+            const combined = [...existingEntries, ...stampedItems].sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
+
+            const report: DailyReport = {
+                id: reportId,
+                date: date,
+                lastUpdated: new Date().toISOString(),
+                projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
+                companyName: settings?.companyName,
+                entries: combined
+            };
+            
+            await saveReportToCloud(report);
+            if (date === currentDate) {
+                setCurrentEntries(combined);
+                setCurrentReportId(reportId);
+            }
+        }
+        
+        logActivity(getUserName(), "Bulk Add", `Imported ${newItems.length} records across ${Object.keys(itemsByDate).length} dates`, currentDate, backupId || undefined);
+        incrementUserStats(user?.uid, newItems.length);
+    } finally {
+        setIsGlobalSaving(false);
+    }
   };
 
   const handleUpdateItem = (id: string, updates: Partial<DPRItem>) => {
-    const targetReport = findReportForItem(id);
+    const targetReport = reports.find(r => r.entries.some(e => e.id === id));
     if (!targetReport) return;
-
-    let derivedUpdates: Partial<DPRItem> = {};
-    const currentItem = targetReport.entries.find(e => e.id === id);
-    
-    if (currentItem && (updates.chainage !== undefined || updates.structuralElement !== undefined)) {
-        const newCh = updates.chainage !== undefined ? updates.chainage : currentItem.chainage;
-        const newSt = updates.structuralElement !== undefined ? updates.structuralElement : currentItem.structuralElement;
-        derivedUpdates.chainageOrArea = `${newCh || ''} ${newSt || ''}`.trim();
-    }
 
     const newEntries = targetReport.entries.map(item => {
       if (item.id === id) {
-        const history: EditHistory[] = Object.entries(updates).map(([field, val]) => ({
-          timestamp: new Date().toISOString(),
-          user: getUserName(),
-          field,
-          oldValue: String((item as any)[field] || ''),
-          newValue: String(val)
-        }));
         return { 
           ...item, 
           ...updates,
-          ...derivedUpdates,
           lastModifiedBy: getUserName(), 
-          lastModifiedAt: new Date().toISOString(),
-          editHistory: [...(item.editHistory || []), ...history]
+          lastModifiedAt: new Date().toISOString()
         };
       }
       return item;
     });
 
     saveReportState({ ...targetReport, entries: newEntries, lastUpdated: new Date().toISOString() });
-    
-    if(inspectItem?.id === id) {
-        setInspectItem(prev => prev ? ({...prev, ...updates, ...derivedUpdates}) : null);
-    }
-  };
-
-  const handleHardSync = async () => {
-    alert("Global Sync is temporarily paused. Fix individual records inside the Master Record cards.");
-  };
-
-  const handleSplitItem = (originalItem: DPRItem) => {
-    const targetReport = findReportForItem(originalItem.id);
-    if (!targetReport) return;
-
-    const newItem: DPRItem = {
-        ...originalItem,
-        id: crypto.randomUUID(),
-        activityDescription: `${originalItem.activityDescription} (Split)`,
-        quantity: 0, 
-        unit: originalItem.unit || 'm3',
-        createdBy: getUserName(),
-        lastModifiedAt: new Date().toISOString(),
-        editHistory: [{
-          timestamp: new Date().toISOString(),
-          user: getUserName(),
-          field: 'Source',
-          oldValue: 'None',
-          newValue: `Split from ID ${originalItem.id.substring(0, 8)}`
-        }]
-    };
-    
-    const index = targetReport.entries.findIndex(e => e.id === originalItem.id);
-    const newEntries = [...targetReport.entries];
-    newEntries.splice(index + 1, 0, newItem);
-    
-    saveReportState({ ...targetReport, entries: newEntries, lastUpdated: new Date().toISOString() });
+    if(inspectItem?.id === id) setInspectItem(prev => prev ? ({...prev, ...updates}) : null);
   };
 
   const handleDeleteItem = async (itemId: string) => {
-    const targetReport = findReportForItem(itemId);
+    const targetReport = reports.find(r => r.entries.some(e => e.id === itemId));
     if (!targetReport) return;
     const itemToDelete = targetReport.entries.find(e => e.id === itemId);
     if (!itemToDelete) return;
@@ -229,165 +186,19 @@ const App = () => {
     }
   };
 
-  const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
-    const existingReport = reports.find(r => r.date === currentDate);
-    const id = existingReport ? existingReport.id : crypto.randomUUID();
-    
-    const existingEntries = existingReport && Array.isArray(existingReport.entries) ? existingReport.entries : [];
-    
-    const hydratedItems = newItems.map(item => {
-        // APPLY STANDARDIZATION TO ALL NEW ITEMS
-        const { location, component } = standardizeHRTMapping(item.location, item.component);
-        return {
-            ...item,
-            location,
-            component,
-            unit: item.unit || 'm3',
-            id: item.id || crypto.randomUUID(),
-            createdBy: item.createdBy || getUserName()
-        };
-    });
-
-    const backupId = await savePermanentBackup(currentDate, rawText, hydratedItems, getUserName(), id);
-    const stamped = hydratedItems.map(i => ({...i, sourceBackupId: backupId || undefined}));
-    
-    const combined = [...existingEntries, ...stamped].sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
-    
-    const report: DailyReport = {
-      id,
-      date: currentDate,
-      lastUpdated: new Date().toISOString(),
-      projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
-      companyName: settings?.companyName,
-      entries: combined
-    };
-    
-    saveReportState(report);
-    logActivity(getUserName(), "Items Added", `Added ${newItems.length} records`, currentDate, backupId || undefined);
-    incrementUserStats(user?.uid, newItems.length);
-  };
-  
-  const handleRestoreItemToDate = async (item: DPRItem, targetDate: string) => {
-      const existingReport = reports.find(r => r.date === targetDate);
-      const reportId = existingReport ? existingReport.id : crypto.randomUUID();
-      const existingEntries = existingReport ? existingReport.entries : [];
-
-      const newItem = {
-          ...item,
-          id: crypto.randomUUID(),
-          isRecovered: true
-      };
-      
-      const combined = [...existingEntries, newItem].sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
-
-      const report: DailyReport = {
-          id: reportId,
-          date: targetDate,
-          lastUpdated: new Date().toISOString(),
-          projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
-          companyName: settings?.companyName,
-          entries: combined,
-          isRecovered: true
-      };
-
-      if (targetDate === currentDate) {
-          await saveReportState(report);
-      } else {
-          await saveReportToCloud(report);
-      }
-      alert(`Item added to report for ${targetDate}`);
-  };
-
-  const handleRestoreRawText = async (backup: BackupEntry, targetDate: string) => {
-      const newItem: DPRItem = {
-          id: crypto.randomUUID(),
-          location: 'General',
-          component: '',
-          structuralElement: '',
-          chainageOrArea: '',
-          activityDescription: backup.rawInput,
-          plannedNextActivity: 'Continue works',
-          quantity: 0,
-          unit: 'm3',
-          itemType: 'Other',
-          sourceBackupId: backup.id,
-          isRecovered: true,
-          createdBy: getUserName(),
-          lastModifiedAt: new Date().toISOString()
-      };
-
-      await handleRestoreItemToDate(newItem, targetDate);
-      if (targetDate === currentDate) {
-          setInspectItem(newItem);
-      } else {
-          setCurrentDate(targetDate);
-          setInspectItem(newItem);
-      }
-  };
-
-  const handleRecoverBackups = async (backups: BackupEntry[]) => {
-      const byDate: Record<string, DPRItem[]> = {};
-      
-      backups.forEach(b => {
-          if(!byDate[b.date]) byDate[b.date] = [];
-          const items = b.parsedItems.map(i => ({
-              ...i,
-              id: crypto.randomUUID(),
-              sourceBackupId: b.id,
-              isRecovered: true
-          }));
-          byDate[b.date].push(...items);
-      });
-
+  const handleRevertBulkSession = async (backupId: string) => {
+      if (!window.confirm("Permanently remove ALL items created during this bulk upload session? (Manual updates will be safe)")) return;
       setIsGlobalSaving(true);
       try {
-          let restoredCount = 0;
-          for (const [date, items] of Object.entries(byDate)) {
-             const existingReport = reports.find(r => r.date === date);
-             const newId = existingReport?.id || crypto.randomUUID();
-             const existingEntries = existingReport?.entries || [];
-             
-             const combined = [...existingEntries, ...items].sort((a, b) => getLocationPriority(a.location) - getLocationPriority(b.location));
-             restoredCount += items.length;
-
-             const report: DailyReport = {
-                 id: newId,
-                 date: date,
-                 lastUpdated: new Date().toISOString(),
-                 projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
-                 companyName: settings?.companyName,
-                 entries: combined,
-                 isRecovered: true
-             };
-             
-             if (date === currentDate) {
-                 await saveReportState(report);
-             } else {
-                 await saveReportToCloud(report);
-             }
+          const reportsToUpdate = reports.filter(r => r.entries.some(e => e.sourceBackupId === backupId));
+          for (const report of reportsToUpdate) {
+              const filteredEntries = report.entries.filter(e => e.sourceBackupId !== backupId);
+              await saveReportToCloud({ ...report, entries: filteredEntries });
           }
-          alert(`Recovery Complete. Restored ${restoredCount} items.`);
-      } catch(e) {
-          console.error(e);
-          alert("Recovery failed.");
+          alert("Bulk session reverted. Cleanup complete.");
       } finally {
           setIsGlobalSaving(false);
       }
-  };
-
-  const handleToggleBlockItem = async (itemId: string) => {
-      if(!settings) return;
-      const currentBlocked = settings.blockedLiningItemIds || [];
-      let newBlocked;
-      if (currentBlocked.includes(itemId)) {
-          newBlocked = currentBlocked.filter(id => id !== itemId);
-      } else {
-          newBlocked = [...currentBlocked, itemId];
-      }
-      const newSettings = { ...settings, blockedLiningItemIds: newBlocked };
-      setSettings(newSettings);
-      await saveProjectSettings(newSettings);
-      logActivity(getUserName(), "Lining Block Toggle", `${currentBlocked.includes(itemId) ? 'Unblocked' : 'Blocked'} item ${itemId} from lining progress`, currentDate);
   };
 
   if (authLoading) return <div className="h-screen flex items-center justify-center bg-slate-50">Loading...</div>;
@@ -396,16 +207,15 @@ const App = () => {
   return (
     <Layout activeTab={activeTab} onTabChange={setActiveTab} user={user} onLogout={logoutUser}>
         {activeTab === TabView.INPUT && <InputSection currentDate={currentDate} onDateChange={setCurrentDate} onItemsAdded={handleItemsAdded} onViewReport={() => setActiveTab(TabView.VIEW_REPORT)} entryCount={currentEntries.length} user={user} hierarchy={hierarchy} />}
-        {activeTab === TabView.VIEW_REPORT && <ReportTable report={{id: currentReportId || '', date: currentDate, lastUpdated: '', projectTitle: settings?.projectName || '', companyName: settings?.companyName, entries: currentEntries}} onDeleteItem={handleDeleteItem} onUpdateItem={(id, f, v) => handleUpdateItem(id, {[f]: v})} onUpdateRow={handleUpdateItem} onUndo={handleUndo} canUndo={undoStack.length > 0} onRedo={handleRedo} canRedo={redoStack.length > 0} onInspectItem={setInspectItem} hierarchy={hierarchy} />}
-        {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={handleHardSync} blockedItemIds={settings?.blockedLiningItemIds || []} onToggleBlock={handleToggleBlockItem} />}
-        {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={handleHardSync} customItemTypes={settings?.itemTypes} />}
-        {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={(id) => { const r = reports.find(r=>r.id===id); if(r) setCurrentDate(r.date); setActiveTab(TabView.VIEW_REPORT); }} onDeleteReport={(id) => moveReportToTrash(reports.find(r=>r.id===id)!, getUserName())} onCreateNew={() => { setCurrentDate(new Date().toISOString().split('T')[0]); setActiveTab(TabView.INPUT); }} />}
-        {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRecover={handleRecoverBackups} onRestoreItem={handleRestoreItemToDate} onRestoreRaw={handleRestoreRawText} />}
+        {activeTab === TabView.VIEW_REPORT && <ReportTable report={{id: currentReportId || '', date: currentDate, lastUpdated: '', projectTitle: settings?.projectName || '', companyName: settings?.companyName, entries: currentEntries}} onDeleteItem={handleDeleteItem} onUpdateItem={(id, f, v) => handleUpdateItem(id, {[f]: v})} onUpdateRow={handleUpdateItem} onUndo={() => {}} canUndo={false} onRedo={() => {}} canRedo={false} onInspectItem={setInspectItem} hierarchy={hierarchy} />}
+        {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={() => {}} blockedItemIds={settings?.blockedLiningItemIds || []} onToggleBlock={() => {}} />}
+        {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={() => {}} customItemTypes={settings?.itemTypes} />}
+        {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={(id) => { const r = reports.find(r=>r.id===id); if(r) setCurrentDate(r.date); setActiveTab(TabView.VIEW_REPORT); }} onDeleteReport={(id) => moveReportToTrash(reports.find(r=>r.id===id)!, getUserName())} onCreateNew={() => setActiveTab(TabView.INPUT)} />}
+        {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRevertBulk={handleRevertBulkSession} />}
         {activeTab === TabView.RECYCLE_BIN && <RecycleBin logs={logs} trashItems={trashItems} onRestore={restoreTrashItem} />}
         {activeTab === TabView.SETTINGS && <ProjectSettingsView currentSettings={settings} onSave={(s) => { setSettings(s); setHierarchy(s.locationHierarchy); saveProjectSettings(s); }} reports={reports} quantities={[]} user={user} />}
         {activeTab === TabView.PROFILE && <ProfileView user={user} />}
-        
-        {inspectItem && <MasterRecordModal item={inspectItem} isOpen={true} onClose={() => setInspectItem(null)} onUpdate={handleUpdateItem} onSplit={handleSplitItem} onDelete={handleDeleteItem} hierarchy={hierarchy} customItemTypes={settings?.itemTypes} />}
+        {inspectItem && <MasterRecordModal item={inspectItem} isOpen={true} onClose={() => setInspectItem(null)} onUpdate={handleUpdateItem} onSplit={() => {}} onDelete={handleDeleteItem} hierarchy={hierarchy} customItemTypes={settings?.itemTypes} />}
         {isGlobalSaving && <div className="fixed bottom-8 right-8 bg-slate-900 text-white px-4 py-2 rounded-lg shadow-xl animate-bounce z-50 text-xs font-bold uppercase tracking-wider">Cloud Syncing...</div>}
     </Layout>
   );

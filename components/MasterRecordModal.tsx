@@ -21,46 +21,27 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
   const [sourceBackup, setSourceBackup] = useState<BackupEntry | null>(null);
   const [activeTab, setActiveTab] = useState<'source' | 'history'>('source');
   const [loadingSource, setLoadingSource] = useState(false);
-  const [parsingHarder, setParsingHarder] = useState(false);
   const [isAutofilling, setIsAutofilling] = useState(false);
-  
-  // Mobile View State
   const [mobileTab, setMobileTab] = useState<'form' | 'context'>('form');
 
   useEffect(() => {
     setLocalItem(item);
-    if (isOpen) {
-      loadSourceData();
-    }
+    if (isOpen) loadSourceData();
   }, [item, isOpen]);
 
   const loadSourceData = async () => {
     setLoadingSource(true);
     setSourceBackup(null);
     try {
-      // 1. Try direct link via backup ID
       if (item.sourceBackupId) {
         const b = await getBackupById(item.sourceBackupId);
-        if (b) {
-          setSourceBackup(b);
-          setLoadingSource(false);
-          return;
-        }
+        if (b) { setSourceBackup(b); setLoadingSource(false); return; }
       }
-
-      // 2. Fallback: Search recently saved backups for a match based on activity text snippet
-      // This is helpful if the link was broken during a recovery or split
       const recentBackups = await getBackups(30);
-      const found = recentBackups.find(b => 
-        b.rawInput.toLowerCase().includes(item.activityDescription.toLowerCase().substring(0, 20)) ||
-        b.parsedItems.some(p => p.id === item.id)
-      );
-      
-      if (found) {
-        setSourceBackup(found);
-      }
+      const found = recentBackups.find(b => b.rawInput.toLowerCase().includes(item.activityDescription.toLowerCase().substring(0, 20)) || b.parsedItems.some(p => p.id === item.id));
+      if (found) setSourceBackup(found);
     } catch (e) {
-      console.error("Failed to fetch source backup:", e);
+      console.error(e);
     } finally {
       setLoadingSource(false);
     }
@@ -68,90 +49,31 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
 
   const allItemTypes = useMemo(() => {
       const types = [...ITEM_PATTERNS.map(p => p.name)];
-      if (customItemTypes) {
-          customItemTypes.forEach(t => { if(!types.includes(t.name)) types.push(t.name); });
-      }
+      if (customItemTypes) customItemTypes.forEach(t => { if(!types.includes(t.name)) types.push(t.name); });
       return types.sort();
   }, [customItemTypes]);
 
-  const handleChange = (field: keyof DPRItem, value: any) => {
-    setLocalItem(prev => ({ ...prev, [field]: value }));
-  };
-
   const handleBlur = (field: keyof DPRItem) => {
-    if (localItem[field] !== (item as any)[field]) {
-      onUpdate(item.id, { [field]: localItem[field] });
-    }
-  };
-
-  const handleAutofillTrigger = async () => {
-    if (!localItem.activityDescription || isAutofilling) return;
-    setIsAutofilling(true);
-    try {
-        const result = await autofillItemData(localItem.activityDescription, customItemTypes);
-        const updates = {
-            quantity: result.quantity ?? localItem.quantity,
-            unit: result.unit ?? localItem.unit,
-            itemType: result.itemType ?? localItem.itemType
-        };
-        setLocalItem(prev => ({ ...prev, ...updates }));
-        // Sync to cloud immediately
-        onUpdate(item.id, updates);
-    } catch (e) {
-        alert("Autofill failed.");
-    } finally {
-        setIsAutofilling(false);
-    }
-  };
-
-  const handleParseHarder = async () => {
-      if (!sourceBackup) return;
-      setParsingHarder(true);
-      try {
-          const { items } = await parseConstructionData(
-              sourceBackup.rawInput, 
-              "STRICT MODE: The user is re-scanning this specific entry. Look specifically for multiple quantities or combined activities like 'rebar AND concrete'. Break them apart. Look for units like 'bags' and convert to 'nos'.",
-              [item.location],
-              [item.component || ""],
-              hierarchy,
-              customItemTypes
-          );
-          if (items.length > 0) {
-              const bestMatch = items[0];
-              const updates = {
-                  activityDescription: bestMatch.activityDescription,
-                  quantity: bestMatch.quantity,
-                  unit: bestMatch.unit,
-                  itemType: bestMatch.itemType,
-                  plannedNextActivity: bestMatch.plannedNextActivity
-              };
-              setLocalItem(prev => ({ ...prev, ...updates }));
-              onUpdate(item.id, updates);
-              alert(`AI suggests: ${bestMatch.activityDescription} -> Next: ${bestMatch.plannedNextActivity}. Updating...`);
-          }
-      } catch (e) {
-          alert("Failed to parse harder.");
-      } finally {
-          setParsingHarder(false);
-      }
+    if (localItem[field] !== (item as any)[field]) onUpdate(item.id, { [field]: localItem[field] });
   };
 
   if (!isOpen) return null;
 
-  const splitFromLog = item.editHistory?.find(l => l.field === 'Source' && l.newValue.startsWith('Split from'));
-
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center md:p-4 bg-slate-900/90 backdrop-blur-sm animate-fade-in">
       <div className="bg-white md:rounded-2xl shadow-2xl w-full max-w-6xl h-full md:h-[85vh] flex flex-col overflow-hidden border border-slate-700">
-        
-        {/* Header */}
         <div className="bg-slate-900 p-4 md:p-5 flex justify-between items-center text-white shrink-0">
           <div className="flex items-center gap-3 md:gap-4">
             <div className="w-10 h-10 md:w-12 md:h-12 bg-indigo-500 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/50">
               <i className="fas fa-database text-xl md:text-2xl"></i>
             </div>
             <div>
-              <h2 className="text-lg md:text-xl font-bold tracking-wide uppercase">Master Record</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg md:text-xl font-bold tracking-wide uppercase">Master Record</h2>
+                {item.sourceBackupId && (
+                    <span className="text-[9px] bg-amber-500 text-white font-black px-1.5 py-0.5 rounded shadow-sm">BULK ENTRY</span>
+                )}
+              </div>
               <div className="hidden md:flex items-center gap-3 text-xs text-slate-400 font-mono mt-1">
                 <span className="bg-slate-800 px-2 py-0.5 rounded text-indigo-300">ID: {item.id.split('-')[0]}...</span>
                 <span><i className="fas fa-user-circle mr-1"></i> {item.createdBy}</span>
@@ -160,205 +82,99 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
             </div>
           </div>
           <div className="flex gap-2 md:gap-3">
-              <button 
-                onClick={() => onSplit(item)}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2"
-                title="Split Record"
-              >
-                  <i className="fas fa-columns"></i> <span className="hidden sm:inline">Split</span>
-              </button>
-              <button 
-                onClick={() => onDelete(item.id)}
-                className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 border border-red-500/20"
-                title="Delete Record"
-              >
-                  <i className="fas fa-trash-alt"></i> <span className="hidden sm:inline">Delete</span>
-              </button>
-              <button onClick={onClose} className="w-9 h-9 md:w-10 md:h-10 bg-slate-800 hover:bg-slate-700 rounded-full flex items-center justify-center transition-colors">
-                <i className="fas fa-times"></i>
-              </button>
+              <button onClick={() => onDelete(item.id)} className="bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 border border-red-500/20"><i className="fas fa-trash-alt"></i> <span className="hidden sm:inline">Delete</span></button>
+              <button onClick={onClose} className="w-9 h-9 md:w-10 md:h-10 bg-slate-800 hover:bg-slate-700 rounded-full flex items-center justify-center transition-colors"><i className="fas fa-times"></i></button>
           </div>
         </div>
 
-        {/* Mobile View Toggle */}
         <div className="md:hidden flex border-b border-slate-200 bg-slate-50 shrink-0">
-           <button 
-              onClick={() => setMobileTab('form')}
-              className={`flex-1 py-3 text-sm font-bold uppercase transition-colors ${mobileTab === 'form' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-white' : 'text-slate-500 hover:text-slate-700'}`}
-           >
-              <i className="fas fa-edit mr-2"></i> Edit Record
-           </button>
-           <button 
-              onClick={() => setMobileTab('context')}
-              className={`flex-1 py-3 text-sm font-bold uppercase transition-colors ${mobileTab === 'context' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-white' : 'text-slate-500 hover:text-slate-700'}`}
-           >
-              <i className="fas fa-file-alt mr-2"></i> Source / Audit
-           </button>
+           <button onClick={() => setMobileTab('form')} className={`flex-1 py-3 text-sm font-bold uppercase transition-colors ${mobileTab === 'form' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-white' : 'text-slate-500 hover:text-slate-700'}`}>Edit Record</button>
+           <button onClick={() => setMobileTab('context')} className={`flex-1 py-3 text-sm font-bold uppercase transition-colors ${mobileTab === 'context' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-white' : 'text-slate-500 hover:text-slate-700'}`}>Audit</button>
         </div>
 
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-          {/* LEFT: FORM */}
           <div className={`w-full md:w-3/5 p-4 md:p-8 overflow-y-auto bg-slate-50 space-y-6 md:space-y-8 ${mobileTab === 'form' ? 'block' : 'hidden md:block'}`}>
-            <div className="bg-white p-4 md:p-6 rounded-xl border border-slate-200 shadow-sm relative mt-2 md:mt-0">
-              <div className="absolute -top-3 left-4 bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase">Location Context</div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative">
+              <div className="absolute -top-3 left-4 bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase">Location context</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Main Location</label>
-                  <select className="w-full p-3 md:p-2.5 border border-slate-200 rounded-lg text-sm font-bold" value={localItem.location} onChange={(e) => { handleChange('location', e.target.value); onUpdate(item.id, {location: e.target.value}); }}>
+                  <select className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold" value={localItem.location} onChange={(e) => { setLocalItem(p=>({...p, location: e.target.value})); onUpdate(item.id, {location: e.target.value}); }}>
                     {Object.keys(hierarchy).map(k => <option key={k} value={k}>{k}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Component</label>
-                  <select className="w-full p-3 md:p-2.5 border border-slate-200 rounded-lg text-sm" value={localItem.component} onChange={(e) => { handleChange('component', e.target.value); onUpdate(item.id, {component: e.target.value}); }}>
+                  <select className="w-full p-2.5 border border-slate-200 rounded-lg text-sm" value={localItem.component} onChange={(e) => { setLocalItem(p=>({...p, component: e.target.value})); onUpdate(item.id, {component: e.target.value}); }}>
                     <option value="">Select...</option>
                     {(hierarchy[localItem.location] || []).map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Structure / Area</label>
-                  <input className="w-full p-3 md:p-2.5 border border-slate-200 rounded-lg text-sm" value={localItem.structuralElement || ''} onChange={e => handleChange('structuralElement', e.target.value)} onBlur={() => handleBlur('structuralElement')} />
+                  <input className="w-full p-2.5 border border-slate-200 rounded-lg text-sm" value={localItem.structuralElement || ''} onChange={e => setLocalItem(p=>({...p, structuralElement: e.target.value}))} onBlur={() => handleBlur('structuralElement')} />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Chainage / Elevation</label>
-                  <input className="w-full p-3 md:p-2.5 border border-slate-200 rounded-lg text-sm font-mono" value={localItem.chainage || ''} onChange={e => handleChange('chainage', e.target.value)} onBlur={() => handleBlur('chainage')} />
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Chainage</label>
+                  <input className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-mono" value={localItem.chainage || ''} onChange={e => setLocalItem(p=>({...p, chainage: e.target.value}))} onBlur={() => handleBlur('chainage')} />
                 </div>
               </div>
             </div>
 
-            <div className="bg-white p-4 md:p-6 rounded-xl border border-slate-200 shadow-sm relative">
-              <div className="absolute -top-3 left-4 bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase flex items-center gap-2">
-                 <span>Work Specs & Quantity</span>
-              </div>
-              
-              <div className="flex justify-end mb-2">
-                 <button 
-                    onClick={handleAutofillTrigger}
-                    disabled={isAutofilling}
-                    className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 px-2 py-1 rounded border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all flex items-center gap-1.5"
-                 >
-                    {isAutofilling ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-magic"></i>}
-                    Autofill from Description
-                 </button>
-              </div>
-
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative">
+              <div className="absolute -top-3 left-4 bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase">Quantity & details</div>
               <div className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Classification</label>
-                  <select 
-                    className="w-full p-3 md:p-2.5 border border-slate-200 rounded-lg text-sm font-bold bg-white" 
-                    value={localItem.itemType} 
-                    onChange={e => { handleChange('itemType', e.target.value); onUpdate(item.id, {itemType: e.target.value}); }}
-                  >
-                    <option value="Other">Unclassified</option>
-                    {allItemTypes.map(name => <option key={name} value={name}>{name}</option>)}
-                  </select>
-                </div>
-                <div className="flex gap-4">
-                  <div className="flex-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Quantity</label>
-                    <input type="number" step="any" className="w-full p-3 border border-slate-200 rounded-lg text-2xl font-bold text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-500" value={localItem.quantity === 0 ? '' : localItem.quantity} placeholder="0.00" onChange={e => handleChange('quantity', parseFloat(e.target.value) || 0)} onBlur={() => handleBlur('quantity')} />
-                  </div>
-                  <div className="w-1/3 md:w-1/4">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Unit</label>
-                    <select className="w-full p-3 border border-slate-200 rounded-lg text-lg h-[58px] font-bold outline-none focus:ring-2 focus:ring-indigo-500" value={localItem.unit || 'm3'} onChange={e => { handleChange('unit', e.target.value); onUpdate(item.id, {unit: e.target.value}); }}>
-                      <option value="m3">m3</option>
-                      <option value="m2">m2</option>
-                      <option value="Ton">Ton</option>
-                      <option value="nos">nos</option>
-                      <option value="rm">rm</option>
-                    </select>
-                  </div>
+                <div className="grid grid-cols-4 gap-4">
+                   <div className="col-span-3">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Quantity</label>
+                      <input type="number" className="w-full p-3 border border-slate-200 rounded-lg text-3xl font-black text-indigo-600" value={localItem.quantity || ''} onChange={e => setLocalItem(p=>({...p, quantity: parseFloat(e.target.value)||0}))} onBlur={() => handleBlur('quantity')} />
+                   </div>
+                   <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Unit</label>
+                      <select className="w-full h-[58px] p-2 border border-slate-200 rounded-lg font-black" value={localItem.unit} onChange={e => {setLocalItem(p=>({...p, unit: e.target.value})); onUpdate(item.id, {unit: e.target.value}); }}>
+                         <option value="m3">m3</option>
+                         <option value="m2">m2</option>
+                         <option value="Ton">Ton</option>
+                         <option value="nos">nos</option>
+                         <option value="rm">rm</option>
+                      </select>
+                   </div>
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Activity Description</label>
-                  <textarea 
-                    className="w-full p-3 border border-slate-200 rounded-lg text-sm min-h-[100px] outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 focus:bg-white transition-all" 
-                    value={localItem.activityDescription} 
-                    onChange={e => handleChange('activityDescription', e.target.value)} 
-                    onBlur={() => handleBlur('activityDescription')} 
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Planned Next Activity</label>
-                  <input 
-                    className="w-full p-3 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                    placeholder="e.g. Curing, De-shuttering, Continue works..."
-                    value={localItem.plannedNextActivity || ''} 
-                    onChange={e => handleChange('plannedNextActivity', e.target.value)} 
-                    onBlur={() => handleBlur('plannedNextActivity')} 
-                  />
+                   <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Activity Description</label>
+                   <textarea className="w-full p-3 border border-slate-200 rounded-lg text-sm min-h-[100px]" value={localItem.activityDescription} onChange={e => setLocalItem(p=>({...p, activityDescription: e.target.value}))} onBlur={() => handleBlur('activityDescription')} />
                 </div>
               </div>
             </div>
-            {/* Mobile-only spacer for scrolling */}
-            <div className="h-12 md:hidden"></div>
           </div>
 
-          {/* RIGHT: TABS (Context/History) */}
-          <div className={`w-full md:w-2/5 border-t md:border-t-0 md:border-l border-slate-200 bg-white flex flex-col ${mobileTab === 'context' ? 'block' : 'hidden md:block'}`}>
+          <div className={`w-full md:w-2/5 border-t md:border-l border-slate-200 bg-white flex flex-col ${mobileTab === 'context' ? 'block' : 'hidden md:block'}`}>
             <div className="flex border-b border-slate-200 shrink-0">
-              <button onClick={() => setActiveTab('source')} className={`flex-1 py-4 text-xs font-bold uppercase ${activeTab === 'source' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>Source Data</button>
-              <button onClick={() => setActiveTab('history')} className={`flex-1 py-4 text-xs font-bold uppercase ${activeTab === 'history' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>Audit Trail</button>
+              <button onClick={() => setActiveTab('source')} className={`flex-1 py-4 text-xs font-bold uppercase ${activeTab === 'source' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>Context</button>
+              <button onClick={() => setActiveTab('history')} className={`flex-1 py-4 text-xs font-bold uppercase ${activeTab === 'history' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>History</button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 md:p-6">
+            <div className="flex-1 overflow-y-auto p-6">
               {activeTab === 'source' ? (
-                loadingSource ? (
-                  <div className="flex flex-col items-center justify-center h-full text-slate-400 italic">
-                    <i className="fas fa-circle-notch fa-spin text-2xl mb-2"></i>
-                    <span>Finding original context...</span>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {splitFromLog && (
-                        <div className="bg-indigo-50 border border-indigo-200 p-3 rounded-lg flex items-center gap-3 text-indigo-700 text-xs font-bold animate-pulse">
-                            <i className="fas fa-columns"></i> {splitFromLog.newValue}
-                        </div>
-                    )}
-                    {sourceBackup ? (
-                      <div className="space-y-4">
-                        <div className="bg-slate-900 text-slate-300 p-4 rounded-xl font-mono text-xs leading-relaxed whitespace-pre-wrap shadow-inner select-all cursor-default">
-                           {sourceBackup.rawInput}
-                        </div>
-                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-700 italic">
-                           <i className="fas fa-info-circle mr-1"></i> Raw text source found in archives. Use for verification only.
-                        </div>
-                        <button 
-                            onClick={handleParseHarder}
-                            disabled={parsingHarder}
-                            className="w-full bg-indigo-50 text-indigo-700 border border-indigo-100 py-3 rounded-xl font-bold text-sm hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
-                        >
-                            {parsingHarder ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-microscope"></i>}
-                            AI Re-scan (Full Parse)
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center p-12 text-slate-400 italic">
-                         <i className="fas fa-file-pen text-3xl opacity-20 mb-3"></i>
-                         No original source backup found.<br/>
-                         <span className="text-[10px] uppercase font-bold mt-1">(Manual Creation)</span>
-                      </div>
-                    )}
-                  </div>
-                )
+                <div className="space-y-4">
+                  {sourceBackup ? (
+                    <>
+                       <div className="bg-slate-900 text-slate-300 p-4 rounded-xl font-mono text-xs leading-relaxed whitespace-pre-wrap">{sourceBackup.rawInput}</div>
+                       <div className="text-[10px] text-slate-400 font-bold uppercase p-2 border border-slate-100 rounded bg-slate-50">Source Session ID: {item.sourceBackupId || 'Direct Entry'}</div>
+                    </>
+                  ) : <div className="text-center p-12 text-slate-300 italic">No source context found.</div>}
+                </div>
               ) : (
                 <div className="space-y-4">
                   {item.editHistory?.slice().reverse().map((log, i) => (
-                    <div key={i} className="relative pl-6 border-l-2 border-slate-100 pb-4">
-                      <div className="absolute left-[-9px] top-0 w-4 h-4 rounded-full bg-white border-2 border-indigo-400"></div>
-                      <div className="text-[10px] text-slate-400 font-bold uppercase">{new Date(log.timestamp).toLocaleString()} • {log.user}</div>
-                      <div className="text-xs text-slate-700 mt-1">
-                        Changed <span className="font-bold text-indigo-600">{log.field}</span> from 
-                        <span className="mx-1 line-through text-slate-400">{log.oldValue || 'none'}</span> to 
-                        <span className="ml-1 font-bold text-emerald-600">{log.newValue}</span>
-                      </div>
+                    <div key={i} className="pl-4 border-l-2 border-slate-100 pb-4 relative">
+                      <div className="absolute -left-[5px] top-0 w-2 h-2 rounded-full bg-indigo-500"></div>
+                      <div className="text-[10px] font-black text-slate-400 uppercase">{log.user} • {new Date(log.timestamp).toLocaleTimeString()}</div>
+                      <div className="text-xs text-slate-700 mt-1">Changed <span className="font-bold">{log.field}</span> to <span className="font-bold text-indigo-600">{log.newValue}</span></div>
                     </div>
-                  )) || <div className="text-center p-10 text-slate-400 italic">No edit history recorded.</div>}
+                  ))}
                 </div>
               )}
             </div>
-            {/* Mobile-only spacer for scrolling */}
-            <div className="h-12 md:hidden"></div>
           </div>
         </div>
       </div>
