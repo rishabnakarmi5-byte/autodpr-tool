@@ -14,6 +14,11 @@ const cleanStr = (val: any): string => {
   return s;
 };
 
+// Helper for Title Case
+const toTitleCase = (str: string) => {
+    return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+};
+
 /**
  * Lightweight extraction for a single item.
  */
@@ -52,6 +57,7 @@ export const autofillItemData = async (
     2. QUANTITY & UNIT:
        - **CONCRETE**: If description has linear dimensions (e.g. 40m) AND volume (e.g. 24m3), **ALWAYS EXTRACT THE VOLUME (24)** as the quantity. Ignore the linear dimension.
        - **REBAR**: Always use "Ton". If text is in kg, divide by 1000. Round to 2 decimal places.
+       - **GROUTING/CEMENT**: If unit is "bags", 1 bag = 50kg = 0.05 Ton. Convert to Ton.
        - **FORMWORK**: Default to "rm" (running meters). Do not use "m2" unless explicitly stated.
        - UNIT MAPPING: "sqm" -> "m2", "cum" -> "m3", "mt" -> "Ton".
     
@@ -62,7 +68,13 @@ export const autofillItemData = async (
        - "Formworks", "Shuttering" -> "Formwork"
 
     4. NEXT PLAN EXTRACTION:
-       - If the text includes "next plan", "next day", "tomorrow", "planning" etc., extract that text into 'plannedNextActivity'.
+       - **LOGIC**:
+         - Rebar -> "Formwork & Preparation"
+         - Formwork -> "Concrete works"
+         - Concrete -> "Deshuttering & Curing"
+         - PCC -> "RCC works"
+         - Grouting -> "Next stage drilling/grouting"
+       - If the text explicitly says "next plan", "next day", "tomorrow", "planning" etc., use that. Otherwise use the Logic above.
        - **REMOVE** this planning text from the 'activityDescription'.
 
     Output ONLY a valid JSON object.
@@ -96,8 +108,14 @@ export const autofillItemData = async (
           'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'nos': 'nos', 'rm': 'rm'
       };
       
-      const finalUnit = unitMap[cleanStr(result.unit).toLowerCase()] || cleanStr(result.unit) || "m3";
+      let finalUnit = unitMap[cleanStr(result.unit).toLowerCase()] || cleanStr(result.unit) || "m3";
       let finalQty = result.quantity || 0;
+
+      // Handle Bags to Ton conversion if the AI missed the calculation but caught the unit
+      if (finalUnit.toLowerCase().includes('bag')) {
+          finalQty = finalQty * 0.05;
+          finalUnit = 'Ton';
+      }
 
       // Force Rounding for Rebar
       if (result.itemType === 'Rebar' || finalUnit === 'Ton') {
@@ -105,9 +123,9 @@ export const autofillItemData = async (
       }
       
       return {
-        location: cleanStr(result.location),
-        component: cleanStr(result.component),
-        structuralElement: cleanStr(result.structuralElement),
+        location: toTitleCase(cleanStr(result.location)),
+        component: toTitleCase(cleanStr(result.component)),
+        structuralElement: toTitleCase(cleanStr(result.structuralElement)),
         quantity: finalQty,
         unit: finalUnit,
         itemType: cleanStr(result.itemType) || identifyItemType(description, customItemTypes),
@@ -156,13 +174,15 @@ export const parseConstructionData = async (
     ${hierarchyString}
        - **CRITICAL**: If the text contains a known component (e.g. "Barrage", "Intake", "Powerhouse"), FORCE the 'location' to its parent from the list above (e.g. "Headworks").
        - "HRT from Inlet" and "HRT from Adit" -> Location "Headrace Tunnel (HRT)".
+       - **FORMATTING**: Always capitalize first letters of Structure and Component (e.g. "Wall", "Invert").
 
     3. **BULK MODE (DATE EXTRACTION)**:
        - If a row contains a date (e.g. 08/11/2025, 2026-01-22), extract it as 'extractedDate' in YYYY-MM-DD format.
        - If no date is found, leave 'extractedDate' null.
 
     4. **UNIT STANDARDIZATION**:
-       - Convert "kg" to "Ton" (value / 1000). Round to 2 decimal places.
+       - Convert "kg" to "Ton" (value / 1000). 
+       - **BAGS to TON**: 1 Bag = 50kg = 0.05 Ton. If unit is bags, output quantity * 0.05 and unit "Ton".
        - **CONCRETE**: Use volume (m3) for quantity. Ignore linear dimensions if volume is present.
        - **FORMWORK**: Default unit "rm".
 
@@ -171,9 +191,18 @@ export const parseConstructionData = async (
        - Map "M25", "Concrete", "RCC", "Lining" -> "C25 Concrete".
        - Map "Shuttering", "Formworks" -> "Formwork".
 
-    6. **DESCRIPTION & CLEANUP**: 
-       - Remove planning text ("next day", "tomorrow") from 'activityDescription' and move to 'plannedNextActivity'.
-       - **IMPORTANT**: Append the quantity to the end of the 'activityDescription' for reference, e.g. "Wall concreting works (113 m3)".
+    6. **NEXT PLAN LOGIC**:
+       - If explicit plan exists (e.g. "next day concreting"), use it.
+       - ELSE INFER:
+         * Rebar -> "Formwork & Prep"
+         * Formwork -> "Concrete works"
+         * Concrete -> "Deshuttering & Curing"
+         * PCC -> "RCC works"
+         * Grouting -> "Next stage grouting"
+       - Remove planning text from 'activityDescription'.
+
+    7. **DESCRIPTION**: 
+       - Append the quantity to the description, e.g. "Wall concreting works (113 m3)".
 
     RAW INPUT:
     """
@@ -224,22 +253,28 @@ export const parseConstructionData = async (
       const processedItems = result.items.map((item: any) => {
           let desc = cleanStr(item.activityDescription);
           let type = cleanStr(item.itemType) || identifyItemType(desc, customItemTypes);
-          const finalUnit = unitMap[cleanStr(item.unit).toLowerCase()] || cleanStr(item.unit) || "m3";
+          let finalUnit = unitMap[cleanStr(item.unit).toLowerCase()] || cleanStr(item.unit) || "m3";
           let qty = item.quantity || 0;
+
+          // Double check Bags to Ton in post-processing
+          if (finalUnit.toLowerCase().includes('bag') || cleanStr(item.unit).toLowerCase().includes('bag')) {
+             qty = qty * 0.05;
+             finalUnit = 'Ton';
+          }
 
           if (type === 'Rebar' || finalUnit === 'Ton') {
                qty = Math.round(qty * 100) / 100;
           }
           
-          let loc = cleanStr(item.location) || contextLocations?.[0] || "Unclassified";
-          let comp = cleanStr(item.component) || contextComponents?.[0] || "";
+          let loc = toTitleCase(cleanStr(item.location) || contextLocations?.[0] || "Unclassified");
+          let comp = toTitleCase(cleanStr(item.component) || contextComponents?.[0] || "");
           
           if (loc === "HRT from Inlet" || loc === "HRT from Adit") {
               comp = loc;
               loc = "Headrace Tunnel (HRT)";
           }
 
-          const structuralElement = cleanStr(item.structuralElement);
+          const structuralElement = toTitleCase(cleanStr(item.structuralElement));
           const chainage = cleanStr(item.chainage);
 
           // Validate date format YYYY-MM-DD

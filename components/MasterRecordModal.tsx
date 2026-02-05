@@ -55,9 +55,33 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
       return types.sort();
   }, [customItemTypes]);
 
+  const toTitleCase = (str: string) => {
+    return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+  };
+
   const handleBlur = (field: keyof DPRItem) => {
+    // Check if value changed
     if (localItem[field] !== (item as any)[field]) {
-      onUpdate(item.id, { [field]: localItem[field] });
+      const updates: Partial<DPRItem> = { [field]: localItem[field] };
+
+      // Specific logic for fields that affect the composite 'chainageOrArea'
+      if (field === 'structuralElement' || field === 'chainage') {
+         // Auto-capitalize Structure
+         if (field === 'structuralElement' && typeof localItem.structuralElement === 'string') {
+             const titled = toTitleCase(localItem.structuralElement);
+             updates.structuralElement = titled;
+             setLocalItem(prev => ({ ...prev, structuralElement: titled }));
+         }
+
+         // Reconstruct chainageOrArea
+         const currentCh = field === 'chainage' ? localItem.chainage : item.chainage;
+         const currentStruc = field === 'structuralElement' ? (updates.structuralElement || localItem.structuralElement) : item.structuralElement;
+         
+         updates.chainageOrArea = `${currentCh || ''} ${currentStruc || ''}`.trim();
+         setLocalItem(prev => ({ ...prev, chainageOrArea: updates.chainageOrArea! }));
+      }
+
+      onUpdate(item.id, updates);
     }
   };
 
