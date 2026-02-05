@@ -7,7 +7,7 @@ import { LOCATION_HIERARCHY, identifyItemType, parseQuantityDetails } from "../u
 
 // Workaround for potential type definition mismatches
 const { initializeApp } = _app as any;
-const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, getDocs, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion, where, increment, serverTimestamp, writeBatch } = _firestore as any;
+const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, getDocs, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion, where, increment, serverTimestamp, writeBatch, initializeFirestore } = _firestore as any;
 const { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } = _auth as any;
 
 // Your web app's Firebase configuration
@@ -35,7 +35,8 @@ let auth: any;
 if (missingKeys.length === 0) {
   try {
     app = initializeApp(firebaseConfig);
-    db = getFirestore(app);
+    // Initialize Firestore with settings to ignore undefined properties
+    db = initializeFirestore(app, { ignoreUndefinedProperties: true });
     auth = getAuth(app);
     console.log("Firebase initialized.");
   } catch (error) {
@@ -116,7 +117,6 @@ export const incrementUserStats = async (uid: string | undefined, entriesCount: 
 
 // --- User Mood Tracking ---
 
-// Added saveUserMood to persist user emotional status
 export const saveUserMood = async (uid: string, mood: string, note: string) => {
   if (!db) return;
   const today = new Date().toISOString().split('T')[0];
@@ -131,7 +131,6 @@ export const saveUserMood = async (uid: string, mood: string, note: string) => {
   await setDoc(doc(db, MOOD_COLLECTION, docId), moodData);
 };
 
-// Added subscribeToTodayMood to listen for current day's mood updates
 export const subscribeToTodayMood = (uid: string, callback: (mood: UserMood | null) => void): any => {
   if (!db) {
     callback(null);

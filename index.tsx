@@ -115,15 +115,16 @@ const App = () => {
         };
         
         newItems.forEach(item => {
-            const rawDate = item.extractedDate || currentDate;
+            const { extractedDate, ...cleanItem } = item;
+            const rawDate = extractedDate || currentDate;
             const targetDate = normalizeDate(rawDate);
 
             if (!itemsByDate[targetDate]) itemsByDate[targetDate] = [];
             
-            const { location, component } = standardizeHRTMapping(item.location, item.component);
+            const { location, component } = standardizeHRTMapping(cleanItem.location, cleanItem.component);
             itemsByDate[targetDate].push({
-                ...item,
-                id: item.id || crypto.randomUUID(),
+                ...cleanItem,
+                id: cleanItem.id || crypto.randomUUID(),
                 location,
                 component,
                 createdBy: getUserName(),

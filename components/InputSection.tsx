@@ -7,7 +7,7 @@ import { getNepaliDate } from '../utils/nepaliDate';
 interface InputSectionProps {
   currentDate: string;
   onDateChange: (date: string) => void;
-  onItemsAdded: (items: DPRItem[], rawText: string) => void;
+  onItemsAdded: (items: DPRItem[], rawText: string) => Promise<void>;
   onViewReport: () => void;
   entryCount: number;
   user: any;
@@ -88,7 +88,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         createdBy: user?.displayName || user?.email || 'System'
       })) as DPRItem[];
 
-      onItemsAdded(stamped, rawText);
+      await onItemsAdded(stamped, rawText);
       setRawText('');
       setModalStep(1);
     } catch(e: any) {
@@ -136,7 +136,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           createdBy: user?.displayName || user?.email || 'AI' 
       })) as DPRItem[];
 
-      onItemsAdded(stamped, rawText);
+      await onItemsAdded(stamped, rawText);
       setRawText('');
       setAiLocations([]);
       setAiComponents([]);
@@ -153,7 +153,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     }
   };
 
-  const createBlankMasterCard = () => {
+  const createBlankMasterCard = async () => {
       const blankItem: DPRItem = {
           id: crypto.randomUUID(),
           location: Object.keys(hierarchy)[0] || 'General',
@@ -163,12 +163,13 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           activityDescription: 'New Activity Entry',
           quantity: 0,
           unit: 'm3',
+          itemType: 'Other',
           plannedNextActivity: '',
           createdBy: user?.displayName || 'Manual',
           lastModifiedAt: new Date().toISOString()
       };
       
-      onItemsAdded([blankItem], "Manual Creation (Blank Card)");
+      await onItemsAdded([blankItem], "Manual Creation (Blank Card)");
       setModalStep(1);
   };
 
