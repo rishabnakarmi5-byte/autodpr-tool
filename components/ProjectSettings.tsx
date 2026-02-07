@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { ProjectSettings, DailyReport, QuantityEntry, ItemTypeDefinition, SystemCheckpoint, TrainingExample } from '../types';
 import { LOCATION_HIERARCHY, ITEM_PATTERNS } from '../utils/constants';
-import { createSystemCheckpoint, getCheckpoints, restoreSystemCheckpoint, saveTrainingExample, deleteTrainingExample, subscribeToTrainingExamples } from '../services/firebaseService';
+import { createSystemCheckpoint, getCheckpoints, restoreSystemCheckpoint, saveTrainingExample, deleteTrainingExample, subscribeToTrainingExamples, exportAllData } from '../services/firebaseService';
 
 interface ProjectSettingsProps {
   currentSettings: ProjectSettings | null;
@@ -28,6 +28,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
 
   const [snapshots, setSnapshots] = useState<SystemCheckpoint[]>([]);
   const [loadingSnapshots, setLoadingSnapshots] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Training State
   const [trainingExamples, setTrainingExamples] = useState<TrainingExample[]>([]);
@@ -148,6 +149,28 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
           setSnapshots(data);
       } catch (e) { console.error(e); }
       setLoadingSnapshots(false);
+  };
+
+  const handleExportDatabase = async () => {
+    setIsExporting(true);
+    try {
+        const data = await exportAllData();
+        const jsonString = JSON.stringify(data, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `DPR_FULL_DATABASE_${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        console.error(e);
+        alert("Export failed: " + (e as any).message);
+    } finally {
+        setIsExporting(false);
+    }
   };
 
   useEffect(() => {
@@ -411,6 +434,23 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
                             </div>
                         </div>
                     ))}
+                </div>
+
+                <div className="border-t border-slate-100 mt-8 pt-6">
+                    <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 flex justify-between items-center">
+                        <div>
+                             <h3 className="text-lg font-bold text-indigo-900">Full Database Export</h3>
+                             <p className="text-sm text-indigo-700 mt-1">Download a complete JSON dump of all Firebase collections (Reports, Logs, Config, etc).</p>
+                        </div>
+                        <button 
+                            onClick={handleExportDatabase} 
+                            disabled={isExporting}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all disabled:opacity-50"
+                        >
+                            {isExporting ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-download"></i>}
+                            Export Data
+                        </button>
+                    </div>
                 </div>
             </div>
         )}

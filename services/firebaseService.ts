@@ -459,3 +459,41 @@ export const restoreSystemCheckpoint = async (checkpoint: SystemCheckpoint) => {
         await setDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'), checkpoint.data.settings);
     }
 };
+
+// --- DATA EXPORT ---
+
+export const exportAllData = async () => {
+    if (!db) throw new Error("Database not connected");
+    const collections = [
+        REPORT_COLLECTION,
+        LOG_COLLECTION,
+        BACKUP_COLLECTION,
+        QUANTITY_COLLECTION,
+        LINING_COLLECTION,
+        SETTINGS_COLLECTION,
+        USER_COLLECTION,
+        CHECKPOINT_COLLECTION,
+        TRAINING_COLLECTION,
+        MOOD_COLLECTION,
+        TRASH_COLLECTION
+    ];
+
+    const allData: Record<string, any[]> = {};
+
+    for (const col of collections) {
+        const snap = await getDocs(collection(db, col));
+        allData[col] = snap.docs.map((d: any) => ({ _id: d.id, ...d.data() }));
+    }
+    
+    // Metadata
+    const exportObject = {
+        meta: {
+            timestamp: new Date().toISOString(),
+            version: "1.0",
+            exportedBy: auth?.currentUser?.uid || "unknown"
+        },
+        data: allData
+    };
+
+    return exportObject;
+};
