@@ -67,7 +67,12 @@ export const autofillItemData = async (
        - "Concrete", "Conc", "RCC" (without specified grade) -> "C25 Concrete"
        - "Formworks", "Shuttering" -> "Formwork"
 
-    4. NEXT PLAN EXTRACTION:
+    4. LOCATION DETAIL (Chainage/Area/EL):
+       - **HEADWORKS**: Look for "EL" (Elevation) values (e.g. "EL 1400", "1400m"). This is critical for Headworks.
+       - **TUNNELS**: Look for "Ch" (Chainage).
+       - If NO detail is found, return empty string. **NEVER** return "Not specified" or "Unknown".
+
+    5. NEXT PLAN EXTRACTION:
        - **LOGIC**:
          - Rebar -> "Formwork & Preparation"
          - Formwork -> "Concrete works"
@@ -121,11 +126,15 @@ export const autofillItemData = async (
       if (result.itemType === 'Rebar' || finalUnit === 'Ton') {
           finalQty = Math.round(finalQty * 100) / 100;
       }
+
+      let structuralElement = toTitleCase(cleanStr(result.structuralElement));
+      // Cleanup placeholder text
+      if (structuralElement.toLowerCase().includes('not specified')) structuralElement = '';
       
       return {
         location: toTitleCase(cleanStr(result.location)),
         component: toTitleCase(cleanStr(result.component)),
-        structuralElement: toTitleCase(cleanStr(result.structuralElement)),
+        structuralElement: structuralElement,
         quantity: finalQty,
         unit: finalUnit,
         itemType: cleanStr(result.itemType) || identifyItemType(description, customItemTypes),
@@ -191,7 +200,13 @@ export const parseConstructionData = async (
        - Map "M25", "Concrete", "RCC", "Lining" -> "C25 Concrete".
        - Map "Shuttering", "Formworks" -> "Formwork".
 
-    6. **NEXT PLAN LOGIC**:
+    6. **LOCATION SPECIFICS (Area / Chainage / EL)**:
+       - **HEADWORKS**: You MUST look for **Elevation (EL)** levels (e.g. "EL 1345.50", "1340"). This is the correct identifier for Headworks, NOT Chainage.
+       - **TUNNELS**: Look for **Chainage (CH)** (e.g. "Ch 1200+50", "1200m").
+       - **IMPORTANT**: If the specific Area/Chainage/EL is not explicitly mentioned, return an empty string for 'chainage' and 'structuralElement'. 
+       - **FORBIDDEN**: Do NOT output "Not specified", "Unknown", or "N/A". Leave it empty.
+
+    7. **NEXT PLAN LOGIC**:
        - If explicit plan exists (e.g. "next day concreting"), use it.
        - ELSE INFER:
          * Rebar -> "Formwork & Prep"
@@ -201,7 +216,7 @@ export const parseConstructionData = async (
          * Grouting -> "Next stage grouting"
        - Remove planning text from 'activityDescription'.
 
-    7. **DESCRIPTION**: 
+    8. **DESCRIPTION**: 
        - Append the quantity to the description, e.g. "Wall concreting works (113 m3)".
 
     RAW INPUT:
@@ -274,8 +289,18 @@ export const parseConstructionData = async (
               loc = "Headrace Tunnel (HRT)";
           }
 
-          const structuralElement = toTitleCase(cleanStr(item.structuralElement));
-          const chainage = cleanStr(item.chainage);
+          let structuralElement = toTitleCase(cleanStr(item.structuralElement));
+          let chainage = cleanStr(item.chainage);
+
+          // CLEANUP: Strict removal of 'Not specified' placeholders
+          const forbidden = ['not specified', 'unknown', 'n/a'];
+          if (forbidden.some(f => chainage.toLowerCase().includes(f))) chainage = '';
+          if (forbidden.some(f => structuralElement.toLowerCase().includes(f))) structuralElement = '';
+          
+          // Redundancy check: If Structure is same as Component, and no other info, clear Structure to avoid repetition
+          if (structuralElement.toLowerCase() === comp.toLowerCase()) {
+              structuralElement = '';
+          }
 
           // Validate date format YYYY-MM-DD
           let validDate = cleanStr(item.extractedDate);
