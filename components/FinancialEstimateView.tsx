@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { DailyReport, DPRItem, ProjectSettings } from '../types';
 import { ITEM_PATTERNS } from '../utils/constants';
@@ -102,8 +101,6 @@ export const FinancialEstimateView: React.FC<FinancialEstimateViewProps> = ({ re
           }
           groups[type].items.push(item);
           groups[type].totalQty += (item.quantity || 0);
-          
-          // Re-evaluate unit if mostly commonly used unit differs (optional logic, but keeping simple)
       });
 
       // Calculate totals
@@ -114,7 +111,7 @@ export const FinancialEstimateView: React.FC<FinancialEstimateViewProps> = ({ re
       return groups;
   }, [filteredItems, rates]);
 
-  const grandTotal = Object.values(groupedData).reduce((sum, g) => sum + g.totalAmount, 0);
+  const grandTotal = (Object.values(groupedData) as FinancialGroup[]).reduce((sum, g) => sum + g.totalAmount, 0);
 
   // Handlers
   const handleRateChange = (type: string, val: string) => {
@@ -236,7 +233,7 @@ export const FinancialEstimateView: React.FC<FinancialEstimateViewProps> = ({ re
               {/* Grouped Table */}
               <div className="space-y-8">
                   {Object.keys(groupedData).sort().map(type => {
-                      const group = groupedData[type];
+                      const group = groupedData[type] as FinancialGroup;
                       if (group.items.length === 0) return null;
 
                       return (
