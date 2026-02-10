@@ -1,4 +1,5 @@
 
+
 export interface EditHistory {
   timestamp: string;
   user: string;
@@ -124,6 +125,7 @@ export interface ProjectSettings {
   locationHierarchy: Record<string, string[]>;
   itemTypes: ItemTypeDefinition[];
   blockedLiningItemIds?: string[];
+  itemRates?: Record<string, number>;
 }
 
 // Added UserMood interface for MoodTracker component
@@ -164,6 +166,7 @@ export enum TabView {
   VIEW_REPORT = 'view_report',
   QUANTITY = 'quantity',
   LINING = 'lining',
+  FINANCIAL = 'financial',
   HISTORY = 'history',
   LOGS = 'logs',
   RECYCLE_BIN = 'recycle_bin',

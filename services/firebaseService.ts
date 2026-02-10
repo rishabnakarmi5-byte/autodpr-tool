@@ -20,7 +20,7 @@ const firebaseConfig = {
   measurementId: process.env.measurementId
 };
 
-const missingKeys = Object.entries(firebaseConfig)
+export const missingKeys = Object.entries(firebaseConfig)
   .filter(([key, value]) => !value && key !== 'measurementId') 
   .map(([key]) => key);
 
@@ -28,11 +28,13 @@ if (missingKeys.length > 0) {
   console.error(`Firebase Configuration Error: Missing: ${missingKeys.join(', ')}.`);
 }
 
+export const isConfigured = missingKeys.length === 0;
+
 let app;
 let db: any;
 let auth: any;
 
-if (missingKeys.length === 0) {
+if (isConfigured) {
   try {
     app = initializeApp(firebaseConfig);
     // Initialize Firestore with settings to ignore undefined properties

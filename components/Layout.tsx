@@ -1,4 +1,5 @@
 
+
 import React, { useEffect, useState } from 'react';
 import { TabView, UserProfile } from '../types';
 import { subscribeToUserProfile } from '../services/firebaseService';
@@ -87,6 +88,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
             icon="fa-calculator"
             label="Quantities"
             desc="Items & volumes"
+          />
+          <NavButton 
+            active={activeTab === TabView.FINANCIAL} 
+            onClick={() => onTabChange(TabView.FINANCIAL)}
+            icon="fa-coins"
+            label="Financial"
+            desc="Estimates & Rates"
           />
           <NavButton 
             active={activeTab === TabView.HISTORY} 
@@ -198,6 +206,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
             onClick={() => onTabChange(TabView.QUANTITY)}
             icon="fa-calculator"
             label="Qty"
+            />
+             <MobileNavButton 
+            active={activeTab === TabView.FINANCIAL} 
+            onClick={() => onTabChange(TabView.FINANCIAL)}
+            icon="fa-coins"
+            label="Money"
             />
             <MobileNavButton 
             active={activeTab === TabView.HISTORY} 

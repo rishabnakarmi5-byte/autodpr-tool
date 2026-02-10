@@ -1,7 +1,9 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Layout } from './components/Layout';
+import { SetupGuide } from './components/SetupGuide';
 import { InputSection } from './components/InputSection';
 import { HistoryList } from './components/HistoryList';
 import { ReportTable } from './components/ReportTable';
@@ -9,10 +11,11 @@ import { ActivityLogs } from './components/ActivityLogs';
 import { RecycleBin } from './components/RecycleBin';
 import { QuantityView } from './components/QuantityView';
 import { HRTLiningView } from './components/HRTLiningView';
+import { FinancialEstimateView } from './components/FinancialEstimateView';
 import { ProjectSettingsView } from './components/ProjectSettings';
 import { ProfileView } from './components/ProfileView';
 import { MasterRecordModal } from './components/MasterRecordModal';
-import { subscribeToReports, saveReportToCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, getProjectSettings, saveProjectSettings, incrementUserStats, moveItemToTrash } from './services/firebaseService';
+import { subscribeToReports, saveReportToCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, getProjectSettings, saveProjectSettings, incrementUserStats, moveItemToTrash, isConfigured, missingKeys } from './services/firebaseService';
 import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, EditHistory, BackupEntry } from './types';
 import { getLocationPriority, LOCATION_HIERARCHY, standardizeHRTMapping } from './utils/constants';
 import { autofillItemData } from './services/geminiService';
@@ -34,9 +37,25 @@ const App = () => {
   const [isGlobalSaving, setIsGlobalSaving] = useState(false);
   const [settings, setSettings] = useState<ProjectSettings | null>(null);
   const [hierarchy, setHierarchy] = useState(LOCATION_HIERARCHY);
+  
+  const [bypassConfig, setBypassConfig] = useState(false);
 
   useEffect(() => {
-    const unsubAuth = subscribeToAuth((u) => { setUser(u); setAuthLoading(false); });
+    // If not configured and not bypassed, we don't start subscriptions yet
+    if (!isConfigured && !bypassConfig) return;
+
+    const unsubAuth = subscribeToAuth((u) => { 
+        setUser(u); 
+        setAuthLoading(false); 
+    });
+    
+    // In bypass mode, user might be null, but we stop loading
+    if (bypassConfig && !isConfigured) {
+        setAuthLoading(false);
+        // Create a mock user for offline mode if needed, or just let them be 'Guest'
+        setUser({ uid: 'offline-guest', displayName: 'Offline Guest', email: 'guest@local' });
+    }
+
     const unsubReports = subscribeToReports(setReports);
     const unsubLogs = subscribeToLogs(setLogs);
     const unsubTrash = subscribeToTrash(setTrashItems);
@@ -47,7 +66,7 @@ const App = () => {
       } 
     });
     return () => { unsubAuth(); unsubReports(); unsubLogs(); unsubTrash(); };
-  }, []);
+  }, [bypassConfig]);
 
   useEffect(() => { localStorage.setItem('activeTab', activeTab); }, [activeTab]);
 
@@ -160,6 +179,19 @@ const App = () => {
             };
             
             await saveReportToCloud(report);
+            
+            // LOCAL STATE UPDATE (Ensures offline mode works)
+            setReports(prev => {
+                const idx = prev.findIndex(r => r.id === report.id);
+                if (idx >= 0) {
+                    const copy = [...prev];
+                    copy[idx] = report;
+                    return copy;
+                } else {
+                    return [report, ...prev];
+                }
+            });
+
             if (date === currentDate) {
                 setCurrentEntries(combined);
                 setCurrentReportId(reportId);
@@ -299,15 +331,30 @@ const App = () => {
       }
   };
 
+  // 1. Critical Config Check - Render Setup Guide if env vars missing and NOT bypassed
+  if (!isConfigured && !bypassConfig) {
+      return <SetupGuide missingKeys={missingKeys} onBypass={() => setBypassConfig(true)} />;
+  }
+
   if (authLoading) return <div className="h-screen flex items-center justify-center bg-slate-50">Loading...</div>;
   if (!user) return <div className="h-screen flex items-center justify-center"><button onClick={signInWithGoogle} className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold">Sign In to DPR Tool</button></div>;
 
   return (
     <Layout activeTab={activeTab} onTabChange={setActiveTab} user={user} onLogout={logoutUser}>
+        {(!isConfigured && bypassConfig) && (
+            <div className="bg-amber-100 border-l-4 border-amber-500 text-amber-700 p-4 mb-4 rounded shadow-sm flex justify-between items-center">
+                <div>
+                    <span className="font-bold">⚠️ Offline Mode</span>
+                    <span className="text-sm ml-2">Database changes will NOT be saved to the cloud. Configure Firebase to enable sync.</span>
+                </div>
+                <button onClick={() => window.location.reload()} className="text-xs font-bold underline">Retry Config</button>
+            </div>
+        )}
         {activeTab === TabView.INPUT && <InputSection currentDate={currentDate} onDateChange={setCurrentDate} onItemsAdded={handleItemsAdded} onViewReport={() => setActiveTab(TabView.VIEW_REPORT)} entryCount={currentEntries.length} user={user} hierarchy={hierarchy} customItemTypes={settings?.itemTypes} />}
         {activeTab === TabView.VIEW_REPORT && <ReportTable report={{id: currentReportId || '', date: currentDate, lastUpdated: '', projectTitle: settings?.projectName || '', companyName: settings?.companyName, entries: currentEntries}} onDeleteItem={handleDeleteItem} onUpdateItem={(id, f, v) => handleUpdateItem(id, {[f]: v})} onUpdateRow={handleUpdateItem} onUndo={() => {}} canUndo={false} onRedo={() => {}} canRedo={false} onInspectItem={setInspectItem} hierarchy={hierarchy} />}
         {activeTab === TabView.LINING && <HRTLiningView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={() => {}} blockedItemIds={settings?.blockedLiningItemIds || []} onToggleBlock={() => {}} />}
         {activeTab === TabView.QUANTITY && <QuantityView reports={reports} user={user} onInspectItem={setInspectItem} onHardSync={() => {}} customItemTypes={settings?.itemTypes} />}
+        {activeTab === TabView.FINANCIAL && <FinancialEstimateView reports={reports} settings={settings} onSaveSettings={(s) => { setSettings(s); saveProjectSettings(s); }} />}
         {activeTab === TabView.HISTORY && <HistoryList reports={reports} currentReportId={currentReportId || ''} onSelectReport={(id) => { const r = reports.find(r=>r.id===id); if(r) setCurrentDate(r.date); setActiveTab(TabView.VIEW_REPORT); }} onDeleteReport={(id) => moveReportToTrash(reports.find(r=>r.id===id)!, getUserName())} onCreateNew={() => setActiveTab(TabView.INPUT)} />}
         {activeTab === TabView.LOGS && <ActivityLogs logs={logs} onRevertBulk={handleRevertBulkSession} onRecover={handleRecoverBackups} />}
         {activeTab === TabView.RECYCLE_BIN && <RecycleBin logs={logs} trashItems={trashItems} onRestore={restoreTrashItem} />}
