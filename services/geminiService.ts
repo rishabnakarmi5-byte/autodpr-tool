@@ -148,41 +148,31 @@ export const parseConstructionData = async (
 ): Promise<{ items: (Omit<DPRItem, 'id'> & { extractedDate?: string })[], warnings: string[] }> => {
   
   const hierarchyToUse = customHierarchy || LOCATION_HIERARCHY;
-  const itemTypesToUse = customItemTypes || ITEM_PATTERNS;
-  const itemTypeContext = itemTypesToUse.map(t => `${t.name} (keywords: ${t.pattern.toString()})`).join(', ');
-
   const hierarchyString = Object.entries(hierarchyToUse)
     .map(([loc, comps]) => `- ${loc} contains components: [${comps.join(', ')}]`)
     .join('\n    ');
 
-  // Hard context logic: If user selected exactly one component, we frame the prompt around it.
-  const isForcedContext = contextLocations?.length === 1 && contextComponents?.length === 1;
-  const forcedContextString = isForcedContext 
-    ? `IMPORTANT: This data is explicitly for Location: "${contextLocations[0]}" and Component: "${contextComponents[0]}". Map everything to this context unless the text clearly identifies another structure.`
-    : "";
-
   const prompt = `
     You are a high-precision construction data engine. Convert site update text into a structured JSON array.
 
-    ${forcedContextString}
-
     STRICT ATOMIC RULES:
-    1. IDENTIFIER SEPARATION (CRITICAL):
+    1. MULTI-CONTEXT HANDLING:
+       - The input contains sections marked with "--- CONTEXT: [Location] > [Component] ---".
+       - Everything under such a header MUST be mapped to that exact Location and Component. 
+       - Do NOT infer other locations for text inside a context section.
+
+    2. IDENTIFIER SEPARATION (CRITICAL):
        - Separate Identifiers from the Activity. 
        - IDENTIFIERS (Store in 'structuralElement' or 'chainage'): "Panel 1", "Slab 2", "Block A", "Unit 1", "Base", "Top Slab", "Pier 4", "EL 1450", "CH 200+50", "Portion 3", "28.7m Pipe".
        - Example: "Panel 1 end sill concrete 75m3" 
-         -> location: "Headworks", component: "Barrage", structuralElement: "Panel 1", activityDescription: "End sill concrete works (75 m3)", quantity: 75, unit: "m3".
+         -> location: (from context), component: (from context), structuralElement: "Panel 1", activityDescription: "End sill concrete works (75 m3)", quantity: 75, unit: "m3".
 
-    2. HIERARCHY:
+    3. HIERARCHY:
     ${hierarchyString}
-       - If a component like "Barrage" is mentioned, set location to "Headworks".
 
-    3. UNIT STANDARDIZATION:
+    4. UNIT STANDARDIZATION:
        - Convert kg to Ton (val/1000). Convert bags to Ton (val*0.05). 
        - Formwork -> "m2". Concrete -> "m3". Rebar -> "Ton".
-
-    4. NEXT PLAN LOGIC:
-       - Infer based on stage: Rebar -> Formwork -> Concrete -> Deshuttering.
 
     RAW INPUT:
     """
@@ -236,8 +226,8 @@ export const parseConstructionData = async (
           if (finalUnit.toLowerCase().includes('bag')) { qty = qty * 0.05; finalUnit = 'Ton'; }
           if (type === 'Rebar' || finalUnit === 'Ton') { qty = Math.round(qty * 100) / 100; }
           
-          let loc = toTitleCase(cleanStr(item.location) || contextLocations?.[0] || "Unclassified");
-          let comp = toTitleCase(cleanStr(item.component) || contextComponents?.[0] || "");
+          let loc = toTitleCase(cleanStr(item.location) || "Unclassified");
+          let comp = toTitleCase(cleanStr(item.component) || "");
           
           let structuralElement = toTitleCase(cleanStr(item.structuralElement));
           let chainage = cleanStr(item.chainage);
