@@ -5,8 +5,8 @@ import { LOCATION_HIERARCHY, identifyItemType, ITEM_PATTERNS } from "../utils/co
 import { getTrainingExamples } from "./firebaseService";
 
 const API_KEY = process.env.API_KEY || '';
-// Using Gemini 2.0 Flash Lite Preview as requested to mitigate quota limits
-const MODEL_NAME = process.env.MODEL_NAME || 'gemini-2.0-flash-lite-preview-02-05';
+// Using Gemini 2.0 Flash Lite Preview for high speed and better reasoning on structured data
+const MODEL_NAME = 'gemini-2.0-flash-lite-preview-02-05';
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
@@ -14,12 +14,10 @@ const ai = new GoogleGenAI({ apiKey: API_KEY });
 async function generateContentWithRetry(params: any, retries = 2, timeoutMs = 35000): Promise<any> {
   const makeRequest = async () => {
       try {
-          // Create a timeout promise
           const timeoutPromise = new Promise((_, reject) =>
               setTimeout(() => reject(new Error("Request timed out")), timeoutMs)
           );
 
-          // Race the API call against the timeout
           const apiCall = ai.models.generateContent({
               model: MODEL_NAME,
               ...params
@@ -46,7 +44,6 @@ async function generateContentWithRetry(params: any, retries = 2, timeoutMs = 35
   }
 }
 
-// Helper to safely clean strings from AI response
 const cleanStr = (val: any): string => {
   if (val === null || val === undefined) return '';
   const s = String(val).trim();
@@ -54,7 +51,6 @@ const cleanStr = (val: any): string => {
   return s;
 };
 
-// Helper for Title Case
 const toTitleCase = (str: string) => {
     return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
 };
@@ -74,55 +70,33 @@ export const autofillItemData = async (
   }));
 
   const itemTypesString = itemTypesToUse.map(t => `"${t.name}"`).join(', ');
-  
-  // Flatten hierarchy for context
   const hierarchyString = Object.entries(LOCATION_HIERARCHY)
     .map(([loc, comps]) => `${loc} (Components: ${comps.join(', ')})`)
     .join('; ');
 
   const prompt = `
-    Act as a construction data specialist. Analyze this activity description: "${description}"
+    Act as a construction data specialist. Analyze: "${description}"
     
-    ${learnedContext ? `GOLD STANDARD EXAMPLES (Follow these user-verified mappings exactly):\n${learnedContext}\n` : ''}
+    ${learnedContext ? `VERIFIED MAPPINGS:\n${learnedContext}\n` : ''}
 
-    Your task is to extract the quantity, unit, item classification, and any planned next activity.
-    
     STRICT RULES:
-    1. HIERARCHY MAPPING:
+    1. IDENTIFIER EXTRACTION:
+       - Look for Area/Structure identifiers like "Panel 1", "Slab 2", "Block A", "Unit 1", "Base", "Top Slab", "Pier 4", "Pipe 28.7".
+       - These MUST be placed in 'structuralElement'.
+       - Look for Chainage (e.g., "CH 1200", "1200m") or Elevation (e.g., "EL 1400", "1400m").
+       - These MUST be placed in 'chainage'.
+       - If both exist (e.g., "Panel 1 EL 1400"), put "Panel 1" in structuralElement and "EL 1400" in chainage.
+
+    2. HIERARCHY MAPPING:
        - Known Hierarchy: ${hierarchyString}
-       - Map parts to parent structures (e.g. Barrage -> Headworks).
-       - IMPORTANT: For Tunneling, the 'location' must be "Headrace Tunnel (HRT)". 
-       - If you see "Inlet" or "Adit", set 'location' to "Headrace Tunnel (HRT)" and 'component' to "HRT from Inlet" or "HRT from Adit".
+       - Map Barrage -> Headworks, Powerhouse -> Powerhouse, etc.
+
+    3. NEXT PLAN LOGIC:
+       - Rebar -> "Formwork & Preparation"
+       - Formwork -> "Concrete works"
+       - Concrete -> "Deshuttering & Curing"
     
-    2. QUANTITY & UNIT:
-       - **CONCRETE**: If description has linear dimensions (e.g. 40m) AND volume (e.g. 24m3), **ALWAYS EXTRACT THE VOLUME (24)** as the quantity. Ignore the linear dimension.
-       - **REBAR**: Always use "Ton". If text is in kg, divide by 1000. Round to 2 decimal places.
-       - **GROUTING/CEMENT**: If unit is "bags", 1 bag = 50kg = 0.05 Ton. Convert to Ton.
-       - **FORMWORK**: Default to "m2" (square meters). Only use "rm" if explicitly stated as "running meter" or "rm".
-       - UNIT MAPPING: "sqm" -> "m2", "cum" -> "m3", "mt" -> "Ton".
-    
-    3. CLASSIFICATION: 
-       - Choose from: ${itemTypesString}.
-       - "M25", "Grade 25", "M-25", "Lining" -> "C25 Concrete"
-       - "Concrete", "Conc", "RCC" (without specified grade) -> "C25 Concrete"
-       - "Formworks", "Shuttering" -> "Formwork"
-
-    4. LOCATION DETAIL (Chainage/Area/EL):
-       - **HEADWORKS**: Look for "EL" (Elevation) values (e.g. "EL 1400", "1400m"). This is critical for Headworks.
-       - **TUNNELS**: Look for "Ch" (Chainage).
-       - If NO detail is found, return empty string. **NEVER** return "Not specified" or "Unknown".
-
-    5. NEXT PLAN EXTRACTION:
-       - **LOGIC**:
-         - Rebar -> "Formwork & Preparation"
-         - Formwork -> "Concrete works"
-         - Concrete -> "Deshuttering & Curing"
-         - PCC -> "RCC works"
-         - Grouting -> "Next stage drilling/grouting"
-       - If the text explicitly says "next plan", "next day", "tomorrow", "planning" etc., use that. Otherwise use the Logic above.
-       - **REMOVE** this planning text from the 'activityDescription'.
-
-    Output ONLY a valid JSON object.
+    Output ONLY valid JSON.
   `;
 
   try {
@@ -136,6 +110,7 @@ export const autofillItemData = async (
             location: { type: Type.STRING },
             component: { type: Type.STRING },
             structuralElement: { type: Type.STRING },
+            chainage: { type: Type.STRING },
             quantity: { type: Type.NUMBER },
             unit: { type: Type.STRING },
             itemType: { type: Type.STRING },
@@ -148,46 +123,19 @@ export const autofillItemData = async (
 
     if (response.text) {
       const result = JSON.parse(response.text);
-      const unitMap: Record<string, string> = {
-          'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'nos': 'nos', 'rm': 'rm'
-      };
-      
-      let finalUnit = unitMap[cleanStr(result.unit).toLowerCase()] || cleanStr(result.unit) || "m3";
-      let finalQty = result.quantity || 0;
-
-      // Handle Bags to Ton conversion if the AI missed the calculation but caught the unit
-      if (finalUnit.toLowerCase().includes('bag')) {
-          finalQty = finalQty * 0.05;
-          finalUnit = 'Ton';
-      }
-
-      // Force Rounding for Rebar
-      if (result.itemType === 'Rebar' || finalUnit === 'Ton') {
-          finalQty = Math.round(finalQty * 100) / 100;
-      }
-
-      let structuralElement = toTitleCase(cleanStr(result.structuralElement));
-      // Cleanup placeholder text
-      if (structuralElement.toLowerCase().includes('not specified')) structuralElement = '';
-      
       return {
         location: toTitleCase(cleanStr(result.location)),
         component: toTitleCase(cleanStr(result.component)),
-        structuralElement: structuralElement,
-        quantity: finalQty,
-        unit: finalUnit,
+        structuralElement: toTitleCase(cleanStr(result.structuralElement)),
+        chainage: cleanStr(result.chainage),
+        quantity: result.quantity || 0,
+        unit: cleanStr(result.unit) || "m3",
         itemType: cleanStr(result.itemType) || identifyItemType(description, customItemTypes),
         plannedNextActivity: cleanStr(result.plannedNextActivity)
       };
     }
-  } catch (e) {
-    console.error("Autofill error:", e);
-  }
-  
-  return {
-    unit: 'm3',
-    itemType: identifyItemType(description, customItemTypes)
-  };
+  } catch (e) { console.error(e); }
+  return { unit: 'm3', itemType: identifyItemType(description, customItemTypes) };
 };
 
 export const parseConstructionData = async (
@@ -200,63 +148,41 @@ export const parseConstructionData = async (
 ): Promise<{ items: (Omit<DPRItem, 'id'> & { extractedDate?: string })[], warnings: string[] }> => {
   
   const hierarchyToUse = customHierarchy || LOCATION_HIERARCHY;
-  
-  // Format custom item types for the prompt to ensure AI sees "Soling" etc.
   const itemTypesToUse = customItemTypes || ITEM_PATTERNS;
   const itemTypeContext = itemTypesToUse.map(t => `${t.name} (keywords: ${t.pattern.toString()})`).join(', ');
 
-  // Flatten hierarchy for prompt to guide location inference
   const hierarchyString = Object.entries(hierarchyToUse)
     .map(([loc, comps]) => `- ${loc} contains components: [${comps.join(', ')}]`)
     .join('\n    ');
 
+  // Hard context logic: If user selected exactly one component, we frame the prompt around it.
+  const isForcedContext = contextLocations?.length === 1 && contextComponents?.length === 1;
+  const forcedContextString = isForcedContext 
+    ? `IMPORTANT: This data is explicitly for Location: "${contextLocations[0]}" and Component: "${contextComponents[0]}". Map everything to this context unless the text clearly identifies another structure.`
+    : "";
+
   const prompt = `
-    You are a high-precision construction site data extraction engine.
-    Convert raw site update text into a structured JSON array.
+    You are a high-precision construction data engine. Convert site update text into a structured JSON array.
+
+    ${forcedContextString}
 
     STRICT ATOMIC RULES:
-    1. **SPLIT AGGRESSIVELY**: Every distinct activity or material must be its own record. 
+    1. IDENTIFIER SEPARATION (CRITICAL):
+       - Separate Identifiers from the Activity. 
+       - IDENTIFIERS (Store in 'structuralElement' or 'chainage'): "Panel 1", "Slab 2", "Block A", "Unit 1", "Base", "Top Slab", "Pier 4", "EL 1450", "CH 200+50", "Portion 3", "28.7m Pipe".
+       - Example: "Panel 1 end sill concrete 75m3" 
+         -> location: "Headworks", component: "Barrage", structuralElement: "Panel 1", activityDescription: "End sill concrete works (75 m3)", quantity: 75, unit: "m3".
 
-    2. **HIERARCHY & LOCATION INFERENCE**: 
-       - Use this hierarchy to correctly map Components to Locations:
+    2. HIERARCHY:
     ${hierarchyString}
-       - **CRITICAL**: If the text contains a known component (e.g. "Barrage", "Intake", "Powerhouse"), FORCE the 'location' to its parent from the list above (e.g. "Headworks").
-       - "HRT from Inlet" and "HRT from Adit" -> Location "Headrace Tunnel (HRT)".
-       - **FORMATTING**: Always capitalize first letters of Structure and Component (e.g. "Wall", "Invert").
+       - If a component like "Barrage" is mentioned, set location to "Headworks".
 
-    3. **BULK MODE (DATE EXTRACTION)**:
-       - If a row contains a date (e.g. 08/11/2025, 2026-01-22), extract it as 'extractedDate' in YYYY-MM-DD format.
-       - If no date is found, leave 'extractedDate' null.
+    3. UNIT STANDARDIZATION:
+       - Convert kg to Ton (val/1000). Convert bags to Ton (val*0.05). 
+       - Formwork -> "m2". Concrete -> "m3". Rebar -> "Ton".
 
-    4. **UNIT STANDARDIZATION**:
-       - Convert "kg" to "Ton" (value / 1000). 
-       - **BAGS to TON**: 1 Bag = 50kg = 0.05 Ton. If unit is bags, output quantity * 0.05 and unit "Ton".
-       - **CONCRETE**: Use volume (m3) for quantity. Ignore linear dimensions if volume is present.
-       - **FORMWORK**: Default unit "m2" (Square Meter). DO NOT use "rm" unless the text explicitly says "running meter" or "rm".
-
-    5. **ITEM TYPING**:
-       - PRIORITIZE these types: ${itemTypeContext}
-       - Map "M25", "Concrete", "RCC", "Lining" -> "C25 Concrete".
-       - Map "Shuttering", "Formworks" -> "Formwork".
-
-    6. **LOCATION SPECIFICS (Area / Chainage / EL)**:
-       - **HEADWORKS**: You MUST look for **Elevation (EL)** levels (e.g. "EL 1345.50", "1340"). This is the correct identifier for Headworks, NOT Chainage.
-       - **TUNNELS**: Look for **Chainage (CH)** (e.g. "Ch 1200+50", "1200m").
-       - **IMPORTANT**: If the specific Area/Chainage/EL is not explicitly mentioned, return an empty string for 'chainage' and 'structuralElement'. 
-       - **FORBIDDEN**: Do NOT output "Not specified", "Unknown", or "N/A". Leave it empty.
-
-    7. **NEXT PLAN LOGIC**:
-       - If explicit plan exists (e.g. "next day concreting"), use it.
-       - ELSE INFER:
-         * Rebar -> "Formwork & Prep"
-         * Formwork -> "Concrete works"
-         * Concrete -> "Deshuttering & Curing"
-         * PCC -> "RCC works"
-         * Grouting -> "Next stage grouting"
-       - Remove planning text from 'activityDescription'.
-
-    8. **DESCRIPTION**: 
-       - Append the quantity to the description, e.g. "Wall concreting works (113 m3)".
+    4. NEXT PLAN LOGIC:
+       - Infer based on stage: Rebar -> Formwork -> Concrete -> Deshuttering.
 
     RAW INPUT:
     """
@@ -299,9 +225,7 @@ export const parseConstructionData = async (
 
     if (response.text) {
       const result = JSON.parse(response.text);
-      const unitMap: Record<string, string> = {
-          'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'nos': 'nos', 'rm': 'rm'
-      };
+      const unitMap: Record<string, string> = { 'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'nos': 'nos', 'rm': 'rm' };
 
       const processedItems = result.items.map((item: any) => {
           let desc = cleanStr(item.activityDescription);
@@ -309,45 +233,21 @@ export const parseConstructionData = async (
           let finalUnit = unitMap[cleanStr(item.unit).toLowerCase()] || cleanStr(item.unit) || "m3";
           let qty = item.quantity || 0;
 
-          // Double check Bags to Ton in post-processing
-          if (finalUnit.toLowerCase().includes('bag') || cleanStr(item.unit).toLowerCase().includes('bag')) {
-             qty = qty * 0.05;
-             finalUnit = 'Ton';
-          }
-
-          if (type === 'Rebar' || finalUnit === 'Ton') {
-               qty = Math.round(qty * 100) / 100;
-          }
+          if (finalUnit.toLowerCase().includes('bag')) { qty = qty * 0.05; finalUnit = 'Ton'; }
+          if (type === 'Rebar' || finalUnit === 'Ton') { qty = Math.round(qty * 100) / 100; }
           
           let loc = toTitleCase(cleanStr(item.location) || contextLocations?.[0] || "Unclassified");
           let comp = toTitleCase(cleanStr(item.component) || contextComponents?.[0] || "");
           
-          if (loc === "HRT from Inlet" || loc === "HRT from Adit") {
-              comp = loc;
-              loc = "Headrace Tunnel (HRT)";
-          }
-
           let structuralElement = toTitleCase(cleanStr(item.structuralElement));
           let chainage = cleanStr(item.chainage);
 
-          // CLEANUP: Strict removal of 'Not specified' placeholders
-          const forbidden = ['not specified', 'unknown', 'n/a'];
+          const forbidden = ['not specified', 'unknown', 'n/a', 'undefined'];
           if (forbidden.some(f => chainage.toLowerCase().includes(f))) chainage = '';
           if (forbidden.some(f => structuralElement.toLowerCase().includes(f))) structuralElement = '';
-          
-          // Redundancy check: If Structure is same as Component, and no other info, clear Structure to avoid repetition
-          if (structuralElement.toLowerCase() === comp.toLowerCase()) {
-              structuralElement = '';
-          }
-
-          // Validate date format YYYY-MM-DD
-          let validDate = cleanStr(item.extractedDate);
-          if (validDate && !/^\d{4}-\d{2}-\d{2}$/.test(validDate)) {
-             validDate = undefined; // Invalid format, let system fallback to current date
-          }
 
           return {
-              extractedDate: validDate,
+              extractedDate: cleanStr(item.extractedDate),
               location: loc,
               component: comp,
               structuralElement: structuralElement,
