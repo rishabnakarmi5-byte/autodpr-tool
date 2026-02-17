@@ -233,9 +233,23 @@ export const saveRawInput = async (
 
 export const getRawInputsForDate = async (date: string) => {
     if (!db) return [];
-    const q = query(collection(db, RAW_INPUT_COLLECTION), where("date", "==", date), orderBy("timestamp", "desc"));
-    const snap = await getDocs(q);
-    return snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+    
+    // NOTE: Simplified query to avoid "Index Required" errors on new collections.
+    // We filter by date in DB, then sort by timestamp in memory.
+    const q = query(collection(db, RAW_INPUT_COLLECTION), where("date", "==", date));
+    
+    try {
+        const snap = await getDocs(q);
+        const results = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+        
+        // Sort in memory to avoid needing a composite index
+        return results.sort((a: any, b: any) => {
+            return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+        });
+    } catch (error) {
+        console.error("Error fetching raw inputs:", error);
+        throw error;
+    }
 };
 
 // --- Trash & Recycle Bin ---
