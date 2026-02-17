@@ -1,12 +1,12 @@
 
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { DPRItem, TrainingExample } from "../types";
 import { LOCATION_HIERARCHY, identifyItemType, ITEM_PATTERNS } from "../utils/constants";
 import { getTrainingExamples } from "./firebaseService";
 
 const API_KEY = process.env.API_KEY || '';
-const MODEL_NAME = process.env.MODEL_NAME || 'gemini-2.0-flash'; // Use 2.0-flash as default
+// Using Gemini 2.0 Flash Lite Preview as requested to mitigate quota limits
+const MODEL_NAME = process.env.MODEL_NAME || 'gemini-2.0-flash-lite-preview-02-05';
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 

@@ -71,7 +71,16 @@ export const RawInputsModal: React.FC<RawInputsModalProps> = ({ date, isOpen, on
                                 </div>
                                 <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-slate-500">
                                     <span className="bg-slate-100 px-2 py-1 rounded border border-slate-200">User: {input.user}</span>
-                                    {input.locations && input.locations.length > 0 && <span className="bg-slate-100 px-2 py-1 rounded border border-slate-200">Context: {input.locations.join(', ')}</span>}
+                                    {input.locations && input.locations.length > 0 && (
+                                        <span className="bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                                            <strong>Loc:</strong> {input.locations.join(', ')}
+                                        </span>
+                                    )}
+                                    {input.components && input.components.length > 0 && (
+                                        <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded border border-indigo-100">
+                                            <strong>Comp:</strong> {input.components.join(', ')}
+                                        </span>
+                                    )}
                                 </div>
                                 {input.errorMessage && (
                                      <div className="mt-2 text-xs text-red-600 bg-red-50 p-2 rounded border border-red-100">
