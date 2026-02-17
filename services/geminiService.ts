@@ -1,10 +1,50 @@
 
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { DPRItem, TrainingExample } from "../types";
 import { LOCATION_HIERARCHY, identifyItemType, ITEM_PATTERNS } from "../utils/constants";
 import { getTrainingExamples } from "./firebaseService";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const API_KEY = process.env.API_KEY || '';
+const MODEL_NAME = process.env.MODEL_NAME || 'gemini-2.0-flash'; // Use 2.0-flash as default
+
+const ai = new GoogleGenAI({ apiKey: API_KEY });
+
+// --- UTILITY: Retry with Exponential Backoff & Timeout ---
+async function generateContentWithRetry(params: any, retries = 2, timeoutMs = 35000): Promise<any> {
+  const makeRequest = async () => {
+      try {
+          // Create a timeout promise
+          const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("Request timed out")), timeoutMs)
+          );
+
+          // Race the API call against the timeout
+          const apiCall = ai.models.generateContent({
+              model: MODEL_NAME,
+              ...params
+          });
+
+          const response = await Promise.race([apiCall, timeoutPromise]);
+          return response;
+      } catch (error: any) {
+          throw error;
+      }
+  };
+
+  for (let i = 0; i <= retries; i++) {
+      try {
+          return await makeRequest();
+      } catch (error: any) {
+          const isRetryable = error.message.includes("429") || error.message.includes("503") || error.message.includes("timed out") || error.message.includes("Failed to fetch");
+          if (i === retries || !isRetryable) throw error;
+          
+          const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+          console.warn(`Gemini API Attempt ${i + 1} failed. Retrying in ${Math.round(delay)}ms...`);
+          await new Promise(res => setTimeout(res, delay));
+      }
+  }
+}
 
 // Helper to safely clean strings from AI response
 const cleanStr = (val: any): string => {
@@ -58,7 +98,7 @@ export const autofillItemData = async (
        - **CONCRETE**: If description has linear dimensions (e.g. 40m) AND volume (e.g. 24m3), **ALWAYS EXTRACT THE VOLUME (24)** as the quantity. Ignore the linear dimension.
        - **REBAR**: Always use "Ton". If text is in kg, divide by 1000. Round to 2 decimal places.
        - **GROUTING/CEMENT**: If unit is "bags", 1 bag = 50kg = 0.05 Ton. Convert to Ton.
-       - **FORMWORK**: Default to "rm" (running meters). Do not use "m2" unless explicitly stated.
+       - **FORMWORK**: Default to "m2" (square meters). Only use "rm" if explicitly stated as "running meter" or "rm".
        - UNIT MAPPING: "sqm" -> "m2", "cum" -> "m3", "mt" -> "Ton".
     
     3. CLASSIFICATION: 
@@ -86,8 +126,7 @@ export const autofillItemData = async (
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+    const response = await generateContentWithRetry({
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -193,7 +232,7 @@ export const parseConstructionData = async (
        - Convert "kg" to "Ton" (value / 1000). 
        - **BAGS to TON**: 1 Bag = 50kg = 0.05 Ton. If unit is bags, output quantity * 0.05 and unit "Ton".
        - **CONCRETE**: Use volume (m3) for quantity. Ignore linear dimensions if volume is present.
-       - **FORMWORK**: Default unit "rm".
+       - **FORMWORK**: Default unit "m2" (Square Meter). DO NOT use "rm" unless the text explicitly says "running meter" or "rm".
 
     5. **ITEM TYPING**:
        - PRIORITIZE these types: ${itemTypeContext}
@@ -226,8 +265,7 @@ export const parseConstructionData = async (
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+    const response = await generateContentWithRetry({
       contents: prompt,
       config: {
         responseMimeType: "application/json",

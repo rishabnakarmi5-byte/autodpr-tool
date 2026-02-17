@@ -15,7 +15,7 @@ import { FinancialEstimateView } from './components/FinancialEstimateView';
 import { ProjectSettingsView } from './components/ProjectSettings';
 import { ProfileView } from './components/ProfileView';
 import { MasterRecordModal } from './components/MasterRecordModal';
-import { subscribeToReports, saveReportToCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, getProjectSettings, saveProjectSettings, incrementUserStats, moveItemToTrash, isConfigured, missingKeys } from './services/firebaseService';
+import { subscribeToReports, saveReportToCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, getProjectSettings, saveProjectSettings, incrementUserStats, moveItemToTrash, isConfigured, missingKeys, createSystemCheckpoint } from './services/firebaseService';
 import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, EditHistory, BackupEntry } from './types';
 import { getLocationPriority, LOCATION_HIERARCHY, standardizeHRTMapping } from './utils/constants';
 import { autofillItemData } from './services/geminiService';
@@ -331,6 +331,20 @@ const App = () => {
       }
   };
 
+  const handleManualCheckpoint = async () => {
+    if(!user) return;
+    setIsGlobalSaving(true);
+    try {
+        await createSystemCheckpoint(getUserName());
+        alert("System Checkpoint Saved!");
+    } catch (error) {
+        console.error("Checkpoint failed", error);
+        alert("Failed to save checkpoint.");
+    } finally {
+        setIsGlobalSaving(false);
+    }
+  };
+
   // 1. Critical Config Check - Render Setup Guide if env vars missing and NOT bypassed
   if (!isConfigured && !bypassConfig) {
       return <SetupGuide missingKeys={missingKeys} onBypass={() => setBypassConfig(true)} />;
@@ -340,7 +354,7 @@ const App = () => {
   if (!user) return <div className="h-screen flex items-center justify-center"><button onClick={signInWithGoogle} className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold">Sign In to DPR Tool</button></div>;
 
   return (
-    <Layout activeTab={activeTab} onTabChange={setActiveTab} user={user} onLogout={logoutUser}>
+    <Layout activeTab={activeTab} onTabChange={setActiveTab} user={user} onLogout={logoutUser} onSaveCheckpoint={handleManualCheckpoint}>
         {(!isConfigured && bypassConfig) && (
             <div className="bg-amber-100 border-l-4 border-amber-500 text-amber-700 p-4 mb-4 rounded shadow-sm flex justify-between items-center">
                 <div>

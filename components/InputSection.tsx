@@ -1,6 +1,8 @@
 
+
 import React, { useState, useMemo } from 'react';
 import { parseConstructionData } from '../services/geminiService';
+import { saveRawInput } from '../services/firebaseService';
 import { DPRItem, ItemTypeDefinition } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 
@@ -25,6 +27,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const [error, setError] = useState<string | null>(null);
   const [aiLocations, setAiLocations] = useState<string[]>([]);
   const [aiComponents, setAiComponents] = useState<string[]>([]);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
   // Bulk Lining State
   const [bulkStage, setBulkStage] = useState<string>('');
@@ -48,6 +51,8 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         return;
     }
     setIsProcessing(true);
+    setError(null);
+    setSuccessMessage(null);
     try {
       // Inject the selected stage into the prompt context if selected
       const stageContext = bulkStage 
@@ -92,7 +97,12 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       setRawText('');
       setModalStep(1);
     } catch(e: any) {
-      setError(e.message || "Failed to parse bulk lining data.");
+       console.error(e);
+       let msg = e.message || "Parsing failed.";
+       if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+           msg = "⚠️ Network Connection Failed.\n\nSUGGESTION: Copy your data below safely.\nPlease try again in 15 minutes.";
+       }
+       setError(msg);
     } finally {
       setIsProcessing(false);
     }
@@ -109,6 +119,24 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     
     setIsProcessing(true);
     setError(null);
+    setSuccessMessage(null);
+
+    // ALWAYS SAVE RAW INPUT FIRST
+    let rawInputId = null;
+    try {
+         rawInputId = await saveRawInput(
+            rawText, 
+            currentDate, 
+            locationsToUse, 
+            aiComponents, 
+            user?.displayName || 'Unknown', 
+            'pending' // Status
+        );
+    } catch (saveErr) {
+        console.error("Failed to auto-save raw input", saveErr);
+        // We continue even if save fails, but it's risky.
+    }
+
     try {
       // PASS customItemTypes TO THE SERVICE HERE
       const { items } = await parseConstructionData(rawText, instructions, locationsToUse, aiComponents, hierarchy, customItemTypes);
@@ -142,12 +170,14 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       setAiComponents([]);
       setModalStep(1);
     } catch (err: any) {
-      console.error(err);
-      let msg = err.message || "Processing failed.";
-      if (msg.includes('429') || msg.includes('Quota exceeded')) {
-         msg = "⚠️ AI Daily Quota Exceeded. Please try again later.";
-      }
-      setError(msg);
+      console.error("AI Error:", err);
+      
+      // Since we already saved the raw input, we just show the friendly error message
+      const errMsg = `The AI parsing failed due to ${err.message || "Network Error"} but your record was saved. You can either manually create entries or let the developer do that for you. You do not need to take any more action. Thank you!`;
+      setError(errMsg);
+
+      // Optionally try to update the status of the saved raw input to 'failed' if we had the ID
+      // But we can skip it for now, 'pending' is enough indication it didn't complete fully via UI
     } finally {
       setIsProcessing(false);
     }
@@ -241,15 +271,25 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                     </div>
 
                     {error && (
-                        <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2">
-                            <i className="fas fa-exclamation-triangle"></i> {error}
+                        <div className="bg-emerald-50 text-emerald-800 px-4 py-4 rounded-xl text-sm font-medium flex items-start gap-3 whitespace-pre-wrap leading-relaxed border border-emerald-200">
+                            <i className="fas fa-check-circle mt-0.5 text-lg"></i> 
+                            <div>{error}</div>
                         </div>
                     )}
 
-                    <button onClick={handleProcessAndAdd} disabled={isProcessing} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2">
-                        {isProcessing ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-wand-magic-sparkles"></i>}
-                        Analyze & Add to Report
-                    </button>
+                    {successMessage && (
+                        <div className="bg-emerald-50 text-emerald-700 px-4 py-4 rounded-xl text-sm font-medium flex items-start gap-3 whitespace-pre-wrap leading-relaxed border border-emerald-200">
+                             <i className="fas fa-check-circle mt-0.5 text-lg"></i>
+                             <div>{successMessage}</div>
+                        </div>
+                    )}
+
+                    <div className="flex gap-4">
+                        <button onClick={handleProcessAndAdd} disabled={isProcessing} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                            {isProcessing ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-wand-magic-sparkles"></i>}
+                            Analyze & Add to Report
+                        </button>
+                    </div>
                 </>
             )}
 
@@ -281,8 +321,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                     <textarea value={rawText} onChange={e => setRawText(e.target.value)} placeholder="Paste lining data rows..." className="w-full h-40 p-5 border border-slate-200 rounded-xl bg-slate-50 font-mono text-sm" />
                     
                     {error && (
-                        <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2">
-                            <i className="fas fa-exclamation-triangle"></i> {error}
+                        <div className="bg-red-50 text-red-600 px-4 py-4 rounded-xl text-sm font-bold flex items-start gap-3 whitespace-pre-wrap leading-relaxed border border-red-200">
+                            <i className="fas fa-exclamation-triangle mt-0.5 text-lg"></i> 
+                            <div>{error}</div>
                         </div>
                     )}
                     

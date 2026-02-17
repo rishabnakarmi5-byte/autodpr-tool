@@ -1,6 +1,7 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { DailyReport } from '../types';
+import { RawInputsModal } from './RawInputsModal';
 
 interface HistoryListProps {
   reports: DailyReport[];
@@ -17,6 +18,8 @@ export const HistoryList: React.FC<HistoryListProps> = ({
   onDeleteReport,
   onCreateNew
 }) => {
+  const [selectedRawDate, setSelectedRawDate] = useState<string | null>(null);
+
   const sortedReports = [...reports].sort((a, b) => 
     new Date(b.date).getTime() - new Date(a.date).getTime()
   );
@@ -98,6 +101,16 @@ export const HistoryList: React.FC<HistoryListProps> = ({
               </div>
 
               <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                 <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedRawDate(report.date);
+                  }}
+                  className="flex items-center px-3 py-2 text-xs font-bold text-slate-500 hover:bg-slate-200 rounded-lg transition-colors mr-auto"
+                  title="View Raw Inputs"
+                >
+                  <i className="fas fa-terminal"></i>
+                </button>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -121,6 +134,12 @@ export const HistoryList: React.FC<HistoryListProps> = ({
           );
         })}
       </div>
+
+      <RawInputsModal 
+        date={selectedRawDate || ''} 
+        isOpen={!!selectedRawDate} 
+        onClose={() => setSelectedRawDate(null)} 
+      />
     </div>
   );
 };

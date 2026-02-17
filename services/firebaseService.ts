@@ -1,4 +1,5 @@
 
+
 import * as _app from "firebase/app";
 import * as _firestore from "firebase/firestore";
 import * as _auth from "firebase/auth";
@@ -58,6 +59,7 @@ const LINING_COLLECTION = "lining_data";
 const CHECKPOINT_COLLECTION = "system_checkpoints";
 const TRAINING_COLLECTION = "ai_training_examples";
 const MOOD_COLLECTION = "user_moods";
+const RAW_INPUT_COLLECTION = "raw_inputs"; // New Collection
 
 // --- Authentication & Profile ---
 
@@ -178,7 +180,7 @@ export const saveReportHistory = async (report: DailyReport) => {
     });
 };
 
-// --- Activity Logs ---
+// --- Activity Logs & RAW INPUT ---
 
 export const logActivity = async (user: string, action: string, details: string, reportDate: string, relatedBackupId?: string) => {
   if (!db) return;
@@ -201,6 +203,39 @@ export const subscribeToLogs = (callback: (logs: LogEntry[]) => void): any => {
     const logs = snapshot.docs.map((doc: any) => doc.data() as LogEntry);
     callback(logs);
   });
+};
+
+export const saveRawInput = async (
+    rawText: string, 
+    date: string, 
+    locations: string[], 
+    components: string[], 
+    user: string,
+    status?: string,
+    error?: string
+) => {
+    if (!db) return;
+    const id = crypto.randomUUID();
+    const entry = {
+        id,
+        timestamp: new Date().toISOString(),
+        date,
+        rawText,
+        locations,
+        components,
+        user,
+        status: status || (error ? 'failed' : 'manual'),
+        errorMessage: error || null
+    };
+    await setDoc(doc(db, RAW_INPUT_COLLECTION, id), entry);
+    return id;
+};
+
+export const getRawInputsForDate = async (date: string) => {
+    if (!db) return [];
+    const q = query(collection(db, RAW_INPUT_COLLECTION), where("date", "==", date), orderBy("timestamp", "desc"));
+    const snap = await getDocs(q);
+    return snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
 };
 
 // --- Trash & Recycle Bin ---
@@ -477,7 +512,8 @@ export const exportAllData = async () => {
         CHECKPOINT_COLLECTION,
         TRAINING_COLLECTION,
         MOOD_COLLECTION,
-        TRASH_COLLECTION
+        TRASH_COLLECTION,
+        RAW_INPUT_COLLECTION
     ];
 
     const allData: Record<string, any[]> = {};

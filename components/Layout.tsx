@@ -10,9 +10,10 @@ interface LayoutProps {
   onTabChange: (tab: TabView) => void;
   user: any;
   onLogout: () => void;
+  onSaveCheckpoint: () => void;
 }
 
-export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user, onLogout }) => {
+export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user, onLogout, onSaveCheckpoint }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
@@ -39,6 +40,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
           DPR MAKER
         </h1>
         <div className="flex items-center gap-3">
+            <button 
+                onClick={onSaveCheckpoint}
+                className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-emerald-400 active:scale-95 transition-transform"
+                title="Save Checkpoint"
+            >
+                <i className="fas fa-save"></i>
+            </button>
             <button onClick={() => onTabChange(TabView.PROFILE)} className="w-8 h-8 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center border border-indigo-500">
                {user?.photoURL ? (
                  <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
@@ -157,7 +165,16 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
            <div className="flex-1 max-w-2xl">
               <h1 className="text-3xl font-bold text-slate-800 tracking-wide uppercase">{getTimeGreeting()}, {user?.displayName?.split(' ')[0]}!</h1>
            </div>
-           <div className="flex gap-8">
+           <div className="flex gap-8 items-center">
+              <button 
+                 onClick={onSaveCheckpoint}
+                 className="flex items-center gap-2 bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 px-4 py-2 rounded-xl border border-slate-200 hover:border-emerald-200 transition-all shadow-sm active:scale-95 group"
+                 title="Save System Snapshot"
+              >
+                 <i className="fas fa-save text-emerald-500 group-hover:scale-110 transition-transform"></i>
+                 <span className="text-xs font-bold uppercase tracking-wider">Save Checkpoint</span>
+              </button>
+
               <div className="text-right">
                   <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Entries</div>
                   <div className="text-3xl font-bold text-indigo-600">{profile?.totalEntries || 0}</div>

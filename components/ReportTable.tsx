@@ -2,6 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { DailyReport, DPRItem } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
+import { RawInputsModal } from './RawInputsModal';
 
 interface ReportTableProps {
   report: DailyReport;
@@ -18,6 +19,7 @@ interface ReportTableProps {
 
 export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUndo, onRedo, canRedo, onInspectItem }) => {
   const [fontSize, setFontSize] = useState(12);
+  const [showRawInputs, setShowRawInputs] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
 
   const exportToJPG = async () => {
@@ -41,6 +43,10 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
           <button onClick={onRedo} disabled={!canRedo} className="p-2.5 bg-slate-100 rounded-xl hover:bg-slate-200 disabled:opacity-30 transition-all"><i className="fas fa-redo"></i></button>
         </div>
         <div className="flex items-center gap-6">
+          <button onClick={() => setShowRawInputs(true)} className="text-sm font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-2">
+             <i className="fas fa-terminal"></i> Check Raw Inputs
+          </button>
+          <div className="w-px h-6 bg-slate-200"></div>
           <div className="flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-xl">
             <i className="fas fa-text-height text-slate-400"></i>
             <input type="range" min="8" max="18" value={fontSize} onChange={e => setFontSize(parseInt(e.target.value))} className="w-24 accent-indigo-600" />
@@ -96,6 +102,12 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
           </tbody>
         </table>
       </div>
+
+      <RawInputsModal 
+        date={report.date} 
+        isOpen={showRawInputs} 
+        onClose={() => setShowRawInputs(false)} 
+      />
     </div>
   );
 };

@@ -1,4 +1,5 @@
 
+
 export const LOCATION_HIERARCHY: Record<string, string[]> = {
   "Headworks": [
     "Barrage",
@@ -90,7 +91,7 @@ export const ITEM_PATTERNS = [
   // IMPORTANT: Added 'lining' here. This MUST come before generic Excavation.
   { name: "C25 Concrete", pattern: /\b(c[\-\s]?25|grade[\-\s]?25|m[\-\s]?25|concrete|conc\.?|rcc|lining)\b/i, defaultUnit: 'm3' },
   { name: "Rebar", pattern: /\b(rebar|reinforcement|steel|tmt|bar|tor)\b/i, defaultUnit: 'Ton' },
-  { name: "Formwork", pattern: /\b(formwork|formworks|shuttering)\b/i, defaultUnit: 'rm' },
+  { name: "Formwork", pattern: /\b(formwork|formworks|shuttering)\b/i, defaultUnit: 'm2' },
   { name: "Stone Masonry", pattern: /\b(masonry|rrm|ms wall|stone soling|soling)\b/i, defaultUnit: 'm3' },
   { name: "Concrete Block", pattern: /\b(block work|concrete block|hollow block|block)\b/i, defaultUnit: 'm3' },
   { name: "Plaster", pattern: /\b(plaster)\b/i, defaultUnit: 'm2' },
