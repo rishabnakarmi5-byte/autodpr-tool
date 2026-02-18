@@ -1,5 +1,4 @@
 
-
 export const LOCATION_HIERARCHY: Record<string, string[]> = {
   "Headworks": [
     "Barrage",
@@ -88,10 +87,9 @@ export const ITEM_PATTERNS = [
   { name: "C20 Concrete", pattern: /\b(c[\-\s]?20|grade[\-\s]?20|m[\-\s]?20)\b/i, defaultUnit: 'm3' },
   { name: "C15 Concrete", pattern: /\b(c[\-\s]?15|grade[\-\s]?15|m[\-\s]?15)\b/i, defaultUnit: 'm3' },
   { name: "C10 Concrete", pattern: /\b(c[\-\s]?10|pcc|infill|grade[\-\s]?10|m[\-\s]?10)\b/i, defaultUnit: 'm3' },
-  // IMPORTANT: Added 'lining' here. This MUST come before generic Excavation.
   { name: "C25 Concrete", pattern: /\b(c[\-\s]?25|grade[\-\s]?25|m[\-\s]?25|concrete|conc\.?|rcc|lining)\b/i, defaultUnit: 'm3' },
   { name: "Rebar", pattern: /\b(rebar|reinforcement|steel|tmt|bar|tor)\b/i, defaultUnit: 'Ton' },
-  { name: "Formwork", pattern: /\b(formwork|formworks|shuttering)\b/i, defaultUnit: 'm2' },
+  { name: "Formworks", pattern: /\b(formwork|formworks|shuttering|shutter)\b/i, defaultUnit: 'm2' },
   { name: "Stone Masonry", pattern: /\b(masonry|rrm|ms wall|stone soling|soling)\b/i, defaultUnit: 'm3' },
   { name: "Concrete Block", pattern: /\b(block work|concrete block|hollow block|block)\b/i, defaultUnit: 'm3' },
   { name: "Plaster", pattern: /\b(plaster)\b/i, defaultUnit: 'm2' },
@@ -100,42 +98,6 @@ export const ITEM_PATTERNS = [
   { name: "Rock Bolt", pattern: /\b(rock bolt|bolt|anchor)\b/i, defaultUnit: 'nos' },
   { name: "Gabion", pattern: /\b(gabion)\b/i, defaultUnit: 'm3' },
   { name: "Grouting", pattern: /\b(grouting|cement\s+consumption|bags|consolidation|contact)\b/i, defaultUnit: 'nos' },
-];
-
-export const STRUCTURAL_ELEMENTS = [
-  { regex: /\b(raft|foundation|footing)\b/i, label: "Raft" },
-  { regex: /\b(wall|walls|side wall)\b/i, label: "Wall" },
-  { regex: /\b(kicker)\b/i, label: "Kicker" },
-  { regex: /\b(invert|floor|bed)\b/i, label: "Invert" },
-  { regex: /\b(arch|crown|roof)\b/i, label: "Arch" },
-  { regex: /\b(key|key\s+wall|key\s+trench)\b/i, label: "Key" },
-  { regex: /\b(slab|deck)\b/i, label: "Slab" },
-  { regex: /\b(face)\b/i, label: "Face" },
-  { regex: /\b(portal)\b/i, label: "Portal" },
-  { regex: /\b(plug)\b/i, label: "Plug" },
-  { regex: /\b(pier)\b/i, label: "Pier" },
-  { regex: /\b(abutment)\b/i, label: "Abutment" },
-  { regex: /\b(glacis|us glacis|ds glacis)\b/i, label: "Glacis" },
-  { regex: /\b(apron|us apron|ds apron)\b/i, label: "Apron" },
-  { regex: /\b(stilling basin|basin|stilling)\b/i, label: "Stilling Basin" },
-  { regex: /\b(soling)\b/i, label: "Soling" },
-  { regex: /\b(casing)\b/i, label: "Casing" },
-  { regex: /\b(gantry)\b/i, label: "Gantry" },
-  { regex: /\b(bulkhead)\b/i, label: "Bulkhead" },
-  { regex: /\b(overbreak)\b/i, label: "Overbreak Zone" },
-  { regex: /\b(machine hall)\b/i, label: "Machine Hall" },
-  { regex: /\b(control building)\b/i, label: "Control Building" },
-  { regex: /\b(service bay)\b/i, label: "Service Bay" },
-  { regex: /\b(turbine floor)\b/i, label: "Turbine Floor" },
-  { regex: /\b(generator floor)\b/i, label: "Generator Floor" },
-  { regex: /\b(miv|main inlet valve)\b/i, label: "MIV" },
-  { regex: /\b(first|1st)\s+lift\b/i, label: "1st Lift" },
-  { regex: /\b(second|2nd)\s+lift\b/i, label: "2nd Lift" },
-  { regex: /\b(third|3rd)\s+lift\b/i, label: "3rd Lift" },
-  { regex: /\b(u\/s|upstream)\b/i, label: "U/S" },
-  { regex: /\b(d\/s|downstream)\b/i, label: "D/S" },
-  { regex: /\b(left\s+bank|lb)\b/i, label: "LB" },
-  { regex: /\b(right\s+bank|rb)\b/i, label: "RB" },
 ];
 
 export const identifyItemType = (text: string, customItems?: any[]): string => {
@@ -174,3 +136,39 @@ export const parseQuantityDetails = (
     detailLocation: chainageOrAreaInput
   };
 };
+
+export const STRUCTURAL_ELEMENTS = [
+  { regex: /\b(raft|foundation|footing)\b/i, label: "Raft" },
+  { regex: /\b(wall|walls|side wall)\b/i, label: "Wall" },
+  { regex: /\b(kicker)\b/i, label: "Kicker" },
+  { regex: /\b(invert|floor|bed)\b/i, label: "Invert" },
+  { regex: /\b(arch|crown|roof)\b/i, label: "Arch" },
+  { regex: /\b(key|key\s+wall|key\s+trench)\b/i, label: "Key" },
+  { regex: /\b(slab|deck)\b/i, label: "Slab" },
+  { regex: /\b(face)\b/i, label: "Face" },
+  { regex: /\b(portal)\b/i, label: "Portal" },
+  { regex: /\b(plug)\b/i, label: "Plug" },
+  { regex: /\b(pier)\b/i, label: "Pier" },
+  { regex: /\b(abutment)\b/i, label: "Abutment" },
+  { regex: /\b(glacis|us glacis|ds glacis)\b/i, label: "Glacis" },
+  { regex: /\b(apron|us apron|ds apron)\b/i, label: "Apron" },
+  { regex: /\b(stilling basin|basin|stilling)\b/i, label: "Stilling Basin" },
+  { regex: /\b(soling)\b/i, label: "Soling" },
+  { regex: /\b(casing)\b/i, label: "Casing" },
+  { regex: /\b(gantry)\b/i, label: "Gantry" },
+  { regex: /\b(bulkhead)\b/i, label: "Bulkhead" },
+  { regex: /\b(overbreak)\b/i, label: "Overbreak Zone" },
+  { regex: /\b(machine hall)\b/i, label: "Machine Hall" },
+  { regex: /\b(control building)\b/i, label: "Control Building" },
+  { regex: /\b(service bay)\b/i, label: "Service Bay" },
+  { regex: /\b(turbine floor)\b/i, label: "Turbine Floor" },
+  { regex: /\b(generator floor)\b/i, label: "Generator Floor" },
+  { regex: /\b(miv|main inlet valve)\b/i, label: "MIV" },
+  { regex: /\b(first|1st)\s+lift\b/i, label: "1st Lift" },
+  { regex: /\b(second|2nd)\s+lift\b/i, label: "2nd Lift" },
+  { regex: /\b(third|3rd)\s+lift\b/i, label: "3rd Lift" },
+  { regex: /\b(u\/s|upstream)\b/i, label: "U/S" },
+  { regex: /\b(d\/s|downstream)\b/i, label: "D/S" },
+  { regex: /\b(left\s+bank|lb)\b/i, label: "LB" },
+  { regex: /\b(right\s+bank|rb)\b/i, label: "RB" },
+];

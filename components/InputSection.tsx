@@ -1,13 +1,14 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { parseConstructionData } from '../services/geminiService';
+import { saveRawInput, updateRawInputStatus } from '../services/firebaseService';
 import { DPRItem, ItemTypeDefinition } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 
 interface InputSectionProps {
   currentDate: string;
   onDateChange: (date: string) => void;
-  onItemsAdded: (items: DPRItem[], rawText: string) => Promise<void>;
+  onItemsAdded: (items: DPRItem[], rawText: string, existingLogId?: string) => Promise<void>;
   onViewReport: () => void;
   entryCount: number;
   user: any;
@@ -62,12 +63,27 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     setIsProcessing(true);
     setError(null);
 
-    try {
-      const aggregatedRaw = entriesToProcess.map(ctx => {
+    const aggregatedRaw = entriesToProcess.map(ctx => {
         const text = contextTexts[`${ctx.loc}:${ctx.comp}`];
         return `--- CONTEXT: ${ctx.loc} > ${ctx.comp} ---\n${text}`;
-      }).join('\n\n');
+    }).join('\n\n');
 
+    // LOG IMMEDIATELY BEFORE AI CALL
+    let logId: string | undefined = undefined;
+    try {
+        logId = await saveRawInput(
+            aggregatedRaw,
+            currentDate,
+            aiLocations.length > 0 ? aiLocations : ["General"],
+            aiComponents,
+            user?.displayName || 'Unknown',
+            'processing'
+        );
+    } catch (logErr) {
+        console.warn("Failed to log raw input pre-processing", logErr);
+    }
+
+    try {
       const { items } = await parseConstructionData(
         aggregatedRaw, 
         instructions, 
@@ -83,7 +99,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           createdBy: user?.displayName || user?.email || 'AI' 
       })) as DPRItem[];
 
-      await onItemsAdded(stamped, aggregatedRaw);
+      await onItemsAdded(stamped, aggregatedRaw, logId);
       
       const newTexts = { ...contextTexts };
       entriesToProcess.forEach(ctx => {
@@ -95,6 +111,9 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     } catch (err: any) {
       console.error("AI Error:", err);
       setError(`Parsing failed: ${err.message || "Unknown error"}. Check activity logs.`);
+      if (logId) {
+          await updateRawInputStatus(logId, 'failed', err.message);
+      }
     } finally {
       setIsProcessing(false);
     }

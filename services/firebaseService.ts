@@ -1,5 +1,4 @@
 
-
 import * as _app from "firebase/app";
 import * as _firestore from "firebase/firestore";
 import * as _auth from "firebase/auth";
@@ -229,6 +228,15 @@ export const saveRawInput = async (
     };
     await setDoc(doc(db, RAW_INPUT_COLLECTION, id), entry);
     return id;
+};
+
+export const updateRawInputStatus = async (id: string, status: string, error?: string) => {
+    if (!db || !id) return;
+    const ref = doc(db, RAW_INPUT_COLLECTION, id);
+    await updateDoc(ref, {
+        status,
+        errorMessage: error || null
+    });
 };
 
 export const getRawInputsForDate = async (date: string) => {

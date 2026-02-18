@@ -71,7 +71,8 @@ export const autofillItemData = async (
     STRICT RULES:
     1. structuralElement: Specific part name (e.g., "Spiral Casing Unit 1", "Crown").
     2. activityDescription: MUST follow format "Action (Quantity Unit)". 
-       Example: "Rebar works (3.5 Ton)".
+       Example: "C35 Concrete works (5 m3)".
+       - IMPORTANT: Always include grades (C35, C25, M20) if present.
     3. Ensure 'quantity' and 'unit' are numeric/standardized.
 
     Output ONLY JSON.
@@ -102,6 +103,7 @@ export const autofillItemData = async (
 
     if (response.text) {
       const result = JSON.parse(response.text);
+      const desc = cleanStr(result.activityDescription);
       return {
         location: toTitleCase(cleanStr(result.location)),
         component: toTitleCase(cleanStr(result.component)),
@@ -109,8 +111,8 @@ export const autofillItemData = async (
         chainage: cleanStr(result.chainage),
         quantity: result.quantity || 0,
         unit: cleanStr(result.unit) || "m3",
-        itemType: cleanStr(result.itemType) || identifyItemType(description, customItemTypes),
-        activityDescription: cleanStr(result.activityDescription),
+        itemType: identifyItemType(desc, customItemTypes), 
+        activityDescription: desc,
         plannedNextActivity: cleanStr(result.plannedNextActivity)
       };
     }
@@ -141,15 +143,14 @@ export const parseConstructionData = async (
 
     2. CONTEXT INHERITANCE:
        - Headers "--- CONTEXT: Location > Component ---" apply to ALL following text until the next header.
-       - DO NOT leave 'component' blank if provided in header.
+       - IMPORTANT: Match 'location' and 'component' to the Provided HIERARCHY exactly, even if partial words are used in the text.
 
     3. DESCRIPTION FORMAT (CRITICAL):
        - 'activityDescription' MUST be: "Action (Quantity Unit)".
+       - IMPORTANT: YOU MUST INCLUDE SPECIFIC GRADES (e.g. C35, C25, M15) OR SPECIFICATIONS (e.g. TMT, Plum) in the description.
+       - DO NOT simplify "c35 concrete" to just "concrete".
        - DO NOT put the structure name (e.g. Spiral Casing) in the activityDescription.
        - Put the structure name in 'structuralElement'.
-       - EXAMPLE: "Spiral casing unit 1 rebar works = 3.5T"
-         - structuralElement: "Spiral Casing Unit 1"
-         - activityDescription: "Rebar works (3.5 Ton)"
 
     4. DATA MAPPING:
        - quantity: numeric only.
@@ -182,7 +183,7 @@ export const parseConstructionData = async (
                     component: { type: Type.STRING },
                     structuralElement: { type: Type.STRING },
                     chainage: { type: Type.STRING },
-                    activityDescription: { type: Type.STRING, description: "Format: Action (Quantity Unit)" },
+                    activityDescription: { type: Type.STRING, description: "Format: Action (Quantity Unit). Include Grade!" },
                     plannedNextActivity: { type: Type.STRING },
                     quantity: { type: Type.NUMBER },
                     unit: { type: Type.STRING },
@@ -202,28 +203,47 @@ export const parseConstructionData = async (
       const unitMap: Record<string, string> = { 'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'nos': 'nos', 'rm': 'rm', 't': 'Ton' };
 
       const processedItems = result.items.map((item: any) => {
-          let type = cleanStr(item.itemType) || identifyItemType(item.activityDescription, customItemTypes);
           let rawUnit = cleanStr(item.unit).toLowerCase();
           let finalUnit = unitMap[rawUnit] || cleanStr(item.unit) || "m3";
           let qty = item.quantity || 0;
-
-          // Unit conversions
-          if (rawUnit.includes('bag')) { qty = qty * 0.05; finalUnit = 'Ton'; }
-          if (type === 'Rebar' || finalUnit === 'Ton') { qty = Math.round(qty * 100) / 100; }
           
-          let loc = toTitleCase(cleanStr(item.location) || "Unclassified");
-          let comp = toTitleCase(cleanStr(item.component) || "");
+          let rawLoc = cleanStr(item.location);
+          let rawComp = cleanStr(item.component);
+
+          // SAFE HIERARCHY MAPPING (Case-Insensitive)
+          let loc = rawLoc;
+          let comp = rawComp;
+
+          const foundLocKey = Object.keys(hierarchyToUse).find(l => l.toLowerCase() === rawLoc.toLowerCase() || rawLoc.toLowerCase().includes(l.toLowerCase()));
+          if (foundLocKey) {
+              loc = foundLocKey;
+              const foundCompKey = hierarchyToUse[foundLocKey].find(c => {
+                  const cLower = c.toLowerCase();
+                  const rLower = rawComp.toLowerCase();
+                  return cLower === rLower || rLower.includes(cLower) || cLower.includes(rLower);
+              });
+              if (foundCompKey) comp = foundCompKey;
+          }
+
           let structuralElement = toTitleCase(cleanStr(item.structuralElement));
           let chainage = cleanStr(item.chainage);
 
           // Force activityDescription format: "Action (Quantity Unit)"
           let desc = cleanStr(item.activityDescription);
           const qtyString = `(${qty} ${finalUnit})`;
+          
+          // If description doesn't have the quantity tag, or we need to normalize it
           if (!desc.includes(qtyString)) {
-              // Strip existing quantity mentions to avoid duplication
               const cleanDesc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm)[\)]?/gi, '').replace(/\s*=\s*/g, '').trim();
               desc = `${cleanDesc} ${qtyString}`;
           }
+
+          // CRITICAL: Re-classify based on description to ensure exact match with internal Canonical names
+          let type = identifyItemType(desc, customItemTypes);
+
+          // Unit conversions for specific types
+          if (rawUnit.includes('bag')) { qty = qty * 0.05; finalUnit = 'Ton'; }
+          if (type === 'Rebar' || finalUnit === 'Ton') { qty = Math.round(qty * 100) / 100; }
 
           const forbidden = ['not specified', 'unknown', 'n/a', 'undefined', 'null', 'select...'];
           if (forbidden.some(f => chainage.toLowerCase().includes(f))) chainage = '';

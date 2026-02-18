@@ -33,7 +33,8 @@ import {
   isConfigured, 
   missingKeys, 
   createSystemCheckpoint,
-  saveRawInput
+  saveRawInput,
+  updateRawInputStatus
 } from './services/firebaseService';
 import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, BackupEntry } from './types';
 import { LOCATION_HIERARCHY } from './utils/constants';
@@ -132,7 +133,7 @@ const App = () => {
       setRedoStack([]);
   }, [currentDate, reports]);
   
-  const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
+  const handleItemsAdded = async (newItems: DPRItem[], rawText: string, existingRawLogId?: string) => {
       setIsGlobalSaving(true);
       
       const updatedEntries = [...currentEntries, ...newItems];
@@ -162,14 +163,20 @@ const App = () => {
           const comps = Array.from(new Set(newItems.filter(i => i.component).map(i => i.component!)));
           const isManual = rawText.includes("Manual Creation");
 
-          await saveRawInput(
-              rawText,
-              currentDate,
-              locs,
-              comps,
-              user?.displayName || 'Unknown',
-              isManual ? 'manual' : 'ai_processed'
-          );
+          // Only save if we don't have an existing ID (manual creation usually doesn't pre-log)
+          if (!existingRawLogId) {
+              await saveRawInput(
+                  rawText,
+                  currentDate,
+                  locs,
+                  comps,
+                  user?.displayName || 'Unknown',
+                  isManual ? 'manual' : 'ai_processed'
+              );
+          } else {
+              // Update status of existing log
+              await updateRawInputStatus(existingRawLogId, 'ai_processed');
+          }
 
           await logActivity(
               user?.displayName || 'Unknown', 
