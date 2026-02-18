@@ -139,24 +139,27 @@ export const parseConstructionData = async (
 
     STRICT ATOMIC RULES:
     1. MULTI-ACTIVITY SPLIT:
-       - If a sentence has multiple quantities (e.g. "Rebar 3.5T and formwork 30sqm"), return TWO separate items.
+       - Split mixed text into separate items. (e.g. "48m3 concrete and rebar" -> two items).
 
-    2. CONTEXT INHERITANCE:
-       - Headers "--- CONTEXT: Location > Component ---" apply to ALL following text until the next header.
-       - IMPORTANT: Match 'location' and 'component' to the Provided HIERARCHY exactly, even if partial words are used in the text.
+    2. ACRONYM RESOLUTION (CRITICAL):
+       - "HRT" ALWAYS means "Headrace Tunnel (HRT)".
+       - "TRT" ALWAYS means "Powerhouse" related (e.g. Tailrace Tunnel).
+       - Never put "HRT" items under "Powerhouse".
 
-    3. DESCRIPTION FORMAT (CRITICAL):
+    3. HIERARCHY MAPPING (STRICT):
+       - Check the Provided HIERARCHY below. 
+       - If you see "TRT Pool", map it to "Tailrace Pool (TRT Pool)" under "Powerhouse".
+       - If you see "Inlet" or "Adit", map it to "Headrace Tunnel (HRT)".
+
+    4. DESCRIPTION FORMAT:
        - 'activityDescription' MUST be: "Action (Quantity Unit)".
-       - IMPORTANT: YOU MUST INCLUDE SPECIFIC GRADES (e.g. C35, C25, M15) OR SPECIFICATIONS (e.g. TMT, Plum) in the description.
-       - DO NOT simplify "c35 concrete" to just "concrete".
-       - DO NOT put the structure name (e.g. Spiral Casing) in the activityDescription.
-       - Put the structure name in 'structuralElement'.
+       - Include grades (C35, C25, M15) in the description.
 
-    4. DATA MAPPING:
+    5. DATA MAPPING:
        - quantity: numeric only.
        - unit: standardized (m3, m2, Ton, nos, rm).
 
-    5. HIERARCHY REFERENCE:
+    HIERARCHY REFERENCE:
     ${hierarchyString}
 
     RAW INPUT:
@@ -183,7 +186,7 @@ export const parseConstructionData = async (
                     component: { type: Type.STRING },
                     structuralElement: { type: Type.STRING },
                     chainage: { type: Type.STRING },
-                    activityDescription: { type: Type.STRING, description: "Format: Action (Quantity Unit). Include Grade!" },
+                    activityDescription: { type: Type.STRING },
                     plannedNextActivity: { type: Type.STRING },
                     quantity: { type: Type.NUMBER },
                     unit: { type: Type.STRING },
@@ -210,17 +213,40 @@ export const parseConstructionData = async (
           let rawLoc = cleanStr(item.location);
           let rawComp = cleanStr(item.component);
 
-          // SAFE HIERARCHY MAPPING (Case-Insensitive)
+          // ENHANCED GLOBAL SEARCH MAPPING
           let loc = rawLoc;
           let comp = rawComp;
 
-          const foundLocKey = Object.keys(hierarchyToUse).find(l => l.toLowerCase() === rawLoc.toLowerCase() || rawLoc.toLowerCase().includes(l.toLowerCase()));
+          // Attempt 1: Direct/Fuzzy Match on Location Key
+          let foundLocKey = Object.keys(hierarchyToUse).find(l => 
+              l.toLowerCase() === rawLoc.toLowerCase() || 
+              rawLoc.toLowerCase().includes(l.toLowerCase())
+          );
+
+          // Attempt 2: If no location match, search all components globally
+          if (!foundLocKey) {
+              for (const [lKey, cList] of Object.entries(hierarchyToUse)) {
+                  const hasComp = cList.some(c => {
+                      const cL = c.toLowerCase();
+                      const rCL = rawComp.toLowerCase();
+                      const rLL = rawLoc.toLowerCase();
+                      return cL === rCL || cL === rLL || rCL.includes(cL) || rLL.includes(cL) || cL.includes(rCL) || cL.includes(rLL);
+                  });
+                  if (hasComp) {
+                      foundLocKey = lKey;
+                      break;
+                  }
+              }
+          }
+
           if (foundLocKey) {
               loc = foundLocKey;
+              // Narrow down component within matched location
               const foundCompKey = hierarchyToUse[foundLocKey].find(c => {
                   const cLower = c.toLowerCase();
-                  const rLower = rawComp.toLowerCase();
-                  return cLower === rLower || rLower.includes(cLower) || cLower.includes(rLower);
+                  const rCLower = rawComp.toLowerCase();
+                  const rLLower = rawLoc.toLowerCase();
+                  return cLower === rCLower || cLower === rLLower || rCLower.includes(cLower) || rLLower.includes(cLower) || cLower.includes(rCLower) || cLower.includes(rLLower);
               });
               if (foundCompKey) comp = foundCompKey;
           }
@@ -232,16 +258,13 @@ export const parseConstructionData = async (
           let desc = cleanStr(item.activityDescription);
           const qtyString = `(${qty} ${finalUnit})`;
           
-          // If description doesn't have the quantity tag, or we need to normalize it
           if (!desc.includes(qtyString)) {
               const cleanDesc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm)[\)]?/gi, '').replace(/\s*=\s*/g, '').trim();
               desc = `${cleanDesc} ${qtyString}`;
           }
 
-          // CRITICAL: Re-classify based on description to ensure exact match with internal Canonical names
           let type = identifyItemType(desc, customItemTypes);
 
-          // Unit conversions for specific types
           if (rawUnit.includes('bag')) { qty = qty * 0.05; finalUnit = 'Ton'; }
           if (type === 'Rebar' || finalUnit === 'Ton') { qty = Math.round(qty * 100) / 100; }
 

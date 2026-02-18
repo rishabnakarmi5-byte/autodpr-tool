@@ -163,7 +163,7 @@ const App = () => {
           const comps = Array.from(new Set(newItems.filter(i => i.component).map(i => i.component!)));
           const isManual = rawText.includes("Manual Creation");
 
-          // Only save if we don't have an existing ID (manual creation usually doesn't pre-log)
+          // Always ensure raw input is saved
           if (!existingRawLogId) {
               await saveRawInput(
                   rawText,
