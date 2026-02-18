@@ -63,32 +63,23 @@ export const autofillItemData = async (
   customItemTypes?: any[],
   learnedContext?: string
 ): Promise<Partial<DPRItem>> => {
-  const itemTypesToUse = customItemTypes || ITEM_PATTERNS.map(p => ({
-      name: p.name,
-      pattern: p.pattern.toString().slice(1, -2),
-      defaultUnit: p.defaultUnit
-  }));
-
   const hierarchyString = Object.entries(LOCATION_HIERARCHY)
     .map(([loc, comps]) => `${loc} (Components: ${comps.join(', ')})`)
     .join('; ');
 
   const prompt = `
-    Act as a construction data specialist. Analyze: "${description}"
+    Analyze this construction update: "${description}"
     
-    STRICT RULES:
-    1. IDENTIFIER EXTRACTION (CRITICAL):
-       - Look for Area/Structure identifiers like "Panel 1", "Slab 2", "Block A", "Unit 1", "Spiral Casing", "Base", "Top Slab", "Pier 4", "Crown", "Invert", "Wall 3".
-       - These MUST be placed in 'structuralElement'.
-       - Look for Chainage (e.g., "CH 1200", "1200m") or Elevation (e.g., "EL 1400", "1400m").
-       - These MUST be placed in 'chainage'.
-       - If both exist (e.g., "Unit 1 EL 1400"), put "Unit 1" in structuralElement and "EL 1400" in chainage.
+    TASK: Separate the "Where" (Structural ID) from the "What" (Activity).
 
-    2. HIERARCHY MAPPING:
-       - Known Hierarchy: ${hierarchyString}
-       - Map context correctly.
-    
-    Output ONLY valid JSON.
+    STRICT IDENTIFIER RULES:
+    1. Look for specific structural parts (e.g., "Spiral Casing", "Unit 1", "Crown", "Invert", "Panel 1", "Slab A"). 
+       - Put these in 'structuralElement'.
+    2. Look for chainages (e.g., "CH 1200", "1200m"). 
+       - Put these in 'chainage'.
+    3. The 'activityDescription' should ONLY contain the work done (e.g., "Rebar works").
+
+    Output ONLY JSON.
   `;
 
   try {
@@ -101,14 +92,15 @@ export const autofillItemData = async (
           properties: {
             location: { type: Type.STRING },
             component: { type: Type.STRING },
-            structuralElement: { type: Type.STRING },
-            chainage: { type: Type.STRING },
+            structuralElement: { type: Type.STRING, description: "Specific structural part name like Spiral Casing, Unit 1, Crown, or Slab ID." },
+            chainage: { type: Type.STRING, description: "Chainage or Elevation like CH 100 or EL 1450." },
             quantity: { type: Type.NUMBER },
             unit: { type: Type.STRING },
             itemType: { type: Type.STRING },
+            activityDescription: { type: Type.STRING, description: "The work being done, e.g., 'Rebar works', 'Concrete pouring'. Do not include the structure name here." },
             plannedNextActivity: { type: Type.STRING }
           },
-          required: ["quantity", "unit", "itemType"]
+          required: ["quantity", "unit", "itemType", "activityDescription"]
         }
       }
     });
@@ -123,6 +115,7 @@ export const autofillItemData = async (
         quantity: result.quantity || 0,
         unit: cleanStr(result.unit) || "m3",
         itemType: cleanStr(result.itemType) || identifyItemType(description, customItemTypes),
+        activityDescription: cleanStr(result.activityDescription),
         plannedNextActivity: cleanStr(result.plannedNextActivity)
       };
     }
@@ -141,32 +134,35 @@ export const parseConstructionData = async (
   
   const hierarchyToUse = customHierarchy || LOCATION_HIERARCHY;
   const hierarchyString = Object.entries(hierarchyToUse)
-    .map(([loc, comps]) => `- ${loc} contains components: [${comps.join(', ')}]`)
+    .map(([loc, comps]) => `- ${loc} > [${comps.join(', ')}]`)
     .join('\n    ');
 
   const prompt = `
-    You are a high-precision construction data engine. Convert site update text into a structured JSON array.
+    You are a construction data extraction agent. Convert site notes into a JSON array.
 
     STRICT ATOMIC RULES:
-    1. MULTI-CONTEXT HANDLING:
-       - The input contains sections marked with "--- CONTEXT: [Location] > [Component] ---".
-       - Everything under such a header MUST be mapped to that exact Location and Component. 
+    1. MULTI-CONTEXT (CRITICAL):
+       - Look for headers: "--- CONTEXT: [Location] > [Component] ---".
+       - All text until the next header belongs to that Location and Component.
 
-    2. IDENTIFIER EXTRACTION (MAX PRECISION):
-       - If a line says "Spiral casing unit 1 rebar works = 3.5T", 
-         - "Spiral casing unit 1" IS the structuralElement.
-         - "Rebar works" IS the activityDescription.
-       - If a line says "Crown formworks = 28.5sqm",
-         - "Crown" IS the structuralElement.
-         - "Formworks" IS the activityDescription.
-       - DO NOT include the structural identifier in the activityDescription. Separate them.
+    2. IDENTIFIER SEPARATION (MANDATORY):
+       - SUBJECT IDENTIFICATION: If a line mentions a structure name (e.g. Spiral Casing, Unit 1, Crown, Block A, Panel 1, Slab 2), this is the "Subject".
+       - ACTION IDENTIFICATION: The "Action" is what is being done to the subject (e.g. rebar works, formworks, concrete).
+       - MAPPING: 
+         - Subject -> structuralElement
+         - Action -> activityDescription
+       - EXAMPLE: "Spiral casing unit 1 rebar works = 3.5T"
+         - structuralElement: "Spiral Casing Unit 1"
+         - activityDescription: "Rebar works"
+         - quantity: 3.5, unit: "Ton"
+       - DO NOT include the structure name in activityDescription.
 
-    3. HIERARCHY:
+    3. HIERARCHY REFERENCE:
     ${hierarchyString}
 
-    4. UNIT STANDARDIZATION:
-       - kg to Ton (val/1000). bags to Ton (val*0.05). 
-       - Formwork -> "m2". Concrete -> "m3". Rebar -> "Ton".
+    4. UNIT RULES:
+       - kg to Ton (val/1000). bags to Ton (val*0.05).
+       - formwork="m2", concrete="m3", rebar="Ton".
 
     RAW INPUT:
     """
@@ -190,9 +186,9 @@ export const parseConstructionData = async (
                     extractedDate: { type: Type.STRING },
                     location: { type: Type.STRING },
                     component: { type: Type.STRING },
-                    structuralElement: { type: Type.STRING },
-                    chainage: { type: Type.STRING },
-                    activityDescription: { type: Type.STRING },
+                    structuralElement: { type: Type.STRING, description: "Specific sub-structure name (e.g., Spiral Casing, Unit 1, Crown, Block A)." },
+                    chainage: { type: Type.STRING, description: "Chainage/Elevation (e.g., CH 100, EL 1450)." },
+                    activityDescription: { type: Type.STRING, description: "Description of work only. Do NOT include the structural identifier here." },
                     plannedNextActivity: { type: Type.STRING },
                     quantity: { type: Type.NUMBER },
                     unit: { type: Type.STRING },
@@ -226,7 +222,7 @@ export const parseConstructionData = async (
           let structuralElement = toTitleCase(cleanStr(item.structuralElement));
           let chainage = cleanStr(item.chainage);
 
-          const forbidden = ['not specified', 'unknown', 'n/a', 'undefined'];
+          const forbidden = ['not specified', 'unknown', 'n/a', 'undefined', 'null'];
           if (forbidden.some(f => chainage.toLowerCase().includes(f))) chainage = '';
           if (forbidden.some(f => structuralElement.toLowerCase().includes(f))) structuralElement = '';
 
