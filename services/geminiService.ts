@@ -5,8 +5,8 @@ import { LOCATION_HIERARCHY, identifyItemType, ITEM_PATTERNS } from "../utils/co
 import { getTrainingExamples } from "./firebaseService";
 
 const API_KEY = process.env.API_KEY || '';
-// Using Gemini 2.0 Flash Lite Preview for high speed and better reasoning on structured data
-const MODEL_NAME = 'gemini-2.0-flash-lite-preview-02-05';
+// Fallback to gemini-3-flash-preview as recommended for basic text tasks
+const MODEL_NAME = process.env.MODEL_NAME || 'gemini-3-flash-preview';
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
