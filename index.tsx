@@ -14,10 +14,29 @@ import { FinancialEstimateView } from './components/FinancialEstimateView';
 import { ProjectSettingsView } from './components/ProjectSettings';
 import { ProfileView } from './components/ProfileView';
 import { MasterRecordModal } from './components/MasterRecordModal';
-import { subscribeToReports, saveReportToCloud, logActivity, subscribeToLogs, signInWithGoogle, logoutUser, subscribeToAuth, moveReportToTrash, subscribeToTrash, restoreTrashItem, savePermanentBackup, saveReportHistory, getProjectSettings, saveProjectSettings, incrementUserStats, moveItemToTrash, isConfigured, missingKeys, createSystemCheckpoint } from './services/firebaseService';
-import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, EditHistory, BackupEntry } from './types';
-import { getLocationPriority, LOCATION_HIERARCHY, standardizeHRTMapping } from './utils/constants';
-import { autofillItemData } from './services/geminiService';
+import { 
+  subscribeToReports, 
+  saveReportToCloud, 
+  logActivity, 
+  subscribeToLogs, 
+  signInWithGoogle, 
+  logoutUser, 
+  subscribeToAuth, 
+  moveReportToTrash, 
+  subscribeToTrash, 
+  restoreTrashItem, 
+  savePermanentBackup, 
+  getProjectSettings, 
+  saveProjectSettings, 
+  incrementUserStats, 
+  moveItemToTrash, 
+  isConfigured, 
+  missingKeys, 
+  createSystemCheckpoint,
+  saveRawInput
+} from './services/firebaseService';
+import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, BackupEntry } from './types';
+import { LOCATION_HIERARCHY } from './utils/constants';
 
 const App = () => {
   const [user, setUser] = useState<any | null>(null);
@@ -39,18 +58,15 @@ const App = () => {
   
   const [bypassConfig, setBypassConfig] = useState(false);
 
-  // Hide the HTML loading spinner once React takes over
   useEffect(() => {
     if (!authLoading) {
       const loader = document.getElementById('loading-indicator');
       if (loader) {
          loader.style.opacity = '0';
-         setTimeout(() => loader.remove(), 500); // Wait for transition then remove
+         setTimeout(() => loader.remove(), 500);
       }
     }
   }, [authLoading]);
-  
-  // ... (Rest of the component code logic - omitted for brevity as it's unchanged)
   
   const handleLogin = async () => {
       try {
@@ -69,9 +85,7 @@ const App = () => {
 
   const configLoaded = isConfigured || bypassConfig;
 
-  // --- DATA SYNC & SUBSCRIPTIONS ---
   useEffect(() => {
-    // Auth Listener
     const unsubAuth = subscribeToAuth((u) => {
         setUser(u);
         setAuthLoading(false);
@@ -83,7 +97,6 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-      // Data Listeners
       if (user) {
           const unsubReports = subscribeToReports((data) => {
               setReports(data);
@@ -106,9 +119,7 @@ const App = () => {
       }
   }, [user]);
 
-  // --- DERIVED STATE ---
   useEffect(() => {
-      // Find report for currentDate
       const found = reports.find(r => r.date === currentDate);
       if (found) {
           setCurrentEntries(found.entries);
@@ -120,50 +131,54 @@ const App = () => {
       setUndoStack([]);
       setRedoStack([]);
   }, [currentDate, reports]);
-
-  // --- ACTIONS ---
   
   const handleItemsAdded = async (newItems: DPRItem[], rawText: string) => {
       setIsGlobalSaving(true);
       
-      // 1. Update State immediately for UI
       const updatedEntries = [...currentEntries, ...newItems];
       setCurrentEntries(updatedEntries);
       
-      // 2. Determine Report ID (Existing or New)
       let reportId = currentReportId;
       if (!reportId) {
           reportId = `${currentDate}_${crypto.randomUUID()}`;
           setCurrentReportId(reportId);
       }
 
-      // 3. Construct Report Object
       const reportData: DailyReport = {
           id: reportId,
           date: currentDate,
           lastUpdated: new Date().toISOString(),
-          projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project", // Use settings
+          projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
           companyName: settings?.companyName || "Construction Management",
           entries: updatedEntries
       };
 
       try {
-          // 4. Save to Cloud
           await saveReportToCloud(reportData);
           
-          // 5. Save Backup of this operation
           const backupId = await savePermanentBackup(currentDate, rawText, newItems, user?.displayName || 'Unknown', reportId);
           
-          // 6. Log Activity
+          const locs = Array.from(new Set(newItems.map(i => i.location)));
+          const comps = Array.from(new Set(newItems.filter(i => i.component).map(i => i.component!)));
+          const isManual = rawText.includes("Manual Creation");
+
+          await saveRawInput(
+              rawText,
+              currentDate,
+              locs,
+              comps,
+              user?.displayName || 'Unknown',
+              isManual ? 'manual' : 'ai_processed'
+          );
+
           await logActivity(
               user?.displayName || 'Unknown', 
-              "Add Entries", 
-              `Added ${newItems.length} items to ${currentDate}`, 
+              isManual ? "Manual Creation" : "AI Import", 
+              `${isManual ? 'Created' : 'Imported'} ${newItems.length} items for ${currentDate}`, 
               currentDate,
               backupId
           );
           
-          // 7. Update User Stats
           await incrementUserStats(user?.uid, newItems.length);
 
       } catch (error) {
@@ -180,11 +195,8 @@ const App = () => {
       if (!itemToDelete) return;
 
       const updatedEntries = currentEntries.filter(i => i.id !== itemId);
-      
-      // Optimistic update
       setCurrentEntries(updatedEntries);
 
-      // Cloud update
       const reportToSave = { 
           ...reports.find(r => r.id === currentReportId)!, 
           entries: updatedEntries,
@@ -199,7 +211,7 @@ const App = () => {
       if (!currentReportId) return;
       
       const updatedEntries = currentEntries.map(i => i.id === itemId ? { ...i, ...updates, lastModifiedBy: user?.displayName, lastModifiedAt: new Date().toISOString() } : i);
-      setCurrentEntries(updatedEntries); // Optimistic
+      setCurrentEntries(updatedEntries);
 
       const reportToSave = {
           ...reports.find(r => r.id === currentReportId)!,
@@ -230,12 +242,6 @@ const App = () => {
              setCurrentEntries([]);
          }
       }
-  };
-
-  // --- UNDO / REDO (Local Session Only) ---
-  const pushUndo = () => {
-      setUndoStack(prev => [...prev, currentEntries]);
-      setRedoStack([]);
   };
 
   const handleUndo = async () => {
@@ -282,11 +288,9 @@ const App = () => {
       if (backupsToRecover.length === 0) return;
       setIsGlobalSaving(true);
       
-      // For each backup, we basically "re-add" the items
       for (const b of backupsToRecover) {
            const targetDate = b.date;
            let targetReport = reports.find(r => r.date === targetDate);
-           
            const restoredItems = b.parsedItems.map(i => ({ ...i, isRecovered: true }));
            
            if (targetReport) {
@@ -353,7 +357,6 @@ const App = () => {
     );
   }
 
-  // Determine what to render based on tab
   const renderContent = () => {
       switch(activeTab) {
           case TabView.INPUT:

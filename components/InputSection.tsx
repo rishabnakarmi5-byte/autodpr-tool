@@ -1,7 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { parseConstructionData } from '../services/geminiService';
-import { saveRawInput } from '../services/firebaseService';
 import { DPRItem, ItemTypeDefinition } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 
@@ -24,18 +23,11 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Selection State
   const [aiLocations, setAiLocations] = useState<string[]>([]);
   const [aiComponents, setAiComponents] = useState<string[]>([]);
-  
-  // Multi-Text State: Component Key -> Text Value
-  // Format: "Location:Component" -> "Text"
   const [contextTexts, setContextTexts] = useState<Record<string, string>>({ "General:General": "" });
-  
-  // Modal State
   const [modalStep, setModalStep] = useState<number>(0);
 
-  // Derived list of active contexts (Location + Component pairings)
   const activeContexts = useMemo(() => {
     if (aiComponents.length === 0) return [{ loc: "General", comp: "General" }];
     
@@ -51,16 +43,12 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     return list;
   }, [aiLocations, aiComponents, hierarchy]);
 
-  // Clean up contextTexts when contexts change (optional: keep text for better UX)
-  // We keep it so if a user unchecks and re-checks, their text is still there.
-
   const handleTextChange = (loc: string, comp: string, val: string) => {
     const key = `${loc}:${comp}`;
     setContextTexts(prev => ({ ...prev, [key]: val }));
   };
 
   const handleProcessAndAdd = async () => {
-    // Collect all non-empty text contexts
     const entriesToProcess = activeContexts.filter(ctx => {
       const val = contextTexts[`${ctx.loc}:${ctx.comp}`];
       return val && val.trim().length > 0;
@@ -75,8 +63,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     setError(null);
 
     try {
-      // Build a structured raw text for the AI to parse as one batch
-      // This is more efficient than calling AI in a loop
       const aggregatedRaw = entriesToProcess.map(ctx => {
         const text = contextTexts[`${ctx.loc}:${ctx.comp}`];
         return `--- CONTEXT: ${ctx.loc} > ${ctx.comp} ---\n${text}`;
@@ -99,7 +85,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
 
       await onItemsAdded(stamped, aggregatedRaw);
       
-      // Clear only the texts we just processed
       const newTexts = { ...contextTexts };
       entriesToProcess.forEach(ctx => {
         newTexts[`${ctx.loc}:${ctx.comp}`] = "";
@@ -130,13 +115,12 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           createdBy: user?.displayName || 'Manual',
           lastModifiedAt: new Date().toISOString()
       };
-      await onItemsAdded([blankItem], "Manual Creation");
+      await onItemsAdded([blankItem], "Manual Creation (Blank Card)");
       setModalStep(1);
   };
 
   return (
     <div className="space-y-8 animate-fade-in relative">
-      {/* Header Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-2 bg-gradient-to-br from-indigo-700 via-indigo-800 to-indigo-900 rounded-2xl p-7 text-white shadow-2xl relative overflow-hidden group">
            <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform">
@@ -177,9 +161,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         </div>
       </div>
 
-      {/* Main Container */}
       <div className="bg-white rounded-3xl shadow-2xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
-        {/* Navigation Tabs */}
         <div className="px-8 pt-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
             <div className="flex gap-1 pb-1">
                 <button onClick={() => setMode('ai')} className={`px-6 py-3 rounded-t-2xl text-xs font-black uppercase tracking-widest transition-all ${mode === 'ai' ? 'bg-white border-x border-t border-slate-100 text-indigo-600 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.02)]' : 'text-slate-400 hover:text-slate-600'}`}>Daily Progress Entry</button>
@@ -194,7 +176,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         <div className="p-8 space-y-8">
             {mode === 'ai' && (
                 <>
-                    {/* Context Selector Grid */}
                     <div className="space-y-6">
                         <div>
                             <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">1. Select Locations (Context)</label>
@@ -229,7 +210,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                         )}
                     </div>
 
-                    {/* Dynamic Context Input Area */}
                     <div className="space-y-6 pt-4">
                         <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest">3. Enter Site Activities</label>
                         
