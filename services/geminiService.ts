@@ -5,7 +5,7 @@ import { LOCATION_HIERARCHY, identifyItemType, ITEM_PATTERNS } from "../utils/co
 import { getTrainingExamples } from "./firebaseService";
 
 const API_KEY = process.env.API_KEY || '';
-// Fallback to gemini-3-flash-preview as recommended for basic text tasks
+// Use gemini-3-flash-preview as recommended for text extraction tasks
 const MODEL_NAME = process.env.MODEL_NAME || 'gemini-3-flash-preview';
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
@@ -69,7 +69,6 @@ export const autofillItemData = async (
       defaultUnit: p.defaultUnit
   }));
 
-  const itemTypesString = itemTypesToUse.map(t => `"${t.name}"`).join(', ');
   const hierarchyString = Object.entries(LOCATION_HIERARCHY)
     .map(([loc, comps]) => `${loc} (Components: ${comps.join(', ')})`)
     .join('; ');
@@ -77,24 +76,17 @@ export const autofillItemData = async (
   const prompt = `
     Act as a construction data specialist. Analyze: "${description}"
     
-    ${learnedContext ? `VERIFIED MAPPINGS:\n${learnedContext}\n` : ''}
-
     STRICT RULES:
-    1. IDENTIFIER EXTRACTION:
-       - Look for Area/Structure identifiers like "Panel 1", "Slab 2", "Block A", "Unit 1", "Base", "Top Slab", "Pier 4", "Pipe 28.7".
+    1. IDENTIFIER EXTRACTION (CRITICAL):
+       - Look for Area/Structure identifiers like "Panel 1", "Slab 2", "Block A", "Unit 1", "Spiral Casing", "Base", "Top Slab", "Pier 4", "Crown", "Invert", "Wall 3".
        - These MUST be placed in 'structuralElement'.
        - Look for Chainage (e.g., "CH 1200", "1200m") or Elevation (e.g., "EL 1400", "1400m").
        - These MUST be placed in 'chainage'.
-       - If both exist (e.g., "Panel 1 EL 1400"), put "Panel 1" in structuralElement and "EL 1400" in chainage.
+       - If both exist (e.g., "Unit 1 EL 1400"), put "Unit 1" in structuralElement and "EL 1400" in chainage.
 
     2. HIERARCHY MAPPING:
        - Known Hierarchy: ${hierarchyString}
-       - Map Barrage -> Headworks, Powerhouse -> Powerhouse, etc.
-
-    3. NEXT PLAN LOGIC:
-       - Rebar -> "Formwork & Preparation"
-       - Formwork -> "Concrete works"
-       - Concrete -> "Deshuttering & Curing"
+       - Map context correctly.
     
     Output ONLY valid JSON.
   `;
@@ -159,19 +151,21 @@ export const parseConstructionData = async (
     1. MULTI-CONTEXT HANDLING:
        - The input contains sections marked with "--- CONTEXT: [Location] > [Component] ---".
        - Everything under such a header MUST be mapped to that exact Location and Component. 
-       - Do NOT infer other locations for text inside a context section.
 
-    2. IDENTIFIER SEPARATION (CRITICAL):
-       - Separate Identifiers from the Activity. 
-       - IDENTIFIERS (Store in 'structuralElement' or 'chainage'): "Panel 1", "Slab 2", "Block A", "Unit 1", "Base", "Top Slab", "Pier 4", "EL 1450", "CH 200+50", "Portion 3", "28.7m Pipe".
-       - Example: "Panel 1 end sill concrete 75m3" 
-         -> location: (from context), component: (from context), structuralElement: "Panel 1", activityDescription: "End sill concrete works (75 m3)", quantity: 75, unit: "m3".
+    2. IDENTIFIER EXTRACTION (MAX PRECISION):
+       - If a line says "Spiral casing unit 1 rebar works = 3.5T", 
+         - "Spiral casing unit 1" IS the structuralElement.
+         - "Rebar works" IS the activityDescription.
+       - If a line says "Crown formworks = 28.5sqm",
+         - "Crown" IS the structuralElement.
+         - "Formworks" IS the activityDescription.
+       - DO NOT include the structural identifier in the activityDescription. Separate them.
 
     3. HIERARCHY:
     ${hierarchyString}
 
     4. UNIT STANDARDIZATION:
-       - Convert kg to Ton (val/1000). Convert bags to Ton (val*0.05). 
+       - kg to Ton (val/1000). bags to Ton (val*0.05). 
        - Formwork -> "m2". Concrete -> "m3". Rebar -> "Ton".
 
     RAW INPUT:
