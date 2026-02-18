@@ -63,22 +63,16 @@ export const autofillItemData = async (
   customItemTypes?: any[],
   learnedContext?: string
 ): Promise<Partial<DPRItem>> => {
-  const hierarchyString = Object.entries(LOCATION_HIERARCHY)
-    .map(([loc, comps]) => `${loc} (Components: ${comps.join(', ')})`)
-    .join('; ');
-
   const prompt = `
-    Analyze this construction update: "${description}"
+    Analyze: "${description}"
     
-    TASK: Separate the "Where" (Structural ID) from the "What" (Activity).
+    TASK: Separate "Where" (Structural ID) from "What" (Activity).
 
-    STRICT IDENTIFIER RULES:
-    1. Look for specific structural parts (e.g., "Spiral Casing", "Unit 1", "Crown", "Invert", "Panel 1", "Slab A"). 
-       - Put these in 'structuralElement'.
-    2. Look for chainages (e.g., "CH 1200", "1200m"). 
-       - Put these in 'chainage'.
-    3. The 'activityDescription' should ONLY contain the work done (e.g., "Rebar works").
-    4. Ensure 'quantity' and 'unit' are extracted accurately.
+    STRICT RULES:
+    1. structuralElement: Specific part name (e.g., "Spiral Casing Unit 1", "Crown").
+    2. activityDescription: MUST follow format "Action (Quantity Unit)". 
+       Example: "Rebar works (3.5 Ton)".
+    3. Ensure 'quantity' and 'unit' are numeric/standardized.
 
     Output ONLY JSON.
   `;
@@ -93,12 +87,12 @@ export const autofillItemData = async (
           properties: {
             location: { type: Type.STRING },
             component: { type: Type.STRING },
-            structuralElement: { type: Type.STRING, description: "Specific structural part name." },
-            chainage: { type: Type.STRING, description: "Chainage/Elevation." },
+            structuralElement: { type: Type.STRING },
+            chainage: { type: Type.STRING },
             quantity: { type: Type.NUMBER },
             unit: { type: Type.STRING },
             itemType: { type: Type.STRING },
-            activityDescription: { type: Type.STRING, description: "Work description only." },
+            activityDescription: { type: Type.STRING },
             plannedNextActivity: { type: Type.STRING }
           },
           required: ["quantity", "unit", "itemType", "activityDescription"]
@@ -139,31 +133,29 @@ export const parseConstructionData = async (
     .join('\n    ');
 
   const prompt = `
-    You are a high-precision construction data engine. Convert site notes into a structured JSON array of records.
+    You are a high-precision construction data engine. Convert site notes into structured JSON records.
 
     STRICT ATOMIC RULES:
-    1. ONE QUANTITY = ONE RECORD:
-       - If a sentence says "Rebar 3.5T and formworks 30sqm", you MUST return TWO separate items.
-       - Never merge different item types or quantities into a single record.
+    1. MULTI-ACTIVITY SPLIT:
+       - If a sentence has multiple quantities (e.g. "Rebar 3.5T and formwork 30sqm"), return TWO separate items.
 
-    2. CONTEXT INHERITANCE (CRITICAL):
-       - The input uses headers like "--- CONTEXT: Powerhouse > Main Building ---".
-       - Every activity following a header MUST use that exact 'location' (Powerhouse) and 'component' (Main Building).
-       - DO NOT leave 'component' blank if a header provides it.
+    2. CONTEXT INHERITANCE:
+       - Headers "--- CONTEXT: Location > Component ---" apply to ALL following text until the next header.
+       - DO NOT leave 'component' blank if provided in header.
 
-    3. IDENTIFIER SEPARATION:
-       - Subject (Structural Element): The specific part of the project (e.g., "Spiral Casing", "Unit 1", "Crown", "Invert", "Block A").
-       - Action (Activity): What is being done (e.g., "Rebar works", "Concrete C25", "Excavation").
-       - MAPPING: 
-         - structuralElement = Subject
-         - activityDescription = Action
-       - Do NOT repeat the Subject inside the activityDescription.
+    3. DESCRIPTION FORMAT (CRITICAL):
+       - 'activityDescription' MUST be: "Action (Quantity Unit)".
+       - DO NOT put the structure name (e.g. Spiral Casing) in the activityDescription.
+       - Put the structure name in 'structuralElement'.
+       - EXAMPLE: "Spiral casing unit 1 rebar works = 3.5T"
+         - structuralElement: "Spiral Casing Unit 1"
+         - activityDescription: "Rebar works (3.5 Ton)"
 
-    4. DATA TYPES:
-       - quantity: Must be a number. Extract 3.5 from "3.5T", 30.0 from "30.0sqm".
-       - unit: Standardize (sqm -> m2, cum -> m3, T/mt -> Ton).
+    4. DATA MAPPING:
+       - quantity: numeric only.
+       - unit: standardized (m3, m2, Ton, nos, rm).
 
-    5. HIERARCHY:
+    5. HIERARCHY REFERENCE:
     ${hierarchyString}
 
     RAW INPUT:
@@ -186,15 +178,15 @@ export const parseConstructionData = async (
                   type: Type.OBJECT,
                   properties: {
                     extractedDate: { type: Type.STRING },
-                    location: { type: Type.STRING, description: "The Main Location (e.g. Powerhouse) from context header." },
-                    component: { type: Type.STRING, description: "The Project Component (e.g. Main Building) from context header." },
-                    structuralElement: { type: Type.STRING, description: "Specific part like 'Spiral Casing Unit 1' or 'Crown'." },
-                    chainage: { type: Type.STRING, description: "Chainage or Elevation if mentioned." },
-                    activityDescription: { type: Type.STRING, description: "The specific work action (e.g. 'Rebar works')." },
+                    location: { type: Type.STRING },
+                    component: { type: Type.STRING },
+                    structuralElement: { type: Type.STRING },
+                    chainage: { type: Type.STRING },
+                    activityDescription: { type: Type.STRING, description: "Format: Action (Quantity Unit)" },
                     plannedNextActivity: { type: Type.STRING },
-                    quantity: { type: Type.NUMBER, description: "Extracted numeric value." },
-                    unit: { type: Type.STRING, description: "Measurement unit." },
-                    itemType: { type: Type.STRING, description: "Classification of work." }
+                    quantity: { type: Type.NUMBER },
+                    unit: { type: Type.STRING },
+                    itemType: { type: Type.STRING }
                   },
                   required: ["location", "component", "activityDescription", "quantity", "unit"],
                 },
@@ -210,8 +202,7 @@ export const parseConstructionData = async (
       const unitMap: Record<string, string> = { 'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'nos': 'nos', 'rm': 'rm', 't': 'Ton' };
 
       const processedItems = result.items.map((item: any) => {
-          let desc = cleanStr(item.activityDescription);
-          let type = cleanStr(item.itemType) || identifyItemType(desc, customItemTypes);
+          let type = cleanStr(item.itemType) || identifyItemType(item.activityDescription, customItemTypes);
           let rawUnit = cleanStr(item.unit).toLowerCase();
           let finalUnit = unitMap[rawUnit] || cleanStr(item.unit) || "m3";
           let qty = item.quantity || 0;
@@ -222,9 +213,17 @@ export const parseConstructionData = async (
           
           let loc = toTitleCase(cleanStr(item.location) || "Unclassified");
           let comp = toTitleCase(cleanStr(item.component) || "");
-          
           let structuralElement = toTitleCase(cleanStr(item.structuralElement));
           let chainage = cleanStr(item.chainage);
+
+          // Force activityDescription format: "Action (Quantity Unit)"
+          let desc = cleanStr(item.activityDescription);
+          const qtyString = `(${qty} ${finalUnit})`;
+          if (!desc.includes(qtyString)) {
+              // Strip existing quantity mentions to avoid duplication
+              const cleanDesc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm)[\)]?/gi, '').replace(/\s*=\s*/g, '').trim();
+              desc = `${cleanDesc} ${qtyString}`;
+          }
 
           const forbidden = ['not specified', 'unknown', 'n/a', 'undefined', 'null', 'select...'];
           if (forbidden.some(f => chainage.toLowerCase().includes(f))) chainage = '';
