@@ -51,8 +51,24 @@ const cleanStr = (val: any): string => {
   return s;
 };
 
+const KNOWN_ACRONYMS = ['GIS', 'MAT', 'HRT', 'TRT', 'MIV', 'LPT', 'AT', 'ST', 'VT', 'VS'];
+
 const toTitleCase = (str: string) => {
-    return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+    return str.replace(/\w\S*/g, (txt) => {
+        if (KNOWN_ACRONYMS.includes(txt.toUpperCase())) {
+            return txt.toUpperCase();
+        }
+        return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
+    });
+};
+
+const correctStructuralTypos = (str: string): string => {
+    let corrected = str;
+    // Fix "Inverter" -> "Invert"
+    corrected = corrected.replace(/\bInverter\b/gi, 'Invert');
+    // Fix "Tunnel Invert" -> "Invert"
+    corrected = corrected.replace(/\bTunnel Invert\b/gi, 'Invert');
+    return corrected;
 };
 
 /**
@@ -69,10 +85,11 @@ export const autofillItemData = async (
     TASK: Separate "Where" (Structural ID) from "What" (Activity).
 
     STRICT RULES:
-    1. structuralElement: Specific part name (e.g., "Spiral Casing Unit 1", "Crown").
+    1. structuralElement: Extract the specific part/area (e.g., "Spiral Casing Unit 1", "Crown", "end sill", "bottom sill").
     2. activityDescription: MUST follow format "Action (Quantity Unit)". 
        Example: "C35 Concrete works (5 m3)".
        - IMPORTANT: Always include grades (C35, C25, M20) if present.
+       - If structure is extracted to 'structuralElement', try to simplify the description (e.g. "Spiral Casing Rebar" -> "Rebar works").
     3. Ensure 'quantity' and 'unit' are numeric/standardized.
 
     Output ONLY JSON.
@@ -104,14 +121,19 @@ export const autofillItemData = async (
     if (response.text) {
       const result = JSON.parse(response.text);
       const desc = cleanStr(result.activityDescription);
+      const identifiedType = identifyItemType(desc, customItemTypes);
+      const finalType = (identifiedType === 'Other' && result.itemType && cleanStr(result.itemType).toLowerCase() !== 'other') 
+          ? toTitleCase(cleanStr(result.itemType)) 
+          : identifiedType;
+
       return {
         location: toTitleCase(cleanStr(result.location)),
         component: toTitleCase(cleanStr(result.component)),
-        structuralElement: toTitleCase(cleanStr(result.structuralElement)),
+        structuralElement: correctStructuralTypos(toTitleCase(cleanStr(result.structuralElement))),
         chainage: cleanStr(result.chainage),
         quantity: result.quantity || 0,
         unit: cleanStr(result.unit) || "m3",
-        itemType: identifyItemType(desc, customItemTypes), 
+        itemType: finalType, 
         activityDescription: desc,
         plannedNextActivity: cleanStr(result.plannedNextActivity)
       };
@@ -158,6 +180,14 @@ export const parseConstructionData = async (
     5. DATA MAPPING:
        - quantity: numeric only.
        - unit: standardized (m3, m2, Ton, nos, rm).
+       - structuralElement: CRITICAL: Extract the specific part, area, or structure name from the description if not explicitly provided.
+         Examples: "Spiral casing unit 1", "end sill", "bottom sill", "pier", "wall", "slab", "Crown", "Invert", "Glacis".
+         - If you see "Inverter" or "Tunnel Inverter", convert it to "Invert".
+       - chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25").
+
+    6. DESCRIPTION CLEANUP:
+       - If you extract a structure (e.g. "Spiral casing unit 1") into 'structuralElement', REMOVE it from 'activityDescription' to avoid duplication, UNLESS it makes the description unclear.
+       - Keep the description focused on the action (e.g., "Rebar works", "Concrete casting").
 
     HIERARCHY REFERENCE:
     ${hierarchyString}
@@ -251,7 +281,7 @@ export const parseConstructionData = async (
               if (foundCompKey) comp = foundCompKey;
           }
 
-          let structuralElement = toTitleCase(cleanStr(item.structuralElement));
+          let structuralElement = correctStructuralTypos(toTitleCase(cleanStr(item.structuralElement)));
           let chainage = cleanStr(item.chainage);
 
           // Force activityDescription format: "Action (Quantity Unit)"
@@ -264,6 +294,11 @@ export const parseConstructionData = async (
           }
 
           let type = identifyItemType(desc, customItemTypes);
+          
+          // Fallback to AI classification if regex returns 'Other'
+          if (type === 'Other' && item.itemType && cleanStr(item.itemType).toLowerCase() !== 'other') {
+              type = toTitleCase(cleanStr(item.itemType));
+          }
 
           if (rawUnit.includes('bag')) { qty = qty * 0.05; finalUnit = 'Ton'; }
           if (type === 'Rebar' || finalUnit === 'Ton') { qty = Math.round(qty * 100) / 100; }
