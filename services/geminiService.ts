@@ -303,6 +303,20 @@ export const parseConstructionData = async (
           if (rawUnit.includes('bag')) { qty = qty * 0.05; finalUnit = 'Ton'; }
           if (type === 'Rebar' || finalUnit === 'Ton') { qty = Math.round(qty * 100) / 100; }
 
+          // POST-PROCESSING: Extract structure from description if missing
+          if (!structuralElement) {
+              const structureKeywords = ["Invert", "Inverter", "Arch", "Wall", "Slab", "Face", "Crown", "Kicker", "Gantry", "Pier", "Abutment", "Glacis", "Apron", "Basin", "Soling", "Casing", "Bulkhead"];
+              const foundKeyword = structureKeywords.find(kw => desc.toLowerCase().includes(kw.toLowerCase()));
+              
+              if (foundKeyword) {
+                  structuralElement = correctStructuralTypos(toTitleCase(foundKeyword));
+                  // Optionally remove it from description, but keeping it is safer for context unless it's redundant
+              }
+          }
+
+          // Fix typos in description as well
+          desc = correctStructuralTypos(desc);
+
           const forbidden = ['not specified', 'unknown', 'n/a', 'undefined', 'null', 'select...'];
           if (forbidden.some(f => chainage.toLowerCase().includes(f))) chainage = '';
           if (forbidden.some(f => structuralElement.toLowerCase().includes(f))) structuralElement = '';
