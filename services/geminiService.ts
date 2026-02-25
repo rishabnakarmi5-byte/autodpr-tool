@@ -180,6 +180,7 @@ export const parseConstructionData = async (
     5. DATA MAPPING:
        - quantity: numeric only.
        - unit: standardized (m3, m2, Ton, nos, rm).
+       - itemType: Classify the item type (e.g., "Formworks", "Rebar", "C25 Concrete", "Excavation").
        - structuralElement: CRITICAL: Extract the specific part, area, or structure name from the description if not explicitly provided.
          Examples: "Spiral casing unit 1", "end sill", "bottom sill", "pier", "wall", "slab", "Crown", "Invert", "Glacis".
          - If you see "Inverter" or "Tunnel Inverter", convert it to "Invert".

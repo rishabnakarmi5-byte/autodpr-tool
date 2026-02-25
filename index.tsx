@@ -215,16 +215,33 @@ const App = () => {
   };
 
   const handleUpdateItem = async (itemId: string, updates: Partial<DPRItem>) => {
-      if (!currentReportId) return;
+      // Find which report contains this item
+      let targetReport = reports.find(r => r.entries.some(e => e.id === itemId));
       
-      const updatedEntries = currentEntries.map(i => i.id === itemId ? { ...i, ...updates, lastModifiedBy: user?.displayName, lastModifiedAt: new Date().toISOString() } : i);
-      setCurrentEntries(updatedEntries);
+      // If not found in loaded reports, check if it's in the current session (newly added but not saved to reports list yet?)
+      // But reports state should be source of truth.
+      
+      if (!targetReport) {
+          console.error("Item not found in any report");
+          return;
+      }
+
+      const updatedEntries = targetReport.entries.map(i => i.id === itemId ? { ...i, ...updates, lastModifiedBy: user?.displayName, lastModifiedAt: new Date().toISOString() } : i);
+      
+      // If we are currently viewing this report, update currentEntries state too
+      if (currentReportId === targetReport.id) {
+          setCurrentEntries(updatedEntries);
+      }
 
       const reportToSave = {
-          ...reports.find(r => r.id === currentReportId)!,
+          ...targetReport,
           entries: updatedEntries,
           lastUpdated: new Date().toISOString()
       };
+      
+      // Optimistic update for UI
+      setReports(prev => prev.map(r => r.id === reportToSave.id ? reportToSave : r));
+
       await saveReportToCloud(reportToSave);
   };
   

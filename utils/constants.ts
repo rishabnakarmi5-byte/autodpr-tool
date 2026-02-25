@@ -101,10 +101,14 @@ export const ITEM_PATTERNS = [
 ];
 
 export const identifyItemType = (text: string, customItems?: any[]): string => {
-  const itemsToUse = customItems ? customItems.map(i => ({
-      name: i.name,
-      pattern: typeof i.pattern === 'string' ? new RegExp(i.pattern, 'i') : i.pattern
-  })) : ITEM_PATTERNS;
+  let itemsToUse = ITEM_PATTERNS;
+
+  if (customItems && customItems.length > 0) {
+      itemsToUse = customItems.map(i => ({
+          name: i.name,
+          pattern: typeof i.pattern === 'string' ? new RegExp(i.pattern, 'i') : i.pattern
+      }));
+  }
 
   for (const item of itemsToUse) {
     if (item.pattern.test(text)) {
