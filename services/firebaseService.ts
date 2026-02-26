@@ -12,12 +12,13 @@ const { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChange
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.FIREBASE_APP_ID,
-  measurementId: process.env.measurementId
+  apiKey: process.env.FIREBASE_API_KEY || "AIzaSyAdC43GuYzwPVHdwHwC-WRv0gNz6IoXAb4",
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN || "autodpr-469e1.firebaseapp.com",
+  projectId: process.env.FIREBASE_PROJECT_ID || "autodpr-469e1",
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || "autodpr-469e1.firebasestorage.app",
+  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || "674910651452",
+  appId: process.env.FIREBASE_APP_ID || "1:674910651452:web:c02290cb6a4a336d12af39",
+  measurementId: process.env.measurementId || "G-7M0MVBDRY6"
 };
 
 export const missingKeys = Object.entries(firebaseConfig)

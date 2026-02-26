@@ -90,7 +90,7 @@ export const autofillItemData = async (
        Example: "C35 Concrete works (5 m3)".
        - IMPORTANT: Always include grades (C35, C25, M20) if present.
        - If structure is extracted to 'structuralElement', try to simplify the description (e.g. "Spiral Casing Rebar" -> "Rebar works").
-    3. Ensure 'quantity' and 'unit' are numeric/standardized.
+    3. Ensure 'quantity' and 'unit' are numeric/standardized. If no quantity is specified, return 0. DO NOT default to 1.
 
     Output ONLY JSON.
   `;
@@ -178,7 +178,7 @@ export const parseConstructionData = async (
        - Include grades (C35, C25, M15) in the description.
 
     5. DATA MAPPING:
-       - quantity: numeric only.
+       - quantity: numeric only. If no quantity is specified in the text, return 0. DO NOT default to 1.
        - unit: standardized (m3, m2, Ton, nos, rm).
        - itemType: Classify the item type (e.g., "Formworks", "Rebar", "C25 Concrete", "Excavation").
        - structuralElement: CRITICAL: Extract the specific part, area, or structure name from the description if not explicitly provided.
@@ -287,11 +287,13 @@ export const parseConstructionData = async (
 
           // Force activityDescription format: "Action (Quantity Unit)"
           let desc = cleanStr(item.activityDescription);
-          const qtyString = `(${qty} ${finalUnit})`;
-          
-          if (!desc.includes(qtyString)) {
-              const cleanDesc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm)[\)]?/gi, '').replace(/\s*=\s*/g, '').trim();
-              desc = `${cleanDesc} ${qtyString}`;
+          if (qty > 0) {
+              const qtyString = `(${qty} ${finalUnit})`;
+              
+              if (!desc.includes(qtyString)) {
+                  const cleanDesc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm)[\)]?/gi, '').replace(/\s*=\s*/g, '').trim();
+                  desc = `${cleanDesc} ${qtyString}`;
+              }
           }
 
           let type = identifyItemType(desc, customItemTypes);
