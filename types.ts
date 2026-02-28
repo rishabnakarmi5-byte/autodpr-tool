@@ -118,6 +118,14 @@ export interface TrainingExample {
   createdAt: string;
 }
 
+export interface SubContractor {
+  id: string;
+  name: string;
+  assignedComponents: string[]; // e.g., "Headrace Tunnel - HRT from Adit", "Main Building"
+  rates: Record<string, number>; // e.g., { "C25 Concrete": 5000, "Formwork": 1200 }
+  createdAt: string;
+}
+
 export interface ProjectSettings {
   projectName: string;
   companyName: string;

@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { ProjectSettings, DailyReport, QuantityEntry, ItemTypeDefinition, SystemCheckpoint, TrainingExample } from '../types';
+import { ProjectSettings, DailyReport, QuantityEntry, ItemTypeDefinition, SystemCheckpoint, TrainingExample, SubContractor } from '../types';
 import { LOCATION_HIERARCHY, ITEM_PATTERNS } from '../utils/constants';
-import { createSystemCheckpoint, getCheckpoints, restoreSystemCheckpoint, saveTrainingExample, deleteTrainingExample, subscribeToTrainingExamples, exportAllData } from '../services/firebaseService';
+import { createSystemCheckpoint, getCheckpoints, restoreSystemCheckpoint, saveTrainingExample, deleteTrainingExample, subscribeToTrainingExamples, exportAllData, subscribeToSubContractors, saveSubContractor, deleteSubContractor } from '../services/firebaseService';
 
 interface ProjectSettingsProps {
   currentSettings: ProjectSettings | null;
@@ -13,7 +13,7 @@ interface ProjectSettingsProps {
 }
 
 export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSettings, onSave, reports, quantities, user }) => {
-  const [activeTab, setActiveTab] = useState<'config' | 'snapshots' | 'training'>('config');
+  const [activeTab, setActiveTab] = useState<'config' | 'snapshots' | 'training' | 'subcontractors'>('config');
   
   // Config State
   const [hierarchy, setHierarchy] = useState(currentSettings?.locationHierarchy || LOCATION_HIERARCHY);
@@ -35,6 +35,11 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   const [newExRaw, setNewExRaw] = useState('');
   const [newExExpected, setNewExExpected] = useState('');
   const [newExCategory, setNewExCategory] = useState<'location' | 'quantity' | 'general'>('general');
+
+  // Subcontractor State
+  const [subcontractors, setSubcontractors] = useState<SubContractor[]>([]);
+  const [newScName, setNewScName] = useState('');
+  const [selectedScId, setSelectedScId] = useState<string | null>(null);
 
   // --- CONFIG HANDLERS ---
   const [newLocName, setNewLocName] = useState('');
@@ -141,6 +146,37 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
       }
   };
 
+  // --- SUBCONTRACTOR HANDLERS ---
+  useEffect(() => {
+    if (activeTab === 'subcontractors') {
+        const unsub = subscribeToSubContractors(setSubcontractors);
+        return () => unsub();
+    }
+  }, [activeTab]);
+
+  const handleAddSc = async () => {
+      if (!newScName) return;
+      await saveSubContractor({
+          id: crypto.randomUUID(),
+          name: newScName,
+          assignedComponents: [],
+          rates: {},
+          createdAt: new Date().toISOString()
+      });
+      setNewScName('');
+  };
+
+  const handleUpdateSc = async (sc: SubContractor) => {
+      await saveSubContractor(sc);
+  };
+
+  const handleDeleteSc = async (id: string) => {
+      if (window.confirm("Delete this sub-contractor?")) {
+          await deleteSubContractor(id);
+          if (selectedScId === id) setSelectedScId(null);
+      }
+  };
+
   // --- SNAPSHOT HANDLERS ---
   const loadSnapshots = async () => {
       setLoadingSnapshots(true);
@@ -186,6 +222,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
             </div>
             <div className="flex bg-slate-100 p-1 rounded-xl">
                 <button onClick={() => setActiveTab('config')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'config' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Configuration</button>
+                <button onClick={() => setActiveTab('subcontractors')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'subcontractors' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Sub-Contractors</button>
                 <button onClick={() => setActiveTab('training')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'training' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>AI Training</button>
                 <button onClick={() => setActiveTab('snapshots')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'snapshots' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Snapshots</button>
             </div>
@@ -315,6 +352,169 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
                                     </div>
                                 ))}
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {activeTab === 'subcontractors' && (
+            <div className="space-y-8">
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                        <i className="fas fa-users-cog text-indigo-500"></i> Manage Sub-Contractors
+                    </h3>
+                    
+                    <div className="flex gap-4 mb-8">
+                        <input 
+                            className="flex-1 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold bg-slate-50" 
+                            placeholder="New Sub-Contractor Name..." 
+                            value={newScName} 
+                            onChange={e => setNewScName(e.target.value)} 
+                        />
+                        <button 
+                            onClick={handleAddSc} 
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 rounded-xl font-bold shadow-md transition-all flex items-center gap-2"
+                        >
+                            <i className="fas fa-plus"></i> Add SC
+                        </button>
+                    </div>
+
+                    <div className="grid md:grid-cols-3 gap-6">
+                        {/* SC List */}
+                        <div className="col-span-1 border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
+                            <div className="bg-slate-100 p-3 border-b border-slate-200 font-bold text-slate-600 text-sm uppercase tracking-wider">
+                                Sub-Contractors
+                            </div>
+                            <div className="max-h-[500px] overflow-y-auto">
+                                {subcontractors.length === 0 ? (
+                                    <div className="p-6 text-center text-slate-400 italic text-sm">No sub-contractors added yet.</div>
+                                ) : subcontractors.map(sc => (
+                                    <div 
+                                        key={sc.id} 
+                                        onClick={() => setSelectedScId(sc.id)}
+                                        className={`p-4 border-b border-slate-100 cursor-pointer transition-all flex justify-between items-center group ${selectedScId === sc.id ? 'bg-indigo-50 border-l-4 border-l-indigo-500' : 'hover:bg-white'}`}
+                                    >
+                                        <div>
+                                            <div className={`font-bold ${selectedScId === sc.id ? 'text-indigo-800' : 'text-slate-700'}`}>{sc.name}</div>
+                                            <div className="text-xs text-slate-400 mt-1">{sc.assignedComponents?.length || 0} components assigned</div>
+                                        </div>
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); handleDeleteSc(sc.id); }}
+                                            className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                                        >
+                                            <i className="fas fa-trash-alt"></i>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* SC Details */}
+                        <div className="col-span-2">
+                            {selectedScId ? (() => {
+                                const sc = subcontractors.find(s => s.id === selectedScId);
+                                if (!sc) return null;
+                                
+                                // Flatten hierarchy for selection
+                                const allComponents: string[] = [];
+                                Object.entries(hierarchy).forEach(([loc, comps]) => {
+                                    if (comps.length === 0) {
+                                        allComponents.push(loc);
+                                    } else {
+                                        comps.forEach(comp => allComponents.push(`${loc} - ${comp}`));
+                                    }
+                                });
+
+                                const toggleComponent = (compStr: string) => {
+                                    const current = sc.assignedComponents || [];
+                                    const updated = current.includes(compStr) 
+                                        ? current.filter(c => c !== compStr)
+                                        : [...current, compStr];
+                                    handleUpdateSc({ ...sc, assignedComponents: updated });
+                                };
+
+                                const updateRate = (itemType: string, rate: number) => {
+                                    const updatedRates = { ...(sc.rates || {}), [itemType]: rate };
+                                    handleUpdateSc({ ...sc, rates: updatedRates });
+                                };
+
+                                return (
+                                    <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm h-full flex flex-col">
+                                        <h4 className="text-xl font-bold text-slate-800 mb-6 border-b border-slate-100 pb-4">
+                                            {sc.name} Settings
+                                        </h4>
+                                        
+                                        <div className="space-y-8 flex-1 overflow-y-auto pr-2">
+                                            {/* Component Assignment */}
+                                            <div>
+                                                <h5 className="font-bold text-indigo-600 text-sm uppercase tracking-wider mb-4 flex items-center gap-2">
+                                                    <i className="fas fa-map-marker-alt"></i> Assigned Components
+                                                </h5>
+                                                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 max-h-[250px] overflow-y-auto grid grid-cols-2 gap-2">
+                                                    {allComponents.map(compStr => {
+                                                        const isAssigned = (sc.assignedComponents || []).includes(compStr);
+                                                        return (
+                                                            <label key={compStr} className={`flex items-start gap-3 p-2 rounded-lg cursor-pointer transition-all border ${isAssigned ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-100 hover:border-slate-300'}`}>
+                                                                <input 
+                                                                    type="checkbox" 
+                                                                    className="mt-1 w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                                                                    checked={isAssigned}
+                                                                    onChange={() => toggleComponent(compStr)}
+                                                                />
+                                                                <span className={`text-sm font-medium ${isAssigned ? 'text-indigo-900' : 'text-slate-600'}`}>{compStr}</span>
+                                                            </label>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+
+                                            {/* Rates Assignment */}
+                                            <div>
+                                                <h5 className="font-bold text-emerald-600 text-sm uppercase tracking-wider mb-4 flex items-center gap-2">
+                                                    <i className="fas fa-tags"></i> Item Rates
+                                                </h5>
+                                                <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                                                    <table className="w-full text-left text-sm">
+                                                        <thead className="bg-slate-100 text-slate-500 border-b border-slate-200">
+                                                            <tr>
+                                                                <th className="p-3 font-bold uppercase tracking-wider">Item Type</th>
+                                                                <th className="p-3 font-bold uppercase tracking-wider">Unit</th>
+                                                                <th className="p-3 font-bold uppercase tracking-wider w-40">Rate</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-100">
+                                                            {itemTypes.map(type => (
+                                                                <tr key={type.name} className="bg-white hover:bg-slate-50 transition-colors">
+                                                                    <td className="p-3 font-bold text-slate-700">{type.name}</td>
+                                                                    <td className="p-3 text-slate-500 font-medium">{type.defaultUnit}</td>
+                                                                    <td className="p-3">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-slate-400 font-bold">Rs.</span>
+                                                                            <input 
+                                                                                type="number" 
+                                                                                className="w-full p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none font-bold text-slate-800"
+                                                                                value={(sc.rates || {})[type.name] || ''}
+                                                                                onChange={e => updateRate(type.name, parseFloat(e.target.value) || 0)}
+                                                                                placeholder="0.00"
+                                                                            />
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })() : (
+                                <div className="bg-slate-50 border border-slate-200 border-dashed rounded-xl h-full flex flex-col items-center justify-center text-slate-400 p-10">
+                                    <i className="fas fa-hand-pointer text-4xl mb-4 text-slate-300"></i>
+                                    <p className="font-medium">Select a sub-contractor from the list to manage assignments and rates.</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -179,7 +179,8 @@ export const parseConstructionData = async (
 
     5. DATA MAPPING:
        - quantity: numeric only. If no quantity is specified in the text, return 0. DO NOT default to 1.
-       - unit: standardized (m3, m2, Ton, nos, rm).
+       - For pipes (like HDPE pipe), if both length and number of pipes (nos) are provided, calculate the total quantity by multiplying length by nos. Include the calculation in the description (e.g., "HDPE pipes (22 nos x 2.5m)").
+       - unit: standardized (m3, m2, Ton, nos, rm). For pipes with length, use 'rm'.
        - itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation").
        - structuralElement: CRITICAL: Extract the specific part, area, or structure name from the description if not explicitly provided.
          Examples: "Spiral casing unit 1", "end sill", "bottom sill", "pier", "wall", "slab", "Crown", "Invert", "Glacis".
@@ -307,6 +308,42 @@ export const parseConstructionData = async (
           
           if (rawUnit.includes('bag')) { qty = qty * 0.05; finalUnit = 'Ton'; }
           if (type === 'Rebar' || finalUnit === 'Ton') { qty = Math.round(qty * 100) / 100; }
+          
+          // HDPE Pipe specific logic: multiply length by nos if both are present in description
+          if (type === 'HDPE Pipe' || desc.toLowerCase().includes('hdpe')) {
+              // Try to match "22 nos x 2.5m" or "22 x 2.5m"
+              const calcMatch = desc.match(/(\d+(?:\.\d+)?)\s*(?:nos|pcs|pieces)?\s*[x\*]\s*(\d+(?:\.\d+)?)\s*(m|cm)/i);
+              if (calcMatch) {
+                  const nos = parseFloat(calcMatch[1]);
+                  let length = parseFloat(calcMatch[2]);
+                  const unit = calcMatch[3].toLowerCase();
+                  if (unit === 'cm') length = length / 100;
+                  
+                  if (!isNaN(nos) && !isNaN(length)) {
+                      qty = nos * length;
+                      finalUnit = 'rm';
+                  }
+              } else {
+                  // Fallback to separate matches
+                  const nosMatch = desc.match(/(\d+(?:\.\d+)?)\s*(?:nos|number|pcs|pieces)/i);
+                  const lengthMatch = desc.match(/(?:length|height)\s*(\d+(?:\.\d+)?)\s*(m|cm)/i) || desc.match(/(\d+(?:\.\d+)?)\s*(m|cm)\s*(?:length|height|each)/i);
+                  
+                  if (nosMatch && lengthMatch) {
+                      const nos = parseFloat(nosMatch[1]);
+                      let length = parseFloat(lengthMatch[1]);
+                      const unit = lengthMatch[2].toLowerCase();
+                      
+                      if (unit === 'cm') {
+                          length = length / 100;
+                      }
+                      
+                      if (!isNaN(nos) && !isNaN(length)) {
+                          qty = nos * length;
+                          finalUnit = 'rm';
+                      }
+                  }
+              }
+          }
 
           // POST-PROCESSING: Extract structure from description if missing
           if (!structuralElement) {

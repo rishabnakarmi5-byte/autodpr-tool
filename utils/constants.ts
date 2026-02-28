@@ -98,6 +98,7 @@ export const ITEM_PATTERNS = [
   { name: "Rock Bolt", pattern: /\b(rock bolt|bolt|anchor)\b/i, defaultUnit: 'nos' },
   { name: "Gabion", pattern: /\b(gabion)\b/i, defaultUnit: 'm3' },
   { name: "Grouting", pattern: /\b(grouting|cement\s+consumption|bags|consolidation|contact)\b/i, defaultUnit: 'nos' },
+  { name: "HDPE Pipe", pattern: /\b(hdpe|pipe)\b/i, defaultUnit: 'rm' },
 ];
 
 export const identifyItemType = (text: string, customItems?: any[]): string => {

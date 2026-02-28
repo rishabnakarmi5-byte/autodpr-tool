@@ -60,6 +60,7 @@ const CHECKPOINT_COLLECTION = "system_checkpoints";
 const TRAINING_COLLECTION = "ai_training_examples";
 const MOOD_COLLECTION = "user_moods";
 const RAW_INPUT_COLLECTION = "raw_inputs"; // New Collection
+const SUB_CONTRACTOR_COLLECTION = "sub_contractors";
 
 // --- Authentication & Profile ---
 
@@ -462,6 +463,27 @@ export const getProjectSettings = async (): Promise<ProjectSettings | null> => {
 export const saveProjectSettings = async (settings: ProjectSettings) => {
     if (!db) return;
     await setDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'), settings);
+};
+
+// --- Sub-Contractors ---
+
+export const subscribeToSubContractors = (callback: (scs: any[]) => void): any => {
+    if (!db) return () => {};
+    const q = query(collection(db, SUB_CONTRACTOR_COLLECTION), orderBy("createdAt", "desc"));
+    return onSnapshot(q, (snapshot: any) => {
+        const items = snapshot.docs.map((doc: any) => doc.data());
+        callback(items);
+    });
+};
+
+export const saveSubContractor = async (sc: any) => {
+    if (!db) return;
+    await setDoc(doc(db, SUB_CONTRACTOR_COLLECTION, sc.id), sc);
+};
+
+export const deleteSubContractor = async (id: string) => {
+    if (!db) return;
+    await deleteDoc(doc(db, SUB_CONTRACTOR_COLLECTION, id));
 };
 
 // --- System Checkpoints ---
