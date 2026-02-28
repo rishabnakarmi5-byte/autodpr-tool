@@ -50,7 +50,14 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
   const allItemTypes = useMemo(() => {
       const types = [...ITEM_PATTERNS.map(p => p.name)];
       if (customItemTypes) {
-          customItemTypes.forEach(t => { if(!types.includes(t.name)) types.push(t.name); });
+          customItemTypes.forEach(t => { 
+              const isDuplicate = types.some(existing => 
+                  existing.toLowerCase() === t.name.toLowerCase() ||
+                  existing.toLowerCase() + 's' === t.name.toLowerCase() ||
+                  existing.toLowerCase() === t.name.toLowerCase() + 's'
+              );
+              if(!isDuplicate) types.push(t.name); 
+          });
       }
       return types.sort();
   }, [customItemTypes]);

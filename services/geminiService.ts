@@ -180,7 +180,7 @@ export const parseConstructionData = async (
     5. DATA MAPPING:
        - quantity: numeric only. If no quantity is specified in the text, return 0. DO NOT default to 1.
        - unit: standardized (m3, m2, Ton, nos, rm).
-       - itemType: Classify the item type (e.g., "Formworks", "Rebar", "C25 Concrete", "Excavation").
+       - itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation").
        - structuralElement: CRITICAL: Extract the specific part, area, or structure name from the description if not explicitly provided.
          Examples: "Spiral casing unit 1", "end sill", "bottom sill", "pier", "wall", "slab", "Crown", "Invert", "Glacis".
          - If you see "Inverter" or "Tunnel Inverter", convert it to "Invert".
@@ -303,6 +303,8 @@ export const parseConstructionData = async (
               type = toTitleCase(cleanStr(item.itemType));
           }
 
+          if (type === 'Formworks') type = 'Formwork';
+          
           if (rawUnit.includes('bag')) { qty = qty * 0.05; finalUnit = 'Ton'; }
           if (type === 'Rebar' || finalUnit === 'Ton') { qty = Math.round(qty * 100) / 100; }
 

@@ -78,7 +78,7 @@ export const getLocationPriority = (location: string): number => {
 };
 
 export const ITEM_PATTERNS = [
-  { name: "Formworks", pattern: /\b(formwork|formworks|shuttering|shutter|form\s+work|form\s+works)\b/i, defaultUnit: 'm2' },
+  { name: "Formwork", pattern: /\b(formwork|formworks|shuttering|shutter|form\s+work|form\s+works)\b/i, defaultUnit: 'm2' },
   { name: "Rebar", pattern: /\b(rebar|reinforcement|steel|tmt|bar|tor)\b/i, defaultUnit: 'Ton' },
   { name: "C25 Plum Concrete", pattern: /\b(c[\-\s]?25|grade[\-\s]?25|m[\-\s]?25).*(plum)|(plum).*(c[\-\s]?25|grade[\-\s]?25|m[\-\s]?25)\b/i, defaultUnit: 'm3' },
   { name: "C15 Plum Concrete", pattern: /\b(c[\-\s]?15|grade[\-\s]?15|m[\-\s]?15).*(plum)|(plum).*(c[\-\s]?15|grade[\-\s]?15|m[\-\s]?15)\b/i, defaultUnit: 'm3' },

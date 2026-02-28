@@ -54,15 +54,36 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
     const types = new Set<string>();
     ITEM_PATTERNS.forEach(p => types.add(p.name));
     if (customItemTypes) {
-      customItemTypes.forEach(t => types.add(t.name));
+      customItemTypes.forEach(t => {
+          const isDuplicate = Array.from(types).some(existing => 
+              existing.toLowerCase() === t.name.toLowerCase() ||
+              existing.toLowerCase() + 's' === t.name.toLowerCase() ||
+              existing.toLowerCase() === t.name.toLowerCase() + 's'
+          );
+          if(!isDuplicate) types.add(t.name);
+      });
     }
-    quantities.forEach(q => { if(q.itemType) types.add(q.itemType); });
+    quantities.forEach(q => { 
+        if(q.itemType) {
+            const isDuplicate = Array.from(types).some(existing => 
+                existing.toLowerCase() === q.itemType.toLowerCase() ||
+                existing.toLowerCase() + 's' === q.itemType.toLowerCase() ||
+                existing.toLowerCase() === q.itemType.toLowerCase() + 's'
+            );
+            if(!isDuplicate) types.add(q.itemType);
+        }
+    });
     return Array.from(types).sort();
   }, [quantities, customItemTypes]);
 
   const filtered = useMemo(() => {
     return quantities.filter(q => {
-      const matchType = filterType === 'All' || q.itemType === filterType;
+      const matchType = filterType === 'All' || 
+          q.itemType === filterType || 
+          (q.itemType && (
+              q.itemType.toLowerCase() === filterType.toLowerCase() + 's' ||
+              q.itemType.toLowerCase() + 's' === filterType.toLowerCase()
+          ));
       const matchLoc = filterLocation === 'All' || q.location === filterLocation;
       const matchComp = filterComponent === 'All' || q.component === filterComponent;
       const matchSearch = q.location.toLowerCase().includes(search.toLowerCase()) || 
