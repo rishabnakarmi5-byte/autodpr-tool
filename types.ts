@@ -175,6 +175,7 @@ export enum TabView {
   QUANTITY = 'quantity',
   LINING = 'lining',
   FINANCIAL = 'financial',
+  SUBCONTRACTOR_BILL = 'subcontractor_bill',
   HISTORY = 'history',
   LOGS = 'logs',
   RECYCLE_BIN = 'recycle_bin',

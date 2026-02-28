@@ -105,6 +105,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
             desc="Estimates & Rates"
           />
           <NavButton 
+            active={activeTab === TabView.SUBCONTRACTOR_BILL} 
+            onClick={() => onTabChange(TabView.SUBCONTRACTOR_BILL)}
+            icon="fa-file-invoice-dollar"
+            label="SC Billing"
+            desc="Sub-contractor bills"
+          />
+          <NavButton 
             active={activeTab === TabView.HISTORY} 
             onClick={() => onTabChange(TabView.HISTORY)}
             icon="fa-clock-rotate-left"
@@ -229,6 +236,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
             onClick={() => onTabChange(TabView.FINANCIAL)}
             icon="fa-coins"
             label="Money"
+            />
+             <MobileNavButton 
+            active={activeTab === TabView.SUBCONTRACTOR_BILL} 
+            onClick={() => onTabChange(TabView.SUBCONTRACTOR_BILL)}
+            icon="fa-file-invoice-dollar"
+            label="SC Bill"
             />
             <MobileNavButton 
             active={activeTab === TabView.HISTORY} 

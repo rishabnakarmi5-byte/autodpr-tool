@@ -11,6 +11,7 @@ import { RecycleBin } from './components/RecycleBin';
 import { QuantityView } from './components/QuantityView';
 import { HRTLiningView } from './components/HRTLiningView';
 import { FinancialEstimateView } from './components/FinancialEstimateView';
+import { SubContractorBillingView } from './components/SubContractorBillingView';
 import { ProjectSettingsView } from './components/ProjectSettings';
 import { ProfileView } from './components/ProfileView';
 import { MasterRecordModal } from './components/MasterRecordModal';
@@ -451,6 +452,8 @@ const App = () => {
              />;
           case TabView.FINANCIAL:
              return <FinancialEstimateView reports={reports} settings={settings} onSaveSettings={handleSaveSettings} />;
+          case TabView.SUBCONTRACTOR_BILL:
+             return <SubContractorBillingView reports={reports} settings={settings} onInspectItem={setInspectItem} />;
           case TabView.SETTINGS:
              return <ProjectSettingsView 
                 currentSettings={settings} 
