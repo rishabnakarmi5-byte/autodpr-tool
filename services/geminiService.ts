@@ -85,10 +85,11 @@ export const autofillItemData = async (
     TASK: Separate "Where" (Structural ID) from "What" (Activity).
 
     STRICT RULES:
-    1. structuralElement: Extract the specific part/area (e.g., "Spiral Casing Unit 1", "Crown", "end sill", "bottom sill").
+    1. structuralElement: Extract the specific part/area (e.g., "Spiral Casing Unit 1", "Crown", "end sill", "bottom sill", "Niche").
     2. activityDescription: MUST follow format "Action (Quantity Unit)". 
        Example: "C35 Concrete works (5 m3)".
        - IMPORTANT: Always include grades (C35, C25, M20) if present.
+       - "ms wall" ALWAYS means "Stone Masonry" (e.g., "Niche ms wall" -> Stone Masonry at Niche).
        - If structure is extracted to 'structuralElement', try to simplify the description (e.g. "Spiral Casing Rebar" -> "Rebar works").
     3. Ensure 'quantity' and 'unit' are numeric/standardized. If no quantity is specified, return 0. DO NOT default to 1.
 
@@ -166,6 +167,7 @@ export const parseConstructionData = async (
     2. ACRONYM RESOLUTION (CRITICAL):
        - "HRT" ALWAYS means "Headrace Tunnel (HRT)".
        - "TRT" ALWAYS means "Powerhouse" related (e.g. Tailrace Tunnel).
+       - "ms wall" ALWAYS means "Stone Masonry" (e.g., "Niche ms wall" -> Stone Masonry at Niche).
        - Never put "HRT" items under "Powerhouse".
 
     3. HIERARCHY MAPPING (STRICT):
@@ -347,7 +349,7 @@ export const parseConstructionData = async (
 
           // POST-PROCESSING: Extract structure from description if missing
           if (!structuralElement) {
-              const structureKeywords = ["Invert", "Inverter", "Arch", "Wall", "Slab", "Face", "Crown", "Kicker", "Gantry", "Pier", "Abutment", "Glacis", "Apron", "Basin", "Soling", "Casing", "Bulkhead"];
+              const structureKeywords = ["Niche", "Invert", "Inverter", "Arch", "Wall", "Slab", "Face", "Crown", "Kicker", "Gantry", "Pier", "Abutment", "Glacis", "Apron", "Basin", "Soling", "Casing", "Bulkhead"];
               const foundKeyword = structureKeywords.find(kw => desc.toLowerCase().includes(kw.toLowerCase()));
               
               if (foundKeyword) {

@@ -90,7 +90,7 @@ export const ITEM_PATTERNS = [
   { name: "C15 Concrete", pattern: /\b(c[\-\s]?15|grade[\-\s]?15|m[\-\s]?15)\b/i, defaultUnit: 'm3' },
   { name: "C10 Concrete", pattern: /\b(c[\-\s]?10|pcc|infill|grade[\-\s]?10|m[\-\s]?10)\b/i, defaultUnit: 'm3' },
   { name: "C25 Concrete", pattern: /\b(c[\-\s]?25|grade[\-\s]?25|m[\-\s]?25|concrete|conc\.?|rcc|lining)\b/i, defaultUnit: 'm3' },
-  { name: "Stone Masonry", pattern: /\b(masonry|rrm|ms wall|stone soling|soling)\b/i, defaultUnit: 'm3' },
+  { name: "Stone Masonry", pattern: /\b(masonry|rrm|ms\s*wall|stone soling|soling)\b/i, defaultUnit: 'm3' },
   { name: "Concrete Block", pattern: /\b(block work|concrete block|hollow block|block)\b/i, defaultUnit: 'm3' },
   { name: "Plaster", pattern: /\b(plaster)\b/i, defaultUnit: 'm2' },
   { name: "Excavation", pattern: /\b(excavation|mucking|digging)\b/i, defaultUnit: 'm3' },

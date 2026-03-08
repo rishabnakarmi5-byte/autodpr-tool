@@ -87,7 +87,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
             {report.entries.length === 0 ? (
               <tr><td colSpan={5} className="p-20 text-center italic text-slate-300">No records found for this date.</td></tr>
             ) : report.entries.map((item) => (
-              <tr key={item.id} onClick={() => onInspectItem(item)} className="group border-b border-slate-900 hover:bg-indigo-50/50 cursor-pointer align-top text-black">
+              <tr key={item.id} onClick={() => onInspectItem({ ...item, date: report.date })} className="group border-b border-slate-900 hover:bg-indigo-50/50 cursor-pointer align-top text-black">
                 <td className="border-r border-slate-900 p-2 font-bold">{item.location}</td>
                 <td className="border-r border-slate-900 p-2 font-medium">{item.component}</td>
                 <td className="border-r border-slate-900 p-2 font-mono">{item.chainageOrArea}</td>

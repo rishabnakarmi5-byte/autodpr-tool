@@ -49,7 +49,7 @@ export const SubContractorBillingView: React.FC<SubContractorBillingProps> = ({ 
     });
 
     // 2. Extract all items from valid reports
-    const allItems = validReports.flatMap(r => r.entries);
+    const allItems = validReports.flatMap(r => r.entries.map(e => ({ ...e, date: r.date })));
 
     // 3. Filter items belonging to the selected SC's assigned components
     const filteredItems = allItems.filter(item => {
@@ -97,7 +97,14 @@ export const SubContractorBillingView: React.FC<SubContractorBillingProps> = ({ 
         <div className="flex justify-between items-center border-b border-slate-200 pb-4">
             <div>
                 <h2 className="text-3xl font-bold text-slate-800 tracking-tight uppercase">Sub-Contractor Billing</h2>
-                <p className="text-sm text-slate-500 font-medium">Generate bills based on daily progress reports.</p>
+                <p className="text-sm text-slate-500 font-medium">
+                    Generate bills based on daily progress reports.
+                    {selectedSc && fromDate && toDate && (
+                        <span className="ml-2 text-indigo-600 font-bold">
+                            ({new Date(fromDate).toLocaleDateString()} - {new Date(toDate).toLocaleDateString()})
+                        </span>
+                    )}
+                </p>
             </div>
         </div>
 

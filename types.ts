@@ -10,6 +10,7 @@ export interface EditHistory {
 
 export interface DPRItem {
   id: string;
+  date?: string; // Added for context in views like SC Billing
   location: string;
   component?: string; 
   structuralElement?: string; 

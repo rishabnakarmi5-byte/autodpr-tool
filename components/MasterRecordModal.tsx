@@ -115,10 +115,13 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                     <span className="text-[9px] bg-amber-500 text-white font-black px-1.5 py-0.5 rounded shadow-sm">BATCH IMPORT</span>
                 )}
               </div>
-              <div className="hidden md:flex items-center gap-3 text-xs text-slate-400 font-mono mt-1">
+              <div className="flex flex-wrap items-center gap-2 md:gap-3 text-[10px] md:text-xs text-slate-400 font-mono mt-1">
                 <span className="bg-slate-800 px-2 py-0.5 rounded text-indigo-300">ID: {item.id.split('-')[0]}...</span>
-                <span><i className="fas fa-user-circle mr-1"></i> {item.createdBy}</span>
-                <span><i className="fas fa-clock mr-1"></i> {new Date(item.lastModifiedAt || new Date().toISOString()).toLocaleTimeString()}</span>
+                {item.date && (
+                    <span className="bg-slate-800 px-2 py-0.5 rounded text-emerald-300"><i className="fas fa-calendar-day mr-1"></i> {item.date}</span>
+                )}
+                <span className="hidden md:inline"><i className="fas fa-user-circle mr-1"></i> {item.createdBy}</span>
+                <span className="hidden md:inline"><i className="fas fa-clock mr-1"></i> {new Date(item.lastModifiedAt || new Date().toISOString()).toLocaleTimeString()}</span>
               </div>
             </div>
           </div>

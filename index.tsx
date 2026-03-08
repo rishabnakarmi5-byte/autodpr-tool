@@ -198,21 +198,33 @@ const App = () => {
   };
 
   const handleDeleteItem = async (itemId: string) => {
-      if (!currentReportId) return;
-      const itemToDelete = currentEntries.find(i => i.id === itemId);
+      let targetReport = reports.find(r => r.entries.some(e => e.id === itemId));
+      
+      if (!targetReport) {
+          console.error("Item not found in any report");
+          return;
+      }
+
+      const itemToDelete = targetReport.entries.find(i => i.id === itemId);
       if (!itemToDelete) return;
 
-      const updatedEntries = currentEntries.filter(i => i.id !== itemId);
-      setCurrentEntries(updatedEntries);
+      const updatedEntries = targetReport.entries.filter(i => i.id !== itemId);
+      
+      if (currentReportId === targetReport.id) {
+          setCurrentEntries(updatedEntries);
+      }
 
       const reportToSave = { 
-          ...reports.find(r => r.id === currentReportId)!, 
+          ...targetReport, 
           entries: updatedEntries,
           lastUpdated: new Date().toISOString()
       };
       
+      // Optimistic update
+      setReports(prev => prev.map(r => r.id === reportToSave.id ? reportToSave : r));
+
       await saveReportToCloud(reportToSave);
-      await moveItemToTrash(itemToDelete, currentReportId, currentDate, user?.displayName || 'Unknown');
+      await moveItemToTrash(itemToDelete, targetReport.id, targetReport.date, user?.displayName || 'Unknown');
   };
 
   const handleUpdateItem = async (itemId: string, updates: Partial<DPRItem>) => {
