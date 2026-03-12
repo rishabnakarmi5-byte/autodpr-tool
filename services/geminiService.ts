@@ -91,7 +91,8 @@ export const autofillItemData = async (
        - IMPORTANT: Always include grades (C35, C25, M20) if present.
        - "ms wall" ALWAYS means "Stone Masonry" (e.g., "Niche ms wall" -> Stone Masonry at Niche).
        - If structure is extracted to 'structuralElement', try to simplify the description (e.g. "Spiral Casing Rebar" -> "Rebar works").
-    3. Ensure 'quantity' and 'unit' are numeric/standardized. If no quantity is specified, return 0. DO NOT default to 1.
+       - If NO quantity is specified, DO NOT include "(0 unit)" or any arbitrary quantity in the description. Just write the Action.
+    3. Ensure 'quantity' and 'unit' are numeric/standardized. If no quantity is specified, return 0 for quantity and "" for unit. DO NOT hallucinate or default to 1.
 
     Output ONLY JSON.
   `;
@@ -121,7 +122,20 @@ export const autofillItemData = async (
 
     if (response.text) {
       const result = JSON.parse(response.text);
-      const desc = cleanStr(result.activityDescription);
+      let desc = cleanStr(result.activityDescription);
+      const qty = result.quantity || 0;
+      const finalUnit = cleanStr(result.unit) || "m3";
+      
+      if (qty > 0) {
+          const qtyString = `(${qty} ${finalUnit})`;
+          if (!desc.includes(qtyString)) {
+              const cleanDesc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit)[\)]?/gi, '').replace(/\s*=\s*/g, '').trim();
+              desc = `${cleanDesc} ${qtyString}`;
+          }
+      } else {
+          desc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit)[\)]?/gi, '').replace(/\(\s*\)/g, '').replace(/\s*=\s*/g, '').trim();
+      }
+
       const identifiedType = identifyItemType(desc, customItemTypes);
       const finalType = (identifiedType === 'Other' && result.itemType && cleanStr(result.itemType).toLowerCase() !== 'other') 
           ? toTitleCase(cleanStr(result.itemType)) 
@@ -132,8 +146,8 @@ export const autofillItemData = async (
         component: toTitleCase(cleanStr(result.component)),
         structuralElement: correctStructuralTypos(toTitleCase(cleanStr(result.structuralElement))),
         chainage: cleanStr(result.chainage),
-        quantity: result.quantity || 0,
-        unit: cleanStr(result.unit) || "m3",
+        quantity: qty,
+        unit: finalUnit,
         itemType: finalType, 
         activityDescription: desc,
         plannedNextActivity: cleanStr(result.plannedNextActivity)
@@ -178,11 +192,12 @@ export const parseConstructionData = async (
     4. DESCRIPTION FORMAT:
        - 'activityDescription' MUST be: "Action (Quantity Unit)".
        - Include grades (C35, C25, M15) in the description.
+       - If NO quantity is specified, DO NOT include "(0 unit)" or any arbitrary quantity in the description. Just write the Action.
 
     5. DATA MAPPING:
-       - quantity: numeric only. If no quantity is specified in the text, return 0. DO NOT default to 1.
+       - quantity: numeric only. If no quantity is specified in the text, return 0. DO NOT hallucinate or default to 1.
        - For pipes (like HDPE pipe), if both length and number of pipes (nos) are provided, calculate the total quantity by multiplying length by nos. Include the calculation in the description (e.g., "HDPE pipes (22 nos x 2.5m)").
-       - unit: standardized (m3, m2, Ton, nos, rm). For pipes with length, use 'rm'.
+       - unit: standardized (m3, m2, Ton, nos, rm). For pipes with length, use 'rm'. If no quantity is specified, return "".
        - itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation").
        - structuralElement: CRITICAL: Extract the specific part, area, or structure name from the description if not explicitly provided.
          Examples: "Spiral casing unit 1", "end sill", "bottom sill", "pier", "wall", "slab", "Crown", "Invert", "Glacis".
@@ -294,9 +309,12 @@ export const parseConstructionData = async (
               const qtyString = `(${qty} ${finalUnit})`;
               
               if (!desc.includes(qtyString)) {
-                  const cleanDesc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm)[\)]?/gi, '').replace(/\s*=\s*/g, '').trim();
+                  const cleanDesc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit)[\)]?/gi, '').replace(/\s*=\s*/g, '').trim();
                   desc = `${cleanDesc} ${qtyString}`;
               }
+          } else {
+              // Strip out any hallucinated quantities if qty is 0
+              desc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit)[\)]?/gi, '').replace(/\(\s*\)/g, '').replace(/\s*=\s*/g, '').trim();
           }
 
           let type = identifyItemType(desc, customItemTypes);
