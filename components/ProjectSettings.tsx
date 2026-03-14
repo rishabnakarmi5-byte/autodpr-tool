@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { ProjectSettings, DailyReport, QuantityEntry, ItemTypeDefinition, SystemCheckpoint, TrainingExample, SubContractor, Project } from '../types';
+import { ProjectSettings, DailyReport, QuantityEntry, ItemTypeDefinition, SystemCheckpoint, TrainingExample, SubContractor } from '../types';
 import { LOCATION_HIERARCHY, ITEM_PATTERNS } from '../utils/constants';
-import { createSystemCheckpoint, getCheckpoints, restoreSystemCheckpoint, saveTrainingExample, deleteTrainingExample, subscribeToTrainingExamples, exportAllData, subscribeToSubContractors, saveSubContractor, deleteSubContractor, updateProjectMembers } from '../services/firebaseService';
+import { createSystemCheckpoint, getCheckpoints, restoreSystemCheckpoint, saveTrainingExample, deleteTrainingExample, subscribeToTrainingExamples, exportAllData, subscribeToSubContractors, saveSubContractor, deleteSubContractor } from '../services/firebaseService';
 
 interface ProjectSettingsProps {
   currentSettings: ProjectSettings | null;
@@ -10,12 +10,10 @@ interface ProjectSettingsProps {
   reports: DailyReport[];
   quantities: QuantityEntry[];
   user: any;
-  projectId?: string;
-  currentProject?: Project | null;
 }
 
-export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSettings, onSave, reports, quantities, user, projectId, currentProject }) => {
-  const [activeTab, setActiveTab] = useState<'config' | 'snapshots' | 'training' | 'subcontractors' | 'members'>('config');
+export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSettings, onSave, reports, quantities, user }) => {
+  const [activeTab, setActiveTab] = useState<'config' | 'snapshots' | 'training' | 'subcontractors'>('config');
   
   // Config State
   const [hierarchy, setHierarchy] = useState(currentSettings?.locationHierarchy || LOCATION_HIERARCHY);
@@ -150,17 +148,16 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
 
   // --- SUBCONTRACTOR HANDLERS ---
   useEffect(() => {
-    if (activeTab === 'subcontractors' && projectId) {
-        const unsub = subscribeToSubContractors(projectId, setSubcontractors);
+    if (activeTab === 'subcontractors') {
+        const unsub = subscribeToSubContractors(setSubcontractors);
         return () => unsub();
     }
-  }, [activeTab, projectId]);
+  }, [activeTab]);
 
   const handleAddSc = async () => {
       if (!newScName) return;
-      await saveSubContractor(projectId, {
+      await saveSubContractor({
           id: crypto.randomUUID(),
-          projectId,
           name: newScName,
           assignedComponents: [],
           rates: {},
@@ -170,7 +167,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   };
 
   const handleUpdateSc = async (sc: SubContractor) => {
-      await saveSubContractor(projectId, sc);
+      await saveSubContractor(sc);
   };
 
   const handleDeleteSc = async (id: string) => {
@@ -184,7 +181,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   const loadSnapshots = async () => {
       setLoadingSnapshots(true);
       try {
-          const data = await getCheckpoints(projectId);
+          const data = await getCheckpoints();
           setSnapshots(data);
       } catch (e) { console.error(e); }
       setLoadingSnapshots(false);
@@ -193,7 +190,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   const handleExportDatabase = async () => {
     setIsExporting(true);
     try {
-        const data = await exportAllData(projectId);
+        const data = await exportAllData();
         const jsonString = JSON.stringify(data, null, 2);
         const blob = new Blob([jsonString], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -223,14 +220,11 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
                 <h2 className="text-3xl font-bold text-slate-800 tracking-tight uppercase">System Management</h2>
                 <p className="text-sm text-slate-500 font-medium">Project settings, AI training, and recovery snapshots.</p>
             </div>
-            <div className="flex bg-slate-100 p-1 rounded-xl flex-wrap gap-1">
+            <div className="flex bg-slate-100 p-1 rounded-xl">
                 <button onClick={() => setActiveTab('config')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'config' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Configuration</button>
                 <button onClick={() => setActiveTab('subcontractors')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'subcontractors' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Sub-Contractors</button>
                 <button onClick={() => setActiveTab('training')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'training' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>AI Training</button>
                 <button onClick={() => setActiveTab('snapshots')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'snapshots' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Snapshots</button>
-                {currentProject?.admins?.includes(user?.email) && (
-                    <button onClick={() => setActiveTab('members')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'members' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Members</button>
-                )}
             </div>
         </div>
 
@@ -613,67 +607,12 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
             </div>
         )}
 
-        {activeTab === 'members' && currentProject && (
-            <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-bold text-slate-800">Project Members</h3>
-                    <button 
-                      onClick={() => {
-                          const email = prompt("Enter user email to add:");
-                          if (email) {
-                              const newMembers = [...(currentProject.members || []), email];
-                              updateProjectMembers(currentProject.id, newMembers, currentProject.admins || []).then(() => {
-                                  alert("User added successfully! Please refresh to see changes.");
-                              }).catch(e => alert("Failed to add user: " + e.message));
-                          }
-                      }}
-                      className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-indigo-200"
-                    >
-                        <i className="fas fa-user-plus"></i> Add Member
-                    </button>
-                </div>
-                <div className="space-y-4">
-                    {currentProject.members?.map(memberEmail => (
-                        <div key={memberEmail} className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold">
-                                    {memberEmail.charAt(0).toUpperCase()}
-                                </div>
-                                <div>
-                                    <p className="font-bold text-slate-800">{memberEmail}</p>
-                                    <p className="text-xs text-slate-500">
-                                        {currentProject.admins?.includes(memberEmail) ? 'Admin' : 'Member'}
-                                    </p>
-                                </div>
-                            </div>
-                            {memberEmail !== user?.email && (
-                                <button 
-                                    onClick={() => {
-                                        if (window.confirm(`Remove ${memberEmail} from project?`)) {
-                                            const newMembers = currentProject.members.filter(e => e !== memberEmail);
-                                            const newAdmins = currentProject.admins?.filter(e => e !== memberEmail) || [];
-                                            updateProjectMembers(currentProject.id, newMembers, newAdmins).then(() => {
-                                                alert("User removed successfully! Please refresh to see changes.");
-                                            }).catch(e => alert("Failed to remove user: " + e.message));
-                                        }
-                                    }}
-                                    className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
-                                >
-                                    <i className="fas fa-trash"></i>
-                                </button>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            </div>
-        )}
-
         {activeTab === 'snapshots' && (
             <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="text-xl font-bold text-slate-800">System Snapshots</h3>
                     <button 
-                      onClick={() => createSystemCheckpoint(projectId, user?.displayName || 'Admin').then(loadSnapshots)}
+                      onClick={() => createSystemCheckpoint(user?.displayName || 'Admin').then(loadSnapshots)}
                       className="bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-200"
                     >
                         <i className="fas fa-camera"></i> Create Snapshot

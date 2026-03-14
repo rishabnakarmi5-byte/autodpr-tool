@@ -507,10 +507,5 @@ const App = () => {
   );
 };
 
-const container = document.getElementById('root')!;
-let root = (window as any)._reactRoot;
-if (!root) {
-  root = createRoot(container);
-  (window as any)._reactRoot = root;
-}
+const root = createRoot(document.getElementById('root')!);
 root.render(<App />);
