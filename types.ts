@@ -1,5 +1,15 @@
 
 
+export interface Project {
+  id: string;
+  name: string;
+  description: string;
+  members: string[]; // Array of user UIDs or emails allowed to access
+  admins: string[]; // Array of user UIDs or emails who can manage this project
+  createdAt: string;
+  createdBy: string;
+}
+
 export interface EditHistory {
   timestamp: string;
   user: string;
@@ -10,6 +20,7 @@ export interface EditHistory {
 
 export interface DPRItem {
   id: string;
+  projectId?: string;
   date?: string; // Added for context in views like SC Billing
   location: string;
   component?: string; 
@@ -34,6 +45,7 @@ export interface DPRItem {
 
 export interface DailyReport {
   id: string;
+  projectId?: string;
   date: string;
   lastUpdated: string;
   projectTitle: string;
@@ -44,6 +56,7 @@ export interface DailyReport {
 
 export interface LogEntry {
   id: string;
+  projectId?: string;
   timestamp: string;
   user: string;
   action: string;
@@ -53,6 +66,7 @@ export interface LogEntry {
 
 export interface TrashItem {
   trashId: string;
+  projectId?: string;
   originalId: string; 
   type: 'report' | 'item' | 'quantity';
   content: DailyReport | DPRItem | QuantityEntry; 
@@ -64,6 +78,7 @@ export interface TrashItem {
 
 export interface BackupEntry {
   id: string;
+  projectId?: string;
   date: string;
   timestamp: string;
   user: string;
@@ -74,6 +89,7 @@ export interface BackupEntry {
 
 export interface QuantityEntry {
   id: string;
+  projectId?: string;
   date: string;
   location: string;
   structure: string; 
@@ -92,6 +108,7 @@ export interface QuantityEntry {
 
 export interface LiningEntry {
   id: string;
+  projectId?: string;
   date: string;
   stage: 'Invert' | 'Kicker' | 'Gantry';
   fromCh: number;
@@ -121,6 +138,7 @@ export interface TrainingExample {
 
 export interface SubContractor {
   id: string;
+  projectId?: string;
   name: string;
   assignedComponents: string[]; // e.g., "Headrace Tunnel - HRT from Adit", "Main Building"
   rates: Record<string, number>; // e.g., { "C25 Concrete": 5000, "Formwork": 1200 }
@@ -128,6 +146,7 @@ export interface SubContractor {
 }
 
 export interface ProjectSettings {
+  projectId?: string;
   projectName: string;
   companyName: string;
   projectDescription: string;
@@ -159,6 +178,7 @@ export interface UserProfile {
 
 export interface SystemCheckpoint {
   id: string;
+  projectId?: string;
   timestamp: string;
   name: string;
   createdBy: string;

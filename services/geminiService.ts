@@ -93,6 +93,11 @@ export const autofillItemData = async (
        - If structure is extracted to 'structuralElement', try to simplify the description (e.g. "Spiral Casing Rebar" -> "Rebar works").
        - If NO quantity is specified, DO NOT include "(0 unit)" or any arbitrary quantity in the description. Just write the Action.
     3. Ensure 'quantity' and 'unit' are numeric/standardized. If no quantity is specified, return 0 for quantity and "" for unit. DO NOT hallucinate or default to 1.
+       - Ignore negative signs if they are just separators (e.g., "Quantity -41m3" means 41).
+       - For plum concrete: if the text mentions "batching only" or "batching quantity", multiply the given quantity by 5 to get the total plum concrete quantity (e.g., 18.5 * 5 = 92.5).
+    4. chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
+    5. itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). Default "concreting" to "C25 Concrete" if no grade is specified.
+    6. HIERARCHY MAPPING: If you see "River protection", map it to "River Protection Works" under "Powerhouse".
 
     Output ONLY JSON.
   `;
@@ -123,7 +128,7 @@ export const autofillItemData = async (
     if (response.text) {
       const result = JSON.parse(response.text);
       let desc = cleanStr(result.activityDescription);
-      const qty = result.quantity || 0;
+      const qty = Math.abs(result.quantity || 0);
       const finalUnit = cleanStr(result.unit) || "m3";
       
       if (qty > 0) {
@@ -188,6 +193,7 @@ export const parseConstructionData = async (
        - Check the Provided HIERARCHY below. 
        - If you see "TRT Pool", map it to "Tailrace Pool (TRT Pool)" under "Powerhouse".
        - If you see "Inlet" or "Adit", map it to "Headrace Tunnel (HRT)".
+       - If you see "River protection", map it to "River Protection Works" under "Powerhouse".
 
     4. DESCRIPTION FORMAT:
        - 'activityDescription' MUST be: "Action (Quantity Unit)".
@@ -195,14 +201,15 @@ export const parseConstructionData = async (
        - If NO quantity is specified, DO NOT include "(0 unit)" or any arbitrary quantity in the description. Just write the Action.
 
     5. DATA MAPPING:
-       - quantity: numeric only. If no quantity is specified in the text, return 0. DO NOT hallucinate or default to 1.
+       - quantity: numeric only (ignore negative signs if they are just separators, e.g., "Quantity -41m3" means 41). If no quantity is specified in the text, return 0. DO NOT hallucinate or default to 1.
+       - For plum concrete: if the text mentions "batching only" or "batching quantity", multiply the given quantity by 5 to get the total plum concrete quantity (e.g., 18.5 * 5 = 92.5).
        - For pipes (like HDPE pipe), if both length and number of pipes (nos) are provided, calculate the total quantity by multiplying length by nos. Include the calculation in the description (e.g., "HDPE pipes (22 nos x 2.5m)").
        - unit: standardized (m3, m2, Ton, nos, rm). For pipes with length, use 'rm'. If no quantity is specified, return "".
-       - itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation").
+       - itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). Default "concreting" to "C25 Concrete" if no grade is specified.
        - structuralElement: CRITICAL: Extract the specific part, area, or structure name from the description if not explicitly provided.
          Examples: "Spiral casing unit 1", "end sill", "bottom sill", "pier", "wall", "slab", "Crown", "Invert", "Glacis".
          - If you see "Inverter" or "Tunnel Inverter", convert it to "Invert".
-       - chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25").
+       - chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
 
     6. DESCRIPTION CLEANUP:
        - If you extract a structure (e.g. "Spiral casing unit 1") into 'structuralElement', REMOVE it from 'activityDescription' to avoid duplication, UNLESS it makes the description unclear.
@@ -257,7 +264,7 @@ export const parseConstructionData = async (
       const processedItems = result.items.map((item: any) => {
           let rawUnit = cleanStr(item.unit).toLowerCase();
           let finalUnit = unitMap[rawUnit] || cleanStr(item.unit) || "m3";
-          let qty = item.quantity || 0;
+          let qty = Math.abs(item.quantity || 0);
           
           let rawLoc = cleanStr(item.location);
           let rawComp = cleanStr(item.component);

@@ -61,6 +61,39 @@ const TRAINING_COLLECTION = "ai_training_examples";
 const MOOD_COLLECTION = "user_moods";
 const RAW_INPUT_COLLECTION = "raw_inputs"; // New Collection
 const SUB_CONTRACTOR_COLLECTION = "sub_contractors";
+const PROJECTS_COLLECTION = "projects";
+
+// --- Projects & Access Control ---
+
+export const createProject = async (name: string, description: string, userUid: string, userEmail: string) => {
+  if (!db) return null;
+  const id = crypto.randomUUID();
+  const project = {
+    id,
+    name,
+    description,
+    members: [userEmail],
+    admins: [userEmail],
+    createdAt: new Date().toISOString(),
+    createdBy: userEmail
+  };
+  await setDoc(doc(db, PROJECTS_COLLECTION, id), project);
+  return id;
+};
+
+export const subscribeToUserProjects = (userEmail: string, callback: (projects: any[]) => void): any => {
+  if (!db) return () => {};
+  const q = query(collection(db, PROJECTS_COLLECTION), where("members", "array-contains", userEmail));
+  return onSnapshot(q, (snapshot: any) => {
+    const projects = snapshot.docs.map((doc: any) => doc.data());
+    callback(projects);
+  });
+};
+
+export const updateProjectMembers = async (projectId: string, members: string[], admins: string[]) => {
+  if (!db) return;
+  await updateDoc(doc(db, PROJECTS_COLLECTION, projectId), { members, admins });
+};
 
 // --- Authentication & Profile ---
 
@@ -151,9 +184,9 @@ export const subscribeToTodayMood = (uid: string, callback: (mood: UserMood | nu
 
 // --- Reports ---
 
-export const subscribeToReports = (callback: (reports: DailyReport[]) => void): any => {
+export const subscribeToReports = (projectId: string, callback: (reports: DailyReport[]) => void): any => {
   if (!db) return () => {};
-  const q = query(collection(db, REPORT_COLLECTION), orderBy("date", "desc"));
+  const q = query(collection(db, REPORT_COLLECTION), where("projectId", "==", projectId), orderBy("date", "desc"));
   return onSnapshot(q, (snapshot: any) => {
     const reports = snapshot.docs.map((doc: any) => doc.data() as DailyReport);
     callback(reports);
@@ -183,10 +216,11 @@ export const saveReportHistory = async (report: DailyReport) => {
 
 // --- Activity Logs & RAW INPUT ---
 
-export const logActivity = async (user: string, action: string, details: string, reportDate: string, relatedBackupId?: string) => {
+export const logActivity = async (projectId: string | undefined, user: string, action: string, details: string, reportDate: string, relatedBackupId?: string) => {
   if (!db) return;
   const entry: any = {
     id: crypto.randomUUID(),
+    projectId,
     timestamp: new Date().toISOString(),
     user,
     action,
@@ -197,9 +231,9 @@ export const logActivity = async (user: string, action: string, details: string,
   await setDoc(doc(db, LOG_COLLECTION, entry.id), entry);
 };
 
-export const subscribeToLogs = (callback: (logs: LogEntry[]) => void): any => {
+export const subscribeToLogs = (projectId: string, callback: (logs: LogEntry[]) => void): any => {
   if (!db) return () => {};
-  const q = query(collection(db, LOG_COLLECTION), orderBy("timestamp", "desc"), limit(100));
+  const q = query(collection(db, LOG_COLLECTION), where("projectId", "==", projectId), orderBy("timestamp", "desc"), limit(100));
   return onSnapshot(q, (snapshot: any) => {
     const logs = snapshot.docs.map((doc: any) => doc.data() as LogEntry);
     callback(logs);
@@ -207,6 +241,7 @@ export const subscribeToLogs = (callback: (logs: LogEntry[]) => void): any => {
 };
 
 export const saveRawInput = async (
+    projectId: string | undefined,
     rawText: string, 
     date: string, 
     locations: string[], 
@@ -219,6 +254,7 @@ export const saveRawInput = async (
     const id = crypto.randomUUID();
     const entry = {
         id,
+        projectId,
         timestamp: new Date().toISOString(),
         date,
         rawText,
@@ -241,12 +277,15 @@ export const updateRawInputStatus = async (id: string, status: string, error?: s
     });
 };
 
-export const getRawInputsForDate = async (date: string) => {
+export const getRawInputsForDate = async (projectId: string | undefined, date: string) => {
     if (!db) return [];
     
     // NOTE: Simplified query to avoid "Index Required" errors on new collections.
     // We filter by date in DB, then sort by timestamp in memory.
-    const q = query(collection(db, RAW_INPUT_COLLECTION), where("date", "==", date));
+    let q = query(collection(db, RAW_INPUT_COLLECTION), where("date", "==", date));
+    if (projectId) {
+        q = query(collection(db, RAW_INPUT_COLLECTION), where("projectId", "==", projectId), where("date", "==", date));
+    }
     
     try {
         const snap = await getDocs(q);
@@ -264,10 +303,11 @@ export const getRawInputsForDate = async (date: string) => {
 
 // --- Trash & Recycle Bin ---
 
-export const moveItemToTrash = async (item: DPRItem, reportId: string, reportDate: string, user: string) => {
+export const moveItemToTrash = async (projectId: string | undefined, item: DPRItem, reportId: string, reportDate: string, user: string) => {
     if (!db) return;
     const trashItem: TrashItem = {
         trashId: crypto.randomUUID(),
+        projectId,
         originalId: item.id,
         type: 'item',
         content: item,
@@ -277,13 +317,14 @@ export const moveItemToTrash = async (item: DPRItem, reportId: string, reportDat
         reportId
     };
     await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
-    await logActivity(user, "Move to Trash", `Moved item ${item.location} to trash`, reportDate);
+    await logActivity(projectId, user, "Move to Trash", `Moved item ${item.location} to trash`, reportDate);
 };
 
-export const moveReportToTrash = async (report: DailyReport, user: string) => {
+export const moveReportToTrash = async (projectId: string | undefined, report: DailyReport, user: string) => {
     if (!db) return;
     const trashItem: TrashItem = {
         trashId: crypto.randomUUID(),
+        projectId,
         originalId: report.id,
         type: 'report',
         content: report,
@@ -293,12 +334,12 @@ export const moveReportToTrash = async (report: DailyReport, user: string) => {
     };
     await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
     await deleteReportFromCloud(report.id);
-    await logActivity(user, "Delete Report", `Moved report ${report.date} to trash`, report.date);
+    await logActivity(projectId, user, "Delete Report", `Moved report ${report.date} to trash`, report.date);
 };
 
-export const subscribeToTrash = (callback: (items: TrashItem[]) => void): any => {
+export const subscribeToTrash = (projectId: string, callback: (items: TrashItem[]) => void): any => {
     if (!db) return () => {};
-    const q = query(collection(db, TRASH_COLLECTION), orderBy("deletedAt", "desc"));
+    const q = query(collection(db, TRASH_COLLECTION), where("projectId", "==", projectId), orderBy("deletedAt", "desc"));
     return onSnapshot(q, (snapshot: any) => {
         const items = snapshot.docs.map((doc: any) => doc.data() as TrashItem);
         callback(items);
@@ -329,11 +370,12 @@ export const restoreTrashItem = async (item: TrashItem) => {
 
 // --- Permanent Backups ---
 
-export const savePermanentBackup = async (date: string, rawText: string, parsedItems: DPRItem[], user: string, reportIdContext: string) => {
+export const savePermanentBackup = async (projectId: string | undefined, date: string, rawText: string, parsedItems: DPRItem[], user: string, reportIdContext: string) => {
     if (!db) return null;
     const id = crypto.randomUUID();
     const backup: BackupEntry = {
         id,
+        projectId,
         date,
         timestamp: new Date().toISOString(),
         user,
@@ -364,9 +406,9 @@ export const getBackupById = async (id: string): Promise<BackupEntry | null> => 
 
 // --- Quantities ---
 
-export const subscribeToQuantities = (callback: (qty: QuantityEntry[]) => void): any => {
+export const subscribeToQuantities = (projectId: string, callback: (qty: QuantityEntry[]) => void): any => {
     if (!db) return () => {};
-    const q = query(collection(db, QUANTITY_COLLECTION), orderBy("date", "desc"));
+    const q = query(collection(db, QUANTITY_COLLECTION), where("projectId", "==", projectId), orderBy("date", "desc"));
     return onSnapshot(q, (snapshot: any) => {
         const items = snapshot.docs.map((doc: any) => doc.data() as QuantityEntry);
         callback(items);
@@ -377,7 +419,7 @@ export const updateQuantity = async (qty: QuantityEntry, oldQty?: QuantityEntry,
     if(!db) return;
     await setDoc(doc(db, QUANTITY_COLLECTION, qty.id), qty);
     if(oldQty) {
-        logActivity(user || "System", "Update Quantity", `Updated ${qty.itemType} at ${qty.location}`, qty.date);
+        logActivity(qty.projectId, user || "System", "Update Quantity", `Updated ${qty.itemType} at ${qty.location}`, qty.date);
     }
 };
 
@@ -394,7 +436,7 @@ export const deleteQuantity = async (qty: QuantityEntry, user?: string) => {
     };
     await setDoc(doc(db, TRASH_COLLECTION, trashItem.trashId), trashItem);
     await deleteDoc(doc(db, QUANTITY_COLLECTION, qty.id));
-    logActivity(user || "System", "Delete Quantity", `Deleted ${qty.itemType} at ${qty.location}`, qty.date);
+    logActivity(qty.projectId, user || "System", "Delete Quantity", `Deleted ${qty.itemType} at ${qty.location}`, qty.date);
 };
 
 // --- AI Training ---
@@ -427,9 +469,9 @@ export const subscribeToTrainingExamples = (callback: (ex: TrainingExample[]) =>
 
 // --- Lining Data ---
 
-export const subscribeToLining = (callback: (entries: LiningEntry[]) => void): any => {
+export const subscribeToLining = (projectId: string, callback: (entries: LiningEntry[]) => void): any => {
     if (!db) return () => {};
-    const q = query(collection(db, LINING_COLLECTION), orderBy("fromCh", "asc"));
+    const q = query(collection(db, LINING_COLLECTION), where("projectId", "==", projectId), orderBy("fromCh", "asc"));
     return onSnapshot(q, (snapshot: any) => {
         const items = snapshot.docs.map((doc: any) => doc.data() as LiningEntry);
         callback(items);
@@ -453,31 +495,33 @@ export const deleteLiningEntry = async (id: string) => {
 
 // --- Settings ---
 
-export const getProjectSettings = async (): Promise<ProjectSettings | null> => {
+export const getProjectSettings = async (projectId: string): Promise<ProjectSettings | null> => {
     if (!db) return null;
-    const snap = await getDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'));
+    const snap = await getDoc(doc(db, SETTINGS_COLLECTION, `settings_${projectId}`));
     if (snap.exists()) return snap.data() as ProjectSettings;
     return null;
 };
 
-export const saveProjectSettings = async (settings: ProjectSettings) => {
+export const saveProjectSettings = async (projectId: string, settings: ProjectSettings) => {
     if (!db) return;
-    await setDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'), settings);
+    settings.projectId = projectId;
+    await setDoc(doc(db, SETTINGS_COLLECTION, `settings_${projectId}`), settings);
 };
 
 // --- Sub-Contractors ---
 
-export const subscribeToSubContractors = (callback: (scs: any[]) => void): any => {
+export const subscribeToSubContractors = (projectId: string, callback: (scs: any[]) => void): any => {
     if (!db) return () => {};
-    const q = query(collection(db, SUB_CONTRACTOR_COLLECTION), orderBy("createdAt", "desc"));
+    const q = query(collection(db, SUB_CONTRACTOR_COLLECTION), where("projectId", "==", projectId), orderBy("createdAt", "desc"));
     return onSnapshot(q, (snapshot: any) => {
         const items = snapshot.docs.map((doc: any) => doc.data());
         callback(items);
     });
 };
 
-export const saveSubContractor = async (sc: any) => {
+export const saveSubContractor = async (projectId: string | undefined, sc: any) => {
     if (!db) return;
+    sc.projectId = projectId;
     await setDoc(doc(db, SUB_CONTRACTOR_COLLECTION, sc.id), sc);
 };
 
@@ -488,19 +532,36 @@ export const deleteSubContractor = async (id: string) => {
 
 // --- System Checkpoints ---
 
-export const createSystemCheckpoint = async (user: string): Promise<string> => {
+export const createSystemCheckpoint = async (projectId: string | undefined, user: string): Promise<string> => {
     if (!db) throw new Error("Database not connected");
-    const reportsSnap = await getDocs(collection(db, REPORT_COLLECTION));
+    
+    let reportsQuery = collection(db, REPORT_COLLECTION);
+    let qtyQuery = collection(db, QUANTITY_COLLECTION);
+    let liningQuery = collection(db, LINING_COLLECTION);
+    
+    if (projectId) {
+        reportsQuery = query(reportsQuery, where("projectId", "==", projectId)) as any;
+        qtyQuery = query(qtyQuery, where("projectId", "==", projectId)) as any;
+        liningQuery = query(liningQuery, where("projectId", "==", projectId)) as any;
+    }
+
+    const reportsSnap = await getDocs(reportsQuery);
     const reports = reportsSnap.docs.map((d: any) => d.data() as DailyReport);
-    const qtySnap = await getDocs(collection(db, QUANTITY_COLLECTION));
+    
+    const qtySnap = await getDocs(qtyQuery);
     const quantities = qtySnap.docs.map((d: any) => d.data() as QuantityEntry);
-    const liningSnap = await getDocs(collection(db, LINING_COLLECTION));
+    
+    const liningSnap = await getDocs(liningQuery);
     const lining = liningSnap.docs.map((d: any) => d.data() as LiningEntry);
-    const settingsSnap = await getDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'));
+    
+    const settingsDocId = projectId ? `settings_${projectId}` : 'main_settings';
+    const settingsSnap = await getDoc(doc(db, SETTINGS_COLLECTION, settingsDocId));
     const settings = settingsSnap.exists() ? (settingsSnap.data() as ProjectSettings) : null;
+    
     const checkpointId = crypto.randomUUID();
     const checkpoint: SystemCheckpoint = {
         id: checkpointId,
+        projectId,
         timestamp: new Date().toISOString(),
         name: `Checkpoint ${new Date().toLocaleDateString()}`,
         createdBy: user,
@@ -510,9 +571,12 @@ export const createSystemCheckpoint = async (user: string): Promise<string> => {
     return checkpointId;
 };
 
-export const getCheckpoints = async (): Promise<SystemCheckpoint[]> => {
+export const getCheckpoints = async (projectId: string | undefined): Promise<SystemCheckpoint[]> => {
     if (!db) return [];
-    const q = query(collection(db, CHECKPOINT_COLLECTION), orderBy("timestamp", "desc"), limit(20));
+    let q = query(collection(db, CHECKPOINT_COLLECTION), orderBy("timestamp", "desc"), limit(20));
+    if (projectId) {
+        q = query(collection(db, CHECKPOINT_COLLECTION), where("projectId", "==", projectId), orderBy("timestamp", "desc"), limit(20));
+    }
     const snap = await getDocs(q);
     return snap.docs.map((d: any) => d.data() as SystemCheckpoint);
 };
@@ -538,35 +602,53 @@ export const restoreSystemCheckpoint = async (checkpoint: SystemCheckpoint) => {
     await commitBatch(checkpoint.data.quantities, QUANTITY_COLLECTION);
     await commitBatch(checkpoint.data.lining, LINING_COLLECTION);
     if (checkpoint.data.settings) {
-        await setDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'), checkpoint.data.settings);
+        const settingsDocId = checkpoint.projectId ? `settings_${checkpoint.projectId}` : 'main_settings';
+        await setDoc(doc(db, SETTINGS_COLLECTION, settingsDocId), checkpoint.data.settings);
     }
 };
 
 // --- DATA EXPORT ---
 
-export const exportAllData = async () => {
+export const exportAllData = async (projectId: string | undefined) => {
     if (!db) throw new Error("Database not connected");
-    const collections = [
+    const collectionsWithProjectId = [
         REPORT_COLLECTION,
         LOG_COLLECTION,
         BACKUP_COLLECTION,
         QUANTITY_COLLECTION,
         LINING_COLLECTION,
-        SETTINGS_COLLECTION,
-        USER_COLLECTION,
         CHECKPOINT_COLLECTION,
-        TRAINING_COLLECTION,
-        MOOD_COLLECTION,
         TRASH_COLLECTION,
-        RAW_INPUT_COLLECTION
+        RAW_INPUT_COLLECTION,
+        SUB_CONTRACTOR_COLLECTION
+    ];
+    
+    const globalCollections = [
+        USER_COLLECTION,
+        TRAINING_COLLECTION,
+        MOOD_COLLECTION
     ];
 
     const allData: Record<string, any[]> = {};
 
-    for (const col of collections) {
+    for (const col of collectionsWithProjectId) {
+        let q = collection(db, col) as any;
+        if (projectId) {
+            q = query(q, where("projectId", "==", projectId));
+        }
+        const snap = await getDocs(q);
+        allData[col] = snap.docs.map((d: any) => ({ _id: d.id, ...d.data() }));
+    }
+    
+    for (const col of globalCollections) {
         const snap = await getDocs(collection(db, col));
         allData[col] = snap.docs.map((d: any) => ({ _id: d.id, ...d.data() }));
     }
+    
+    // Settings Collection
+    const settingsDocId = projectId ? `settings_${projectId}` : 'main_settings';
+    const settingsSnap = await getDoc(doc(db, SETTINGS_COLLECTION, settingsDocId));
+    allData[SETTINGS_COLLECTION] = settingsSnap.exists() ? [{ _id: settingsDocId, ...settingsSnap.data() }] : [];
     
     // Metadata
     const exportObject = {
