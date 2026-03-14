@@ -193,12 +193,13 @@ export const parseConstructionData = async (
        - Check the Provided HIERARCHY below. 
        - If you see "TRT Pool", map it to "Tailrace Pool (TRT Pool)" under "Powerhouse".
        - If you see "Inlet" or "Adit", map it to "Headrace Tunnel (HRT)".
-       - If you see "River protection", map it to "River Protection Works" under "Powerhouse".
+       - If you see "River protection", map it to "River Protection Works" under "Powerhouse", and leave 'structuralElement' BLANK (empty string) because it has no sub-areas. Do NOT assign it to "Powerhouse Ventilation Tunnel".
 
     4. DESCRIPTION FORMAT:
        - 'activityDescription' MUST be: "Action (Quantity Unit)".
        - Include grades (C35, C25, M15) in the description.
        - If NO quantity is specified, DO NOT include "(0 unit)" or any arbitrary quantity in the description. Just write the Action.
+       - For items like HDPE pipes, ensure the full detail (e.g., "HDPE pipe 14 nos x 2.5m") is included in the 'activityDescription' even if the total quantity is calculated.
 
     5. DATA MAPPING:
        - quantity: numeric only (ignore negative signs if they are just separators, e.g., "Quantity -41m3" means 41). If no quantity is specified in the text, return 0. DO NOT hallucinate or default to 1.
@@ -207,8 +208,9 @@ export const parseConstructionData = async (
        - unit: standardized (m3, m2, Ton, nos, rm). For pipes with length, use 'rm'. If no quantity is specified, return "".
        - itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). Default "concreting" to "C25 Concrete" if no grade is specified.
        - structuralElement: CRITICAL: Extract the specific part, area, or structure name from the description if not explicitly provided.
-         Examples: "Spiral casing unit 1", "end sill", "bottom sill", "pier", "wall", "slab", "Crown", "Invert", "Glacis".
+         Examples: "Gantry", "Spiral casing unit 1", "end sill", "bottom sill", "pier", "wall", "slab", "Crown", "Invert", "Glacis".
          - If you see "Inverter" or "Tunnel Inverter", convert it to "Invert".
+         - If you see "Gantry" or "Gantry concreting", ensure "Gantry" is set as the 'structuralElement'.
        - chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
 
     6. DESCRIPTION CLEANUP:

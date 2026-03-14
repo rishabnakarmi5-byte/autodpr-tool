@@ -95,6 +95,50 @@ export const updateProjectMembers = async (projectId: string, members: string[],
   await updateDoc(doc(db, PROJECTS_COLLECTION, projectId), { members, admins });
 };
 
+export const migrateLegacyDataToProject = async (projectId: string) => {
+  if (!db) return;
+  const collectionsToMigrate = [
+    REPORT_COLLECTION,
+    LOG_COLLECTION,
+    TRASH_COLLECTION,
+    BACKUP_COLLECTION,
+    REPORT_HISTORY_COLLECTION,
+    QUANTITY_COLLECTION,
+    LINING_COLLECTION,
+    CHECKPOINT_COLLECTION,
+    RAW_INPUT_COLLECTION,
+    SUB_CONTRACTOR_COLLECTION
+  ];
+
+  let totalMigrated = 0;
+
+  for (const collName of collectionsToMigrate) {
+    const q = query(collection(db, collName));
+    const snapshot = await getDocs(q);
+    
+    for (const document of snapshot.docs) {
+      const data = document.data();
+      if (!data.projectId) {
+        await updateDoc(doc(db, collName, document.id), { projectId });
+        totalMigrated++;
+      }
+    }
+  }
+
+  // Migrate main_settings to settings_{projectId} if it exists
+  const mainSettingsSnap = await getDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'));
+  if (mainSettingsSnap.exists()) {
+    const settingsData = mainSettingsSnap.data();
+    if (!settingsData.projectId) {
+      settingsData.projectId = projectId;
+      await setDoc(doc(db, SETTINGS_COLLECTION, `settings_${projectId}`), settingsData);
+      totalMigrated++;
+    }
+  }
+  
+  return totalMigrated;
+};
+
 // --- Authentication & Profile ---
 
 export const signInWithGoogle = async () => {
@@ -186,9 +230,10 @@ export const subscribeToTodayMood = (uid: string, callback: (mood: UserMood | nu
 
 export const subscribeToReports = (projectId: string, callback: (reports: DailyReport[]) => void): any => {
   if (!db) return () => {};
-  const q = query(collection(db, REPORT_COLLECTION), where("projectId", "==", projectId), orderBy("date", "desc"));
+  const q = query(collection(db, REPORT_COLLECTION), where("projectId", "==", projectId));
   return onSnapshot(q, (snapshot: any) => {
     const reports = snapshot.docs.map((doc: any) => doc.data() as DailyReport);
+    reports.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     callback(reports);
   });
 };
@@ -339,9 +384,10 @@ export const moveReportToTrash = async (projectId: string | undefined, report: D
 
 export const subscribeToTrash = (projectId: string, callback: (items: TrashItem[]) => void): any => {
     if (!db) return () => {};
-    const q = query(collection(db, TRASH_COLLECTION), where("projectId", "==", projectId), orderBy("deletedAt", "desc"));
+    const q = query(collection(db, TRASH_COLLECTION), where("projectId", "==", projectId));
     return onSnapshot(q, (snapshot: any) => {
         const items = snapshot.docs.map((doc: any) => doc.data() as TrashItem);
+        items.sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
         callback(items);
     });
 };
@@ -408,9 +454,10 @@ export const getBackupById = async (id: string): Promise<BackupEntry | null> => 
 
 export const subscribeToQuantities = (projectId: string, callback: (qty: QuantityEntry[]) => void): any => {
     if (!db) return () => {};
-    const q = query(collection(db, QUANTITY_COLLECTION), where("projectId", "==", projectId), orderBy("date", "desc"));
+    const q = query(collection(db, QUANTITY_COLLECTION), where("projectId", "==", projectId));
     return onSnapshot(q, (snapshot: any) => {
         const items = snapshot.docs.map((doc: any) => doc.data() as QuantityEntry);
+        items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         callback(items);
     });
 };
@@ -471,9 +518,10 @@ export const subscribeToTrainingExamples = (callback: (ex: TrainingExample[]) =>
 
 export const subscribeToLining = (projectId: string, callback: (entries: LiningEntry[]) => void): any => {
     if (!db) return () => {};
-    const q = query(collection(db, LINING_COLLECTION), where("projectId", "==", projectId), orderBy("fromCh", "asc"));
+    const q = query(collection(db, LINING_COLLECTION), where("projectId", "==", projectId));
     return onSnapshot(q, (snapshot: any) => {
         const items = snapshot.docs.map((doc: any) => doc.data() as LiningEntry);
+        items.sort((a, b) => a.fromCh - b.fromCh);
         callback(items);
     });
 };
@@ -512,9 +560,10 @@ export const saveProjectSettings = async (projectId: string, settings: ProjectSe
 
 export const subscribeToSubContractors = (projectId: string, callback: (scs: any[]) => void): any => {
     if (!db) return () => {};
-    const q = query(collection(db, SUB_CONTRACTOR_COLLECTION), where("projectId", "==", projectId), orderBy("createdAt", "desc"));
+    const q = query(collection(db, SUB_CONTRACTOR_COLLECTION), where("projectId", "==", projectId));
     return onSnapshot(q, (snapshot: any) => {
         const items = snapshot.docs.map((doc: any) => doc.data());
+        items.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         callback(items);
     });
 };
