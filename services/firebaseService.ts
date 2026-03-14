@@ -95,50 +95,6 @@ export const updateProjectMembers = async (projectId: string, members: string[],
   await updateDoc(doc(db, PROJECTS_COLLECTION, projectId), { members, admins });
 };
 
-export const migrateLegacyDataToProject = async (projectId: string) => {
-  if (!db) return;
-  const collectionsToMigrate = [
-    REPORT_COLLECTION,
-    LOG_COLLECTION,
-    TRASH_COLLECTION,
-    BACKUP_COLLECTION,
-    REPORT_HISTORY_COLLECTION,
-    QUANTITY_COLLECTION,
-    LINING_COLLECTION,
-    CHECKPOINT_COLLECTION,
-    RAW_INPUT_COLLECTION,
-    SUB_CONTRACTOR_COLLECTION
-  ];
-
-  let totalMigrated = 0;
-
-  for (const collName of collectionsToMigrate) {
-    const q = query(collection(db, collName));
-    const snapshot = await getDocs(q);
-    
-    for (const document of snapshot.docs) {
-      const data = document.data();
-      if (!data.projectId) {
-        await updateDoc(doc(db, collName, document.id), { projectId });
-        totalMigrated++;
-      }
-    }
-  }
-
-  // Migrate main_settings to settings_{projectId} if it exists
-  const mainSettingsSnap = await getDoc(doc(db, SETTINGS_COLLECTION, 'main_settings'));
-  if (mainSettingsSnap.exists()) {
-    const settingsData = mainSettingsSnap.data();
-    if (!settingsData.projectId) {
-      settingsData.projectId = projectId;
-      await setDoc(doc(db, SETTINGS_COLLECTION, `settings_${projectId}`), settingsData);
-      totalMigrated++;
-    }
-  }
-  
-  return totalMigrated;
-};
-
 // --- Authentication & Profile ---
 
 export const signInWithGoogle = async () => {

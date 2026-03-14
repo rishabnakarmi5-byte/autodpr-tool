@@ -20,10 +20,6 @@ service cloud.firestore {
              (request.auth.token.email in get(/databases/$(database)/documents/projects/$(projectId)).data.admins);
     }
     
-    function isLegacyData() {
-      return resource == null || !('projectId' in resource.data) || resource.data.projectId == null;
-    }
-    
     function isCreator() {
       return isAuthenticated() && request.resource.data.createdBy == request.auth.token.email;
     }
@@ -57,73 +53,63 @@ service cloud.firestore {
 
     // Project Data Collections (Requires projectId field)
     match /daily_reports/{reportId} {
-      allow read: if isProjectMember(resource.data.projectId) || (isLegacyData() && isAuthenticated());
+      allow read: if isProjectMember(resource.data.projectId);
       allow create: if isProjectMember(request.resource.data.projectId);
-      allow update: if isProjectMember(resource.data.projectId) || (isLegacyData() && isProjectAdmin(request.resource.data.projectId));
-      allow delete: if isProjectMember(resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
     }
     
     match /activity_logs/{logId} {
-      allow read: if isProjectMember(resource.data.projectId) || (isLegacyData() && isAuthenticated());
+      allow read: if isProjectMember(resource.data.projectId);
       allow create: if isProjectMember(request.resource.data.projectId);
-      allow update: if isProjectMember(resource.data.projectId) || (isLegacyData() && isProjectAdmin(request.resource.data.projectId));
-      allow delete: if isProjectMember(resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
     }
     
     match /trash_bin/{trashId} {
-      allow read: if isProjectMember(resource.data.projectId) || (isLegacyData() && isAuthenticated());
+      allow read: if isProjectMember(resource.data.projectId);
       allow create: if isProjectMember(request.resource.data.projectId);
-      allow update: if isProjectMember(resource.data.projectId) || (isLegacyData() && isProjectAdmin(request.resource.data.projectId));
-      allow delete: if isProjectMember(resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
     }
     
     match /permanent_backups/{backupId} {
-      allow read: if isProjectMember(resource.data.projectId) || (isLegacyData() && isAuthenticated());
+      allow read: if isProjectMember(resource.data.projectId);
       allow create: if isProjectMember(request.resource.data.projectId);
-      allow update: if isProjectMember(resource.data.projectId) || (isLegacyData() && isProjectAdmin(request.resource.data.projectId));
-      allow delete: if isProjectMember(resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
     }
     
     match /report_history/{historyId} {
-      allow read: if isProjectMember(resource.data.projectId) || (isLegacyData() && isAuthenticated());
+      allow read: if isProjectMember(resource.data.projectId);
       allow create: if isProjectMember(request.resource.data.projectId);
-      allow update: if isProjectMember(resource.data.projectId) || (isLegacyData() && isProjectAdmin(request.resource.data.projectId));
-      allow delete: if isProjectMember(resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
     }
     
     match /quantities/{qtyId} {
-      allow read: if isProjectMember(resource.data.projectId) || (isLegacyData() && isAuthenticated());
+      allow read: if isProjectMember(resource.data.projectId);
       allow create: if isProjectMember(request.resource.data.projectId);
-      allow update: if isProjectMember(resource.data.projectId) || (isLegacyData() && isProjectAdmin(request.resource.data.projectId));
-      allow delete: if isProjectMember(resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
     }
     
     match /lining_data/{liningId} {
-      allow read: if isProjectMember(resource.data.projectId) || (isLegacyData() && isAuthenticated());
+      allow read: if isProjectMember(resource.data.projectId);
       allow create: if isProjectMember(request.resource.data.projectId);
-      allow update: if isProjectMember(resource.data.projectId) || (isLegacyData() && isProjectAdmin(request.resource.data.projectId));
-      allow delete: if isProjectMember(resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
     }
     
     match /system_checkpoints/{checkpointId} {
-      allow read: if isProjectMember(resource.data.projectId) || (isLegacyData() && isAuthenticated());
+      allow read: if isProjectMember(resource.data.projectId);
       allow create: if isProjectMember(request.resource.data.projectId);
-      allow update: if isProjectMember(resource.data.projectId) || (isLegacyData() && isProjectAdmin(request.resource.data.projectId));
-      allow delete: if isProjectMember(resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
     }
     
     match /raw_inputs/{inputId} {
-      allow read: if isProjectMember(resource.data.projectId) || (isLegacyData() && isAuthenticated());
+      allow read: if isProjectMember(resource.data.projectId);
       allow create: if isProjectMember(request.resource.data.projectId);
-      allow update: if isProjectMember(resource.data.projectId) || (isLegacyData() && isProjectAdmin(request.resource.data.projectId));
-      allow delete: if isProjectMember(resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
     }
     
     match /sub_contractors/{scId} {
-      allow read: if isProjectMember(resource.data.projectId) || (isLegacyData() && isAuthenticated());
+      allow read: if isProjectMember(resource.data.projectId);
       allow create: if isProjectMember(request.resource.data.projectId);
-      allow update: if isProjectMember(resource.data.projectId) || (isLegacyData() && isProjectAdmin(request.resource.data.projectId));
-      allow delete: if isProjectMember(resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
     }
     
     // Settings Collection (Document ID is settings_{projectId} or main_settings)

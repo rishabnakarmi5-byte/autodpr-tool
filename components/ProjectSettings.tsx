@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { ProjectSettings, DailyReport, QuantityEntry, ItemTypeDefinition, SystemCheckpoint, TrainingExample, SubContractor, Project } from '../types';
 import { LOCATION_HIERARCHY, ITEM_PATTERNS } from '../utils/constants';
-import { createSystemCheckpoint, getCheckpoints, restoreSystemCheckpoint, saveTrainingExample, deleteTrainingExample, subscribeToTrainingExamples, exportAllData, subscribeToSubContractors, saveSubContractor, deleteSubContractor, updateProjectMembers, migrateLegacyDataToProject } from '../services/firebaseService';
+import { createSystemCheckpoint, getCheckpoints, restoreSystemCheckpoint, saveTrainingExample, deleteTrainingExample, subscribeToTrainingExamples, exportAllData, subscribeToSubContractors, saveSubContractor, deleteSubContractor, updateProjectMembers } from '../services/firebaseService';
 
 interface ProjectSettingsProps {
   currentSettings: ProjectSettings | null;
@@ -697,7 +697,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
                     ))}
                 </div>
 
-                <div className="border-t border-slate-100 mt-8 pt-6 space-y-4">
+                <div className="border-t border-slate-100 mt-8 pt-6">
                     <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 flex justify-between items-center">
                         <div>
                              <h3 className="text-lg font-bold text-indigo-900">Full Database Export</h3>
@@ -712,31 +712,6 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
                             Export Data
                         </button>
                     </div>
-
-                    {currentProject?.admins?.includes(user?.email) && (
-                        <div className="bg-amber-50 p-6 rounded-2xl border border-amber-100 flex justify-between items-center">
-                            <div>
-                                <h3 className="text-lg font-bold text-amber-900">Migrate Legacy Data</h3>
-                                <p className="text-sm text-amber-700 mt-1">Move all old data (without a project assigned) into this project. This action cannot be undone.</p>
-                            </div>
-                            <button 
-                                onClick={async () => {
-                                    if (window.confirm("Are you sure you want to migrate all legacy data to this project? This will assign all unassigned reports, logs, and settings to this project.")) {
-                                        try {
-                                            const count = await migrateLegacyDataToProject(projectId || '');
-                                            alert(`Successfully migrated ${count} legacy items to this project. Please refresh the page.`);
-                                        } catch (e: any) {
-                                            alert("Migration failed: " + e.message);
-                                        }
-                                    }
-                                }}
-                                className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all"
-                            >
-                                <i className="fas fa-exchange-alt"></i>
-                                Migrate Data
-                            </button>
-                        </div>
-                    )}
                 </div>
             </div>
         )}
