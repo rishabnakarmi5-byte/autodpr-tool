@@ -37,16 +37,12 @@ import {
   saveRawInput,
   updateRawInputStatus
 } from './services/firebaseService';
-import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, BackupEntry, Project } from './types';
+import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, BackupEntry } from './types';
 import { LOCATION_HIERARCHY } from './utils/constants';
-import { subscribeToUserProjects } from './services/firebaseService';
 
 const App = () => {
   const [user, setUser] = useState<any | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [projectsLoading, setProjectsLoading] = useState(true);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState<TabView>(() => (localStorage.getItem('activeTab') as TabView) || TabView.INPUT);
   const [reports, setReports] = useState<DailyReport[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -87,8 +83,6 @@ const App = () => {
       await logoutUser();
       setUser(null);
       setReports([]);
-      setProjects([]);
-      setCurrentProject(null);
   };
 
   const configLoaded = isConfigured || bypassConfig;
@@ -98,7 +92,7 @@ const App = () => {
         setUser(u);
         setAuthLoading(false);
         if(u) {
-            logActivity(undefined, u.displayName || u.email, "Session Active", `User authenticated at ${new Date().toLocaleTimeString()}`, new Date().toISOString().split('T')[0]);
+            logActivity(u.displayName || u.email, "Session Active", `User authenticated at ${new Date().toLocaleTimeString()}`, new Date().toISOString().split('T')[0]);
         }
     });
     return () => unsubAuth();
@@ -106,29 +100,13 @@ const App = () => {
 
   useEffect(() => {
       if (user) {
-          setProjectsLoading(true);
-          const unsubProjects = subscribeToUserProjects(user.email, (data) => {
-              setProjects(data);
-              if (data.length > 0 && !currentProject) {
-                  setCurrentProject(data[0]);
-              }
-              setProjectsLoading(false);
-          });
-          return () => unsubProjects();
-      } else {
-          setProjectsLoading(false);
-      }
-  }, [user]);
-
-  useEffect(() => {
-      if (user && currentProject) {
-          const unsubReports = subscribeToReports(currentProject.id, (data) => {
+          const unsubReports = subscribeToReports((data) => {
               setReports(data);
           });
-          const unsubLogs = subscribeToLogs(currentProject.id, setLogs);
-          const unsubTrash = subscribeToTrash(currentProject.id, setTrashItems);
+          const unsubLogs = subscribeToLogs(setLogs);
+          const unsubTrash = subscribeToTrash(setTrashItems);
           
-          getProjectSettings(currentProject.id).then(s => {
+          getProjectSettings().then(s => {
               if(s) {
                   setSettings(s);
                   if(s.locationHierarchy) setHierarchy(s.locationHierarchy);
@@ -140,12 +118,8 @@ const App = () => {
               unsubLogs();
               unsubTrash();
           };
-      } else {
-          setReports([]);
-          setLogs([]);
-          setTrashItems([]);
       }
-  }, [user, currentProject]);
+  }, [user]);
 
   useEffect(() => {
       const found = reports.find(r => r.date === currentDate);
@@ -174,7 +148,6 @@ const App = () => {
 
       const reportData: DailyReport = {
           id: reportId,
-          projectId: currentProject?.id,
           date: currentDate,
           lastUpdated: new Date().toISOString(),
           projectTitle: settings?.projectName || "Bhotekoshi Hydroelectric Project",
@@ -185,7 +158,7 @@ const App = () => {
       try {
           await saveReportToCloud(reportData);
           
-          const backupId = await savePermanentBackup(currentProject?.id, currentDate, rawText, newItems, user?.displayName || 'Unknown', reportId);
+          const backupId = await savePermanentBackup(currentDate, rawText, newItems, user?.displayName || 'Unknown', reportId);
           
           const locs = Array.from(new Set(newItems.map(i => i.location)));
           const comps = Array.from(new Set(newItems.filter(i => i.component).map(i => i.component!)));
@@ -194,7 +167,6 @@ const App = () => {
           // Always ensure raw input is saved
           if (!existingRawLogId) {
               await saveRawInput(
-                  currentProject?.id,
                   rawText,
                   currentDate,
                   locs,
@@ -208,7 +180,6 @@ const App = () => {
           }
 
           await logActivity(
-              currentProject?.id,
               user?.displayName || 'Unknown', 
               isManual ? "Manual Creation" : "AI Import", 
               `${isManual ? 'Created' : 'Imported'} ${newItems.length} items for ${currentDate}`, 
@@ -253,7 +224,7 @@ const App = () => {
       setReports(prev => prev.map(r => r.id === reportToSave.id ? reportToSave : r));
 
       await saveReportToCloud(reportToSave);
-      await moveItemToTrash(currentProject?.id, itemToDelete, targetReport.id, targetReport.date, user?.displayName || 'Unknown');
+      await moveItemToTrash(itemToDelete, targetReport.id, targetReport.date, user?.displayName || 'Unknown');
   };
 
   const handleUpdateItem = async (itemId: string, updates: Partial<DPRItem>) => {
@@ -302,7 +273,7 @@ const App = () => {
   const handleDeleteReport = async (reportId: string) => {
       const report = reports.find(r => r.id === reportId);
       if (report) {
-         await moveReportToTrash(currentProject?.id, report, user?.displayName || 'Unknown');
+         await moveReportToTrash(report, user?.displayName || 'Unknown');
          if (reportId === currentReportId) {
              setCurrentReportId(null);
              setCurrentEntries([]);
@@ -345,9 +316,7 @@ const App = () => {
   };
 
   const handleSaveSettings = async (newSettings: ProjectSettings) => {
-      if (currentProject?.id) {
-          await saveProjectSettings(currentProject.id, newSettings);
-      }
+      await saveProjectSettings(newSettings);
       setSettings(newSettings);
       setHierarchy(newSettings.locationHierarchy);
   };
@@ -425,57 +394,6 @@ const App = () => {
     );
   }
 
-  if (user && !projectsLoading && projects.length === 0) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
-        <div className="bg-white p-8 rounded-2xl shadow-xl text-center max-w-md w-full animate-fade-in">
-           <div className="w-16 h-16 bg-amber-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-amber-200">
-             <i className="fas fa-clock text-white text-3xl"></i>
-           </div>
-           <h1 className="text-2xl font-black text-slate-800 mb-2">Pending Approval</h1>
-           <p className="text-slate-500 mb-8">Your account is currently not assigned to any projects. Please contact an administrator to get access.</p>
-           
-           <div className="bg-slate-50 p-4 rounded-xl mb-8 text-left">
-               <p className="text-sm text-slate-600 font-medium mb-1">Logged in as:</p>
-               <p className="text-sm text-slate-800 font-bold break-all">{user.email}</p>
-           </div>
-
-           <div className="space-y-3">
-               <button 
-                 onClick={() => {
-                     const name = prompt("Enter new project name:");
-                     if (name) {
-                         import('./services/firebaseService').then(({ createProject }) => {
-                             createProject(name, "New Project", user.uid, user.email).then(() => {
-                                 alert("Project created successfully!");
-                             }).catch(e => alert("Failed to create project: " + e.message));
-                         });
-                     }
-                 }}
-                 className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
-               >
-                 Create New Project
-               </button>
-               <button 
-                 onClick={handleLogout}
-                 className="w-full bg-slate-100 text-slate-700 py-3.5 rounded-xl font-bold hover:bg-slate-200 transition-all"
-               >
-                 Sign Out
-               </button>
-           </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (authLoading || projectsLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-      </div>
-    );
-  }
-
   const renderContent = () => {
       switch(activeTab) {
           case TabView.INPUT:
@@ -514,7 +432,6 @@ const App = () => {
              return <HistoryList 
                 reports={reports} 
                 currentReportId={currentReportId || ''} 
-                currentProjectId={currentProject?.id}
                 onSelectReport={(id) => {
                     const r = reports.find(r => r.id === id);
                     if(r) { setCurrentDate(r.date); setCurrentReportId(r.id); setActiveTab(TabView.VIEW_REPORT); }
@@ -556,8 +473,6 @@ const App = () => {
                 reports={reports}
                 quantities={[]}
                 user={user}
-                projectId={currentProject?.id}
-                currentProject={currentProject}
              />;
           case TabView.PROFILE:
              return <ProfileView user={user} />;
@@ -572,13 +487,7 @@ const App = () => {
         onTabChange={(t) => { setActiveTab(t); localStorage.setItem('activeTab', t); }} 
         user={user} 
         onLogout={handleLogout}
-        onSaveCheckpoint={() => createSystemCheckpoint(currentProject?.id, user?.displayName || 'User')}
-        projects={projects}
-        currentProject={currentProject}
-        onProjectChange={(p) => {
-            setCurrentProject(p);
-            localStorage.setItem('currentProjectId', p.id);
-        }}
+        onSaveCheckpoint={() => createSystemCheckpoint(user?.displayName || 'User')}
     >
         {renderContent()}
         
@@ -598,5 +507,10 @@ const App = () => {
   );
 };
 
-const root = createRoot(document.getElementById('root')!);
+const container = document.getElementById('root')!;
+let root = (window as any)._reactRoot;
+if (!root) {
+  root = createRoot(container);
+  (window as any)._reactRoot = root;
+}
 root.render(<App />);
