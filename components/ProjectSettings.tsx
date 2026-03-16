@@ -148,16 +148,17 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
 
   // --- SUBCONTRACTOR HANDLERS ---
   useEffect(() => {
-    if (activeTab === 'subcontractors') {
-        const unsub = subscribeToSubContractors(setSubcontractors);
+    if (activeTab === 'subcontractors' && projectId) {
+        const unsub = subscribeToSubContractors(projectId, setSubcontractors);
         return () => unsub();
     }
-  }, [activeTab]);
+  }, [activeTab, projectId]);
 
   const handleAddSc = async () => {
       if (!newScName) return;
-      await saveSubContractor({
+      await saveSubContractor(projectId, {
           id: crypto.randomUUID(),
+          projectId,
           name: newScName,
           assignedComponents: [],
           rates: {},
@@ -167,7 +168,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   };
 
   const handleUpdateSc = async (sc: SubContractor) => {
-      await saveSubContractor(sc);
+      await saveSubContractor(projectId, sc);
   };
 
   const handleDeleteSc = async (id: string) => {
@@ -181,7 +182,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   const loadSnapshots = async () => {
       setLoadingSnapshots(true);
       try {
-          const data = await getCheckpoints();
+          const data = await getCheckpoints(projectId);
           setSnapshots(data);
       } catch (e) { console.error(e); }
       setLoadingSnapshots(false);
@@ -190,7 +191,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   const handleExportDatabase = async () => {
     setIsExporting(true);
     try {
-        const data = await exportAllData();
+        const data = await exportAllData(projectId);
         const jsonString = JSON.stringify(data, null, 2);
         const blob = new Blob([jsonString], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -220,7 +221,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
                 <h2 className="text-3xl font-bold text-slate-800 tracking-tight uppercase">System Management</h2>
                 <p className="text-sm text-slate-500 font-medium">Project settings, AI training, and recovery snapshots.</p>
             </div>
-            <div className="flex bg-slate-100 p-1 rounded-xl">
+            <div className="flex bg-slate-100 p-1 rounded-xl flex-wrap gap-1">
                 <button onClick={() => setActiveTab('config')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'config' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Configuration</button>
                 <button onClick={() => setActiveTab('subcontractors')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'subcontractors' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>Sub-Contractors</button>
                 <button onClick={() => setActiveTab('training')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'training' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>AI Training</button>

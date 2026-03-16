@@ -1,7 +1,7 @@
 
 
 import React, { useEffect, useState } from 'react';
-import { TabView, UserProfile } from '../types';
+import { TabView, UserProfile, Project } from '../types';
 import { subscribeToUserProfile } from '../services/firebaseService';
 
 interface LayoutProps {
@@ -11,9 +11,12 @@ interface LayoutProps {
   user: any;
   onLogout: () => void;
   onSaveCheckpoint: () => void;
+  projects: Project[];
+  currentProject: Project | null;
+  onProjectChange: (project: Project) => void;
 }
 
-export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user, onLogout, onSaveCheckpoint }) => {
+export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user, onLogout, onSaveCheckpoint, projects, currentProject, onProjectChange }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
@@ -32,29 +35,48 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-100 text-slate-800 font-sans relative">
-      <div className="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center shadow-md sticky top-0 z-50">
-        <h1 className="font-bold text-xl flex items-center tracking-widest uppercase">
-          <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center mr-2">
-            <i className="fas fa-hard-hat text-white text-sm"></i>
+      <div className="md:hidden bg-slate-900 text-white p-4 flex flex-col shadow-md sticky top-0 z-50">
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="font-bold text-xl flex items-center tracking-widest uppercase">
+            <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center mr-2">
+              <i className="fas fa-hard-hat text-white text-sm"></i>
+            </div>
+            DPR MAKER
+          </h1>
+          <div className="flex items-center gap-3">
+              <button 
+                  onClick={onSaveCheckpoint}
+                  className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-emerald-400 active:scale-95 transition-transform"
+                  title="Save Checkpoint"
+              >
+                  <i className="fas fa-save"></i>
+              </button>
+              <button onClick={() => onTabChange(TabView.PROFILE)} className="w-8 h-8 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center border border-indigo-500">
+                 {user?.photoURL ? (
+                   <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
+                 ) : (
+                   <span className="text-white text-xs font-bold">{user?.displayName?.charAt(0) || <i className="fas fa-user"></i>}</span>
+                 )}
+              </button>
           </div>
-          DPR MAKER
-        </h1>
-        <div className="flex items-center gap-3">
-            <button 
-                onClick={onSaveCheckpoint}
-                className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-emerald-400 active:scale-95 transition-transform"
-                title="Save Checkpoint"
-            >
-                <i className="fas fa-save"></i>
-            </button>
-            <button onClick={() => onTabChange(TabView.PROFILE)} className="w-8 h-8 rounded-full bg-slate-700 overflow-hidden flex items-center justify-center border border-indigo-500">
-               {user?.photoURL ? (
-                 <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
-               ) : (
-                 <span className="text-white text-xs font-bold">{user?.displayName?.charAt(0) || <i className="fas fa-user"></i>}</span>
-               )}
-            </button>
         </div>
+        
+        {projects.length > 0 && (
+          <div>
+            <select 
+              value={currentProject?.id || ''}
+              onChange={(e) => {
+                const proj = projects.find(p => p.id === e.target.value);
+                if (proj) onProjectChange(proj);
+              }}
+              className="w-full bg-slate-800 border-slate-700 text-white rounded-lg p-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
+            >
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       <aside className="hidden md:flex flex-col w-72 bg-slate-900 text-slate-300 min-h-screen shadow-2xl sticky top-0 h-screen z-10">
@@ -66,6 +88,24 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
              DPR MAKER
           </h1>
           <p className="text-xs text-slate-500 mt-3 font-bold uppercase tracking-wider">Construction Management</p>
+          
+          {projects.length > 0 && (
+            <div className="mt-6">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Current Project</label>
+              <select 
+                value={currentProject?.id || ''}
+                onChange={(e) => {
+                  const proj = projects.find(p => p.id === e.target.value);
+                  if (proj) onProjectChange(proj);
+                }}
+                className="w-full bg-slate-800 border-slate-700 text-white rounded-lg p-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
         
         <nav className="flex-1 px-4 py-8 space-y-3 overflow-y-auto">

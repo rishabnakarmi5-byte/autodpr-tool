@@ -1,0 +1,141 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isProjectMember(projectId) {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/projects/$(projectId)) &&
+             (request.auth.token.email in get(/databases/$(database)/documents/projects/$(projectId)).data.members);
+    }
+    
+    function isProjectAdmin(projectId) {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/projects/$(projectId)) &&
+             (request.auth.token.email in get(/databases/$(database)/documents/projects/$(projectId)).data.admins);
+    }
+    
+    function isCreator() {
+      return isAuthenticated() && request.resource.data.createdBy == request.auth.token.email;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "rishabnakarmi5@gmail.com" && request.auth.token.email_verified == true)); // Default admin
+    }
+
+    // Projects Collection
+    match /projects/{projectId} {
+      // Anyone authenticated can create a project
+      allow create: if isAuthenticated() && 
+                    request.resource.data.createdBy == request.auth.token.email &&
+                    request.resource.data.admins.hasAny([request.auth.token.email]) &&
+                    request.resource.data.members.hasAny([request.auth.token.email]);
+      
+      // Members can read the project details
+      allow read: if isAuthenticated() && 
+                  (request.auth.token.email in resource.data.members);
+                  
+      // Only admins can update project details
+      allow update: if isAuthenticated() && 
+                    (request.auth.token.email in resource.data.admins);
+                    
+      // Only admins can delete a project
+      allow delete: if isAuthenticated() && 
+                    (request.auth.token.email in resource.data.admins);
+    }
+
+    // Project Data Collections (Requires projectId field)
+    match /daily_reports/{reportId} {
+      allow read: if isProjectMember(resource.data.projectId);
+      allow create: if isProjectMember(request.resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
+    }
+    
+    match /activity_logs/{logId} {
+      allow read: if isProjectMember(resource.data.projectId);
+      allow create: if isProjectMember(request.resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
+    }
+    
+    match /trash_bin/{trashId} {
+      allow read: if isProjectMember(resource.data.projectId);
+      allow create: if isProjectMember(request.resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
+    }
+    
+    match /permanent_backups/{backupId} {
+      allow read: if isProjectMember(resource.data.projectId);
+      allow create: if isProjectMember(request.resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
+    }
+    
+    match /report_history/{historyId} {
+      allow read: if isProjectMember(resource.data.projectId);
+      allow create: if isProjectMember(request.resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
+    }
+    
+    match /quantities/{qtyId} {
+      allow read: if isProjectMember(resource.data.projectId);
+      allow create: if isProjectMember(request.resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
+    }
+    
+    match /lining_data/{liningId} {
+      allow read: if isProjectMember(resource.data.projectId);
+      allow create: if isProjectMember(request.resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
+    }
+    
+    match /system_checkpoints/{checkpointId} {
+      allow read: if isProjectMember(resource.data.projectId);
+      allow create: if isProjectMember(request.resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
+    }
+    
+    match /raw_inputs/{inputId} {
+      allow read: if isProjectMember(resource.data.projectId);
+      allow create: if isProjectMember(request.resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
+    }
+    
+    match /sub_contractors/{scId} {
+      allow read: if isProjectMember(resource.data.projectId);
+      allow create: if isProjectMember(request.resource.data.projectId);
+      allow update, delete: if isProjectMember(resource.data.projectId);
+    }
+    
+    // Settings Collection (Document ID is settings_{projectId} or main_settings)
+    match /project_settings/{settingId} {
+      allow read: if isAuthenticated(); // Allow reading settings
+      allow write: if isAuthenticated() && (
+        (request.resource.data.projectId != null && isProjectAdmin(request.resource.data.projectId)) ||
+        (resource != null && resource.data.projectId != null && isProjectAdmin(resource.data.projectId)) ||
+        isAdmin()
+      );
+    }
+    
+    // User Profiles Collection
+    match /user_profiles/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    match /ai_training_examples/{exampleId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /user_moods/{moodId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+  }
+}

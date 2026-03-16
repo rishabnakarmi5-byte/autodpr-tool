@@ -79,7 +79,7 @@ export const getLocationPriority = (location: string): number => {
 };
 
 export const ITEM_PATTERNS = [
-  { name: "Formwork", pattern: /\b(formwork|formworks|shuttering|shutter|form\s+work|form\s+works)\b/i, defaultUnit: 'm2' },
+  { name: "Formwork", pattern: /\b(formwork|formworks|shuttering|shutter|shutters|form\s+work|form\s+works)\b/i, defaultUnit: 'm2' },
   { name: "Rebar", pattern: /\b(rebar|reinforcement|steel|tmt|bar|tor)\b/i, defaultUnit: 'Ton' },
   { name: "C25 Plum Concrete", pattern: /\b(c[\-\s]?25|grade[\-\s]?25|m[\-\s]?25).*(plum)|(plum).*(c[\-\s]?25|grade[\-\s]?25|m[\-\s]?25)\b/i, defaultUnit: 'm3' },
   { name: "C20 Plum Concrete", pattern: /\b(c[\-\s]?20|grade[\-\s]?20|m[\-\s]?20).*(plum)|(plum).*(c[\-\s]?20|grade[\-\s]?20|m[\-\s]?20)\b/i, defaultUnit: 'm3' },
@@ -104,13 +104,15 @@ export const ITEM_PATTERNS = [
 ];
 
 export const identifyItemType = (text: string, customItems?: any[]): string => {
-  let itemsToUse = ITEM_PATTERNS;
+  let itemsToUse = [...ITEM_PATTERNS];
 
   if (customItems && customItems.length > 0) {
-      itemsToUse = customItems.map(i => ({
+      const formattedCustom = customItems.map(i => ({
           name: i.name,
           pattern: typeof i.pattern === 'string' ? new RegExp(i.pattern, 'i') : i.pattern
       }));
+      // Prepend custom items so they take priority
+      itemsToUse = [...formattedCustom, ...itemsToUse];
   }
 
   for (const item of itemsToUse) {

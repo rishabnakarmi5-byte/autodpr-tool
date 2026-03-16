@@ -96,8 +96,12 @@ export const autofillItemData = async (
        - Ignore negative signs if they are just separators (e.g., "Quantity -41m3" means 41).
        - For plum concrete: if the text mentions "batching only" or "batching quantity", multiply the given quantity by 5 to get the total plum concrete quantity (e.g., 18.5 * 5 = 92.5).
     4. chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
-    5. itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). Default "concreting" to "C25 Concrete" if no grade is specified.
+    5. itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). 
+       - IMPORTANT: "concreting" or "concrete" WITHOUT a grade ALWAYS defaults to "C25 Concrete".
+       - "formwork" or "shuttering" ALWAYS defaults to "Formwork". NEVER use "Formworks" or "Shutters".
     6. HIERARCHY MAPPING: If you see "River protection", map it to "River Protection Works" under "Powerhouse".
+    7. GANTRY HANDLING: If "Gantry" is mentioned, ALWAYS set "Gantry" as the 'structuralElement'.
+    8. PANEL HANDLING: If "Panel" (e.g., "Panel 3", "Panel 5&6") is mentioned, ALWAYS set it as the 'structuralElement'.
 
     Output ONLY JSON.
   `;
@@ -193,22 +197,27 @@ export const parseConstructionData = async (
        - Check the Provided HIERARCHY below. 
        - If you see "TRT Pool", map it to "Tailrace Pool (TRT Pool)" under "Powerhouse".
        - If you see "Inlet" or "Adit", map it to "Headrace Tunnel (HRT)".
-       - If you see "River protection", map it to "River Protection Works" under "Powerhouse".
+       - If you see "River protection", map it to "River Protection Works" under "Powerhouse", and leave 'structuralElement' BLANK (empty string) because it has no sub-areas. Do NOT assign it to "Powerhouse Ventilation Tunnel".
 
     4. DESCRIPTION FORMAT:
        - 'activityDescription' MUST be: "Action (Quantity Unit)".
        - Include grades (C35, C25, M15) in the description.
        - If NO quantity is specified, DO NOT include "(0 unit)" or any arbitrary quantity in the description. Just write the Action.
+       - For items like HDPE pipes, ensure the full detail (e.g., "HDPE pipe 14 nos x 2.5m") is included in the 'activityDescription' even if the total quantity is calculated.
 
     5. DATA MAPPING:
        - quantity: numeric only (ignore negative signs if they are just separators, e.g., "Quantity -41m3" means 41). If no quantity is specified in the text, return 0. DO NOT hallucinate or default to 1.
        - For plum concrete: if the text mentions "batching only" or "batching quantity", multiply the given quantity by 5 to get the total plum concrete quantity (e.g., 18.5 * 5 = 92.5).
        - For pipes (like HDPE pipe), if both length and number of pipes (nos) are provided, calculate the total quantity by multiplying length by nos. Include the calculation in the description (e.g., "HDPE pipes (22 nos x 2.5m)").
        - unit: standardized (m3, m2, Ton, nos, rm). For pipes with length, use 'rm'. If no quantity is specified, return "".
-       - itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). Default "concreting" to "C25 Concrete" if no grade is specified.
+       - itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). 
+         - IMPORTANT: "concreting" or "concrete" WITHOUT a grade ALWAYS defaults to "C25 Concrete".
+         - "formwork" or "shuttering" ALWAYS defaults to "Formwork". NEVER use "Formworks" or "Shutters".
        - structuralElement: CRITICAL: Extract the specific part, area, or structure name from the description if not explicitly provided.
-         Examples: "Spiral casing unit 1", "end sill", "bottom sill", "pier", "wall", "slab", "Crown", "Invert", "Glacis".
+         Examples: "Gantry", "Spiral casing unit 1", "end sill", "bottom sill", "pier", "wall", "slab", "Crown", "Invert", "Glacis".
          - If you see "Inverter" or "Tunnel Inverter", convert it to "Invert".
+         - If you see "Gantry" or "Gantry concreting", ensure "Gantry" is ALWAYS set as the 'structuralElement'.
+         - If you see "Panel" (e.g., "Panel 3", "Panel 5&6"), ensure it is ALWAYS set as the 'structuralElement'.
        - chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
 
     6. DESCRIPTION CLEANUP:
@@ -331,7 +340,24 @@ export const parseConstructionData = async (
               type = toTitleCase(cleanStr(item.itemType));
           }
 
-          if (type === 'Formworks') type = 'Formwork';
+          // Explicit fallback for Concrete if still Other
+          if (type === 'Other' && (desc.toLowerCase().includes('concrete') || desc.toLowerCase().includes('concreting'))) {
+              type = 'C25 Concrete';
+          }
+
+          // Explicit fallback for Formwork if still Other
+          if (type === 'Other' && (
+              desc.toLowerCase().includes('formwork') || 
+              desc.toLowerCase().includes('form work') || 
+              desc.toLowerCase().includes('shuttering') ||
+              desc.toLowerCase().includes('shutter')
+          )) {
+              type = 'Formwork';
+          }
+
+          if (type.toLowerCase() === 'formworks' || type.toLowerCase() === 'shuttering' || type.toLowerCase() === 'shutter') {
+              type = 'Formwork';
+          }
           
           if (rawUnit.includes('bag')) { qty = qty * 0.05; finalUnit = 'Ton'; }
           if (type === 'Rebar' || finalUnit === 'Ton') { qty = Math.round(qty * 100) / 100; }
@@ -372,14 +398,19 @@ export const parseConstructionData = async (
               }
           }
 
-          // POST-PROCESSING: Extract structure from description if missing
-          if (!structuralElement) {
-              const structureKeywords = ["Niche", "Invert", "Inverter", "Arch", "Wall", "Slab", "Face", "Crown", "Kicker", "Gantry", "Pier", "Abutment", "Glacis", "Apron", "Basin", "Soling", "Casing", "Bulkhead"];
+          // POST-PROCESSING: Extract structure from description if missing or generic
+          if (!structuralElement || structuralElement.toLowerCase().includes('headrace') || structuralElement.toLowerCase().includes('tunnel')) {
+              const structureKeywords = ["Panel", "Gantry", "Niche", "Invert", "Inverter", "Arch", "Wall", "Slab", "Face", "Crown", "Kicker", "Pier", "Abutment", "Glacis", "Apron", "Basin", "Soling", "Casing", "Bulkhead"];
               const foundKeyword = structureKeywords.find(kw => desc.toLowerCase().includes(kw.toLowerCase()));
               
               if (foundKeyword) {
-                  structuralElement = correctStructuralTypos(toTitleCase(foundKeyword));
-                  // Optionally remove it from description, but keeping it is safer for context unless it's redundant
+                  // Special handling for Panel to include the number if possible
+                  if (foundKeyword === "Panel") {
+                      const panelMatch = desc.match(/Panel\s*[\d&\s]+/i);
+                      structuralElement = panelMatch ? toTitleCase(panelMatch[0]) : "Panel";
+                  } else {
+                      structuralElement = correctStructuralTypos(toTitleCase(foundKeyword));
+                  }
               }
           }
 

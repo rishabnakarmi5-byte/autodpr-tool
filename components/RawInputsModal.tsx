@@ -7,9 +7,10 @@ interface RawInputsModalProps {
     date: string;
     isOpen: boolean;
     onClose: () => void;
+    projectId?: string;
 }
 
-export const RawInputsModal: React.FC<RawInputsModalProps> = ({ date, isOpen, onClose }) => {
+export const RawInputsModal: React.FC<RawInputsModalProps> = ({ date, isOpen, onClose, projectId }) => {
     const [inputs, setInputs] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -18,7 +19,7 @@ export const RawInputsModal: React.FC<RawInputsModalProps> = ({ date, isOpen, on
         if (isOpen && date) {
             setLoading(true);
             setError(null);
-            getRawInputsForDate(date)
+            getRawInputsForDate(projectId, date)
                 .then(data => {
                     setInputs(data);
                     setLoading(false);
@@ -31,7 +32,7 @@ export const RawInputsModal: React.FC<RawInputsModalProps> = ({ date, isOpen, on
                     setLoading(false);
                 });
         }
-    }, [isOpen, date]);
+    }, [isOpen, date, projectId]);
 
     if (!isOpen) return null;
 
