@@ -1,7 +1,7 @@
 
 
 import React, { useEffect, useState } from 'react';
-import { TabView, UserProfile, Project } from '../types';
+import { TabView, UserProfile } from '../types';
 import { subscribeToUserProfile } from '../services/firebaseService';
 
 interface LayoutProps {
@@ -11,12 +11,9 @@ interface LayoutProps {
   user: any;
   onLogout: () => void;
   onSaveCheckpoint: () => void;
-  projects: Project[];
-  currentProject: Project | null;
-  onProjectChange: (project: Project) => void;
 }
 
-export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user, onLogout, onSaveCheckpoint, projects, currentProject, onProjectChange }) => {
+export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user, onLogout, onSaveCheckpoint }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
@@ -60,23 +57,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
               </button>
           </div>
         </div>
-        
-        {projects.length > 0 && (
-          <div>
-            <select 
-              value={currentProject?.id || ''}
-              onChange={(e) => {
-                const proj = projects.find(p => p.id === e.target.value);
-                if (proj) onProjectChange(proj);
-              }}
-              className="w-full bg-slate-800 border-slate-700 text-white rounded-lg p-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
-            >
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-        )}
       </div>
 
       <aside className="hidden md:flex flex-col w-72 bg-slate-900 text-slate-300 min-h-screen shadow-2xl sticky top-0 h-screen z-10">
@@ -88,24 +68,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
              DPR MAKER
           </h1>
           <p className="text-xs text-slate-500 mt-3 font-bold uppercase tracking-wider">Construction Management</p>
-          
-          {projects.length > 0 && (
-            <div className="mt-6">
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Current Project</label>
-              <select 
-                value={currentProject?.id || ''}
-                onChange={(e) => {
-                  const proj = projects.find(p => p.id === e.target.value);
-                  if (proj) onProjectChange(proj);
-                }}
-                className="w-full bg-slate-800 border-slate-700 text-white rounded-lg p-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
-              >
-                {projects.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
         </div>
         
         <nav className="flex-1 px-4 py-8 space-y-3 overflow-y-auto">

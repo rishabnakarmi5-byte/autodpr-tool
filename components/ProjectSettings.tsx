@@ -283,7 +283,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
                                         <button onClick={addComponent} className="bg-indigo-600 text-white px-4 rounded-lg font-bold text-xs">Add</button>
                                     </div>
                                     <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 mt-4">
-                                        {hierarchy[newCompLoc].length === 0 ? (
+                                        {(!hierarchy[newCompLoc] || hierarchy[newCompLoc].length === 0) ? (
                                             <div className="text-center text-slate-400 py-4 italic text-sm">No components defined yet.</div>
                                         ) : hierarchy[newCompLoc].map(comp => (
                                             <div key={comp} className="p-2.5 bg-white border border-slate-100 rounded-lg flex justify-between items-center group">
@@ -293,7 +293,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
                                         ))}
                                     </div>
                                     <div className="bg-indigo-50 p-3 rounded-xl text-xs text-indigo-600 border border-indigo-100 font-bold">
-                                        {hierarchy[newCompLoc].length} components defined for {newCompLoc}
+                                        {hierarchy[newCompLoc]?.length || 0} components defined for {newCompLoc}
                                     </div>
                                 </>
                             )}
