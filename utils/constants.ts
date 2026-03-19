@@ -109,7 +109,8 @@ export const identifyItemType = (text: string, customItems?: any[]): string => {
   if (customItems && customItems.length > 0) {
       const formattedCustom = customItems.map(i => ({
           name: i.name,
-          pattern: typeof i.pattern === 'string' ? new RegExp(i.pattern, 'i') : i.pattern
+          pattern: typeof i.pattern === 'string' ? new RegExp(i.pattern, 'i') : i.pattern,
+          defaultUnit: i.defaultUnit || 'm3'
       }));
       // Prepend custom items so they take priority
       itemsToUse = [...formattedCustom, ...itemsToUse];

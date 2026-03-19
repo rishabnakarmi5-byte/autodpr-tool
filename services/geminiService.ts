@@ -4,7 +4,7 @@ import { DPRItem, TrainingExample } from "../types";
 import { LOCATION_HIERARCHY, identifyItemType, ITEM_PATTERNS } from "../utils/constants";
 import { getTrainingExamples } from "./firebaseService";
 
-const API_KEY = process.env.API_KEY || '';
+const API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
 // Using gemini-3-flash-preview for high-speed, high-accuracy extraction
 const MODEL_NAME = process.env.MODEL_NAME || 'gemini-3-flash-preview';
 
@@ -102,6 +102,7 @@ export const autofillItemData = async (
     6. HIERARCHY MAPPING: If you see "River protection", map it to "River Protection Works" under "Powerhouse".
     7. GANTRY HANDLING: If "Gantry" is mentioned, ALWAYS set "Gantry" as the 'structuralElement'.
     8. PANEL HANDLING: If "Panel" (e.g., "Panel 3", "Panel 5&6") is mentioned, ALWAYS set it as the 'structuralElement'.
+    9. NEXT PLAN HANDLING: If the text contains "next plan" or "planned work", extract it into 'plannedNextActivity'.
 
     Output ONLY JSON.
   `;
@@ -219,8 +220,14 @@ export const parseConstructionData = async (
          - If you see "Gantry" or "Gantry concreting", ensure "Gantry" is ALWAYS set as the 'structuralElement'.
          - If you see "Panel" (e.g., "Panel 3", "Panel 5&6"), ensure it is ALWAYS set as the 'structuralElement'.
        - chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
+       - plannedNextActivity: Extract any "next plan" or "planned work" information.
 
-    6. DESCRIPTION CLEANUP:
+    6. NEXT PLAN HANDLING (CRITICAL):
+       - If the text contains "next plan", "planned work", or "plan for tomorrow", extract that information into the 'plannedNextActivity' field of the RELEVANT PRECEDING activity.
+       - DO NOT create a new, separate record for planned work. 
+       - Example: "Gantry concrete 141m3, next plan gantry alignment" -> One record for Gantry concrete with 'plannedNextActivity' set to "Gantry alignment".
+
+    7. DESCRIPTION CLEANUP:
        - If you extract a structure (e.g. "Spiral casing unit 1") into 'structuralElement', REMOVE it from 'activityDescription' to avoid duplication, UNLESS it makes the description unclear.
        - Keep the description focused on the action (e.g., "Rebar works", "Concrete casting").
 
@@ -436,7 +443,40 @@ export const parseConstructionData = async (
           };
       });
 
-      return { items: processedItems, warnings: result.warnings || [] };
+      // Post-processing: Merge "next plan" items into preceding related items to avoid duplicate records
+      const mergedItems: any[] = [];
+      for (const item of processedItems) {
+          const descLower = item.activityDescription.toLowerCase();
+          const isNextPlanOnly = (item.quantity === 0 && (descLower.includes('next plan') || descLower.includes('planned work')));
+          
+          if (isNextPlanOnly && mergedItems.length > 0) {
+              // Try to find a matching preceding item (same location and component)
+              // We search backwards to find the most recent related activity
+              let targetIdx = -1;
+              for (let i = mergedItems.length - 1; i >= 0; i--) {
+                  if (mergedItems[i].location === item.location && mergedItems[i].component === item.component) {
+                      targetIdx = i;
+                      break;
+                  }
+              }
+              
+              if (targetIdx !== -1) {
+                  const existingPlan = mergedItems[targetIdx].plannedNextActivity;
+                  const newPlan = item.activityDescription.replace(/next plan/gi, '').replace(/planned work/gi, '').trim();
+                  const fullPlan = `${item.chainage} ${item.structuralElement} ${newPlan}`.trim();
+                  
+                  if (existingPlan === "Continue works" || !existingPlan) {
+                      mergedItems[targetIdx].plannedNextActivity = fullPlan || "Continue works";
+                  } else {
+                      mergedItems[targetIdx].plannedNextActivity = `${existingPlan}; ${fullPlan}`;
+                  }
+                  continue; // Skip adding this item as a separate record
+              }
+          }
+          mergedItems.push(item);
+      }
+
+      return { items: mergedItems, warnings: result.warnings || [] };
     }
     return { items: [], warnings: [] };
   } catch (error) {

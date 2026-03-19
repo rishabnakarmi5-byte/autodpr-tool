@@ -16,7 +16,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   const [activeTab, setActiveTab] = useState<'config' | 'snapshots' | 'training' | 'subcontractors'>('config');
   
   // Config State
-  const [hierarchy, setHierarchy] = useState(currentSettings?.locationHierarchy || LOCATION_HIERARCHY);
+  const [hierarchy, setHierarchy] = useState<Record<string, string[]>>(currentSettings?.locationHierarchy || LOCATION_HIERARCHY);
   const [projName, setProjName] = useState(currentSettings?.projectName || 'Bhotekoshi Hydroelectric Project');
   const [compName, setCompName] = useState(currentSettings?.companyName || '');
   const [itemTypes, setItemTypes] = useState<ItemTypeDefinition[]>(currentSettings?.itemTypes || ITEM_PATTERNS.map(p => ({
@@ -148,17 +148,16 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
 
   // --- SUBCONTRACTOR HANDLERS ---
   useEffect(() => {
-    if (activeTab === 'subcontractors' && projectId) {
-        const unsub = subscribeToSubContractors(projectId, setSubcontractors);
+    if (activeTab === 'subcontractors') {
+        const unsub = subscribeToSubContractors(setSubcontractors);
         return () => unsub();
     }
-  }, [activeTab, projectId]);
+  }, [activeTab]);
 
   const handleAddSc = async () => {
       if (!newScName) return;
-      await saveSubContractor(projectId, {
+      await saveSubContractor({
           id: crypto.randomUUID(),
-          projectId,
           name: newScName,
           assignedComponents: [],
           rates: {},
@@ -168,7 +167,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   };
 
   const handleUpdateSc = async (sc: SubContractor) => {
-      await saveSubContractor(projectId, sc);
+      await saveSubContractor(sc);
   };
 
   const handleDeleteSc = async (id: string) => {
@@ -182,7 +181,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   const loadSnapshots = async () => {
       setLoadingSnapshots(true);
       try {
-          const data = await getCheckpoints(projectId);
+          const data = await getCheckpoints();
           setSnapshots(data);
       } catch (e) { console.error(e); }
       setLoadingSnapshots(false);
@@ -191,7 +190,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   const handleExportDatabase = async () => {
     setIsExporting(true);
     try {
-        const data = await exportAllData(projectId);
+        const data = await exportAllData();
         const jsonString = JSON.stringify(data, null, 2);
         const blob = new Blob([jsonString], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -420,10 +419,11 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
                                 // Flatten hierarchy for selection
                                 const allComponents: string[] = [];
                                 Object.entries(hierarchy).forEach(([loc, comps]) => {
-                                    if (comps.length === 0) {
+                                    const typedComps = comps as string[];
+                                    if (typedComps.length === 0) {
                                         allComponents.push(loc);
                                     } else {
-                                        comps.forEach(comp => allComponents.push(`${loc} - ${comp}`));
+                                        typedComps.forEach(comp => allComponents.push(`${loc} - ${comp}`));
                                     }
                                 });
 

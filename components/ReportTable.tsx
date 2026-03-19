@@ -107,7 +107,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
         date={report.date} 
         isOpen={showRawInputs} 
         onClose={() => setShowRawInputs(false)} 
-        projectId={report.projectId}
       />
     </div>
   );

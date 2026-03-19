@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { DPRItem, BackupEntry, ItemTypeDefinition } from '../types';
 import { getBackupById, getBackups } from '../services/firebaseService';
-import { ITEM_PATTERNS } from '../utils/constants';
+import { ITEM_PATTERNS, toTitleCase } from '../utils/constants';
 import { parseConstructionData, autofillItemData } from '../services/geminiService';
 
 interface MasterRecordModalProps {
@@ -61,10 +61,6 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
       }
       return types.sort();
   }, [customItemTypes]);
-
-  const toTitleCase = (str: string) => {
-    return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
-  };
 
   const handleBlur = (field: keyof DPRItem) => {
     // Check if value changed

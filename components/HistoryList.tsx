@@ -9,7 +9,6 @@ interface HistoryListProps {
   onSelectReport: (id: string) => void;
   onDeleteReport: (id: string) => void;
   onCreateNew: () => void;
-  currentProjectId?: string;
 }
 
 export const HistoryList: React.FC<HistoryListProps> = ({ 
@@ -17,8 +16,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({
   currentReportId, 
   onSelectReport, 
   onDeleteReport,
-  onCreateNew,
-  currentProjectId
+  onCreateNew
 }) => {
   const [selectedRawDate, setSelectedRawDate] = useState<string | null>(null);
 
@@ -141,7 +139,6 @@ export const HistoryList: React.FC<HistoryListProps> = ({
         date={selectedRawDate || ''} 
         isOpen={!!selectedRawDate} 
         onClose={() => setSelectedRawDate(null)} 
-        projectId={currentProjectId}
       />
     </div>
   );

@@ -33,6 +33,7 @@ export default defineConfig(({ mode }) => {
       'process.env.FIREBASE_APP_ID': JSON.stringify(getEnv('FIREBASE_APP_ID')),
       'process.env.measurementId': JSON.stringify(getEnv('measurementId')), 
       'process.env.API_KEY': JSON.stringify(getEnv('API_KEY')),
+      'process.env.GEMINI_API_KEY': JSON.stringify(getEnv('GEMINI_API_KEY')),
       'process.env.MODEL_NAME': JSON.stringify(getEnv('MODEL_NAME')),
     }
   };
