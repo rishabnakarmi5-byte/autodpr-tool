@@ -1,4 +1,15 @@
 
+export const KNOWN_ACRONYMS = ['GIS', 'MAT', 'HRT', 'TRT', 'MIV', 'LPT', 'AT', 'ST', 'VT', 'VS'];
+
+export const toTitleCase = (str: string) => {
+  return str.replace(/\w\S*/g, (txt) => {
+    if (KNOWN_ACRONYMS.includes(txt.toUpperCase())) {
+      return txt.toUpperCase();
+    }
+    return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
+  });
+};
+
 export const LOCATION_HIERARCHY: Record<string, string[]> = {
   "Headworks": [
     "Barrage",

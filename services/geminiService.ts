@@ -1,7 +1,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { DPRItem, TrainingExample } from "../types";
-import { LOCATION_HIERARCHY, identifyItemType, ITEM_PATTERNS } from "../utils/constants";
+import { LOCATION_HIERARCHY, identifyItemType, ITEM_PATTERNS, toTitleCase } from "../utils/constants";
 import { getTrainingExamples } from "./firebaseService";
 
 const API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
@@ -49,17 +49,6 @@ const cleanStr = (val: any): string => {
   const s = String(val).trim();
   if (s.toLowerCase() === 'null') return '';
   return s;
-};
-
-const KNOWN_ACRONYMS = ['GIS', 'MAT', 'HRT', 'TRT', 'MIV', 'LPT', 'AT', 'ST', 'VT', 'VS'];
-
-const toTitleCase = (str: string) => {
-    return str.replace(/\w\S*/g, (txt) => {
-        if (KNOWN_ACRONYMS.includes(txt.toUpperCase())) {
-            return txt.toUpperCase();
-        }
-        return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
-    });
 };
 
 const correctStructuralTypos = (str: string): string => {
