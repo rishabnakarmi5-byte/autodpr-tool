@@ -87,6 +87,8 @@ export const autofillItemData = async (
     4. chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
     5. itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). 
        - IMPORTANT: "concreting" or "concrete" WITHOUT a grade ALWAYS defaults to "C25 Concrete".
+       - GRADES: Recognize C10, C15, C20, C25, C30, C35 as concrete grades.
+       - INFILL: If "infill" is mentioned with a grade (e.g., "C15 infill"), use that grade (e.g., "C15 Concrete"). If "infill" is mentioned WITHOUT a grade, default to "C10 Concrete".
        - "formwork" or "shuttering" ALWAYS defaults to "Formwork". NEVER use "Formworks" or "Shutters".
     6. HIERARCHY MAPPING: If you see "River protection", map it to "River Protection Works" under "Powerhouse".
     7. GANTRY HANDLING: If "Gantry" is mentioned, ALWAYS set "Gantry" as the 'structuralElement'.
@@ -202,6 +204,8 @@ export const parseConstructionData = async (
        - unit: standardized (m3, m2, Ton, nos, rm). For pipes with length, use 'rm'. If no quantity is specified, return "".
        - itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). 
          - IMPORTANT: "concreting" or "concrete" WITHOUT a grade ALWAYS defaults to "C25 Concrete".
+         - GRADES: Recognize C10, C15, C20, C25, C30, C35 as concrete grades.
+         - INFILL: If "infill" is mentioned with a grade (e.g., "C15 infill"), use that grade (e.g., "C15 Concrete"). If "infill" is mentioned WITHOUT a grade, default to "C10 Concrete".
          - "formwork" or "shuttering" ALWAYS defaults to "Formwork". NEVER use "Formworks" or "Shutters".
        - structuralElement: CRITICAL: Extract the specific part, area, or structure name from the description if not explicitly provided.
          Examples: "Gantry", "Spiral casing unit 1", "end sill", "bottom sill", "pier", "wall", "slab", "Crown", "Invert", "Glacis".
