@@ -77,18 +77,19 @@ export const autofillItemData = async (
     1. structuralElement: Extract the specific part/area (e.g., "Spiral Casing Unit 1", "Crown", "end sill", "bottom sill", "Niche").
     2. activityDescription: MUST follow format "Action (Quantity Unit)". 
        Example: "C35 Concrete works (5 m3)".
-       - IMPORTANT: Always include grades (C35, C25, M20) if present.
+       - IMPORTANT: Always include grades (C35, C25, M20) if present. If NO grade is mentioned for concrete, use "C25 Concrete" as the action (e.g., "C25 Concrete works").
        - "ms wall" ALWAYS means "Stone Masonry" (e.g., "Niche ms wall" -> Stone Masonry at Niche).
        - If structure is extracted to 'structuralElement', try to simplify the description (e.g. "Spiral Casing Rebar" -> "Rebar works").
        - If NO quantity is specified, DO NOT include "(0 unit)" or any arbitrary quantity in the description. Just write the Action.
     3. Ensure 'quantity' and 'unit' are numeric/standardized. If no quantity is specified, return 0 for quantity and "" for unit. DO NOT hallucinate or default to 1.
        - Ignore negative signs if they are just separators (e.g., "Quantity -41m3" means 41).
-       - For plum concrete: if the text mentions "batching only" or "batching quantity", multiply the given quantity by 5 to get the total plum concrete quantity (e.g., 18.5 * 5 = 92.5).
+       - For plum concrete: if the text mentions "batching only" or "batching quantity", multiply the given quantity by 1.6 to get the total plum concrete quantity (e.g., 8 * 1.6 = 12.8).
     4. chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
     5. itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). 
        - IMPORTANT: "concreting" or "concrete" WITHOUT a grade ALWAYS defaults to "C25 Concrete".
        - GRADES: Recognize C10, C15, C20, C25, C30, C35 as concrete grades.
        - INFILL: If "infill" is mentioned with a grade (e.g., "C15 infill"), use that grade (e.g., "C15 Concrete"). If "infill" is mentioned WITHOUT a grade, default to "C10 Concrete".
+       - PLUM CONCRETE: If "plum" is mentioned with a grade (e.g., "plum concrete C20"), use that grade (e.g., "C20 Plum Concrete"). If "plum" is mentioned WITHOUT a grade, default to "C10 Plum Concrete".
        - "formwork" or "shuttering" ALWAYS defaults to "Formwork". NEVER use "Formworks" or "Shutters".
     6. HIERARCHY MAPPING: If you see "River protection", map it to "River Protection Works" under "Powerhouse".
     7. GANTRY HANDLING: If "Gantry" is mentioned, ALWAYS set "Gantry" as the 'structuralElement'.
@@ -193,19 +194,20 @@ export const parseConstructionData = async (
 
     4. DESCRIPTION FORMAT:
        - 'activityDescription' MUST be: "Action (Quantity Unit)".
-       - Include grades (C35, C25, M15) in the description.
+       - Include grades (C35, C25, M15) in the description. If NO grade is mentioned for concrete, use "C25 Concrete" as the action (e.g., "C25 Concrete works").
        - If NO quantity is specified, DO NOT include "(0 unit)" or any arbitrary quantity in the description. Just write the Action.
        - For items like HDPE pipes, ensure the full detail (e.g., "HDPE pipe 14 nos x 2.5m") is included in the 'activityDescription' even if the total quantity is calculated.
 
     5. DATA MAPPING:
        - quantity: numeric only (ignore negative signs if they are just separators, e.g., "Quantity -41m3" means 41). If no quantity is specified in the text, return 0. DO NOT hallucinate or default to 1.
-       - For plum concrete: if the text mentions "batching only" or "batching quantity", multiply the given quantity by 5 to get the total plum concrete quantity (e.g., 18.5 * 5 = 92.5).
+       - For plum concrete: if the text mentions "batching only" or "batching quantity", multiply the given quantity by 1.6 to get the total plum concrete quantity (e.g., 8 * 1.6 = 12.8).
        - For pipes (like HDPE pipe), if both length and number of pipes (nos) are provided, calculate the total quantity by multiplying length by nos. Include the calculation in the description (e.g., "HDPE pipes (22 nos x 2.5m)").
        - unit: standardized (m3, m2, Ton, nos, rm). For pipes with length, use 'rm'. If no quantity is specified, return "".
        - itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). 
          - IMPORTANT: "concreting" or "concrete" WITHOUT a grade ALWAYS defaults to "C25 Concrete".
          - GRADES: Recognize C10, C15, C20, C25, C30, C35 as concrete grades.
          - INFILL: If "infill" is mentioned with a grade (e.g., "C15 infill"), use that grade (e.g., "C15 Concrete"). If "infill" is mentioned WITHOUT a grade, default to "C10 Concrete".
+         - PLUM CONCRETE: If "plum" is mentioned with a grade (e.g., "plum concrete C20"), use that grade (e.g., "C20 Plum Concrete"). If "plum" is mentioned WITHOUT a grade, default to "C10 Plum Concrete".
          - "formwork" or "shuttering" ALWAYS defaults to "Formwork". NEVER use "Formworks" or "Shutters".
        - structuralElement: CRITICAL: Extract the specific part, area, or structure name from the description if not explicitly provided.
          Examples: "Gantry", "Spiral casing unit 1", "end sill", "bottom sill", "pier", "wall", "slab", "Crown", "Invert", "Glacis".
