@@ -95,6 +95,7 @@ export const autofillItemData = async (
     7. GANTRY HANDLING: If "Gantry" is mentioned, ALWAYS set "Gantry" as the 'structuralElement'.
     8. PANEL HANDLING: If "Panel" (e.g., "Panel 3", "Panel 5&6") is mentioned, ALWAYS set it as the 'structuralElement'.
     9. NEXT PLAN HANDLING: If the text contains "next plan" or "planned work", extract it into 'plannedNextActivity'.
+    10. NO HALLUCINATIONS: DO NOT add "Top finishing", "Finishing", or any other detail that is not explicitly mentioned in the site notes.
 
     Output ONLY JSON.
   `;
@@ -208,6 +209,7 @@ export const parseConstructionData = async (
          - GRADES: Recognize C10, C15, C20, C25, C30, C35 as concrete grades.
          - INFILL: If "infill" is mentioned with a grade (e.g., "C15 infill"), use that grade (e.g., "C15 Concrete"). If "infill" is mentioned WITHOUT a grade, default to "C10 Concrete".
          - PLUM CONCRETE: If "plum" is mentioned with a grade (e.g., "plum concrete C20"), use that grade (e.g., "C20 Plum Concrete"). If "plum" is mentioned WITHOUT a grade, default to "C10 Plum Concrete".
+        - TAILRACE DOWNSTREAM FLOOD WALL: If no grade is mentioned for concrete at this location, ALWAYS default to "C25 Concrete".
          - "formwork" or "shuttering" ALWAYS defaults to "Formwork". NEVER use "Formworks" or "Shutters".
        - structuralElement: CRITICAL: Extract the specific part, area, or structure name from the description if not explicitly provided.
          Examples: "Gantry", "Spiral casing unit 1", "end sill", "bottom sill", "pier", "wall", "slab", "Crown", "Invert", "Glacis".
@@ -225,6 +227,10 @@ export const parseConstructionData = async (
     7. DESCRIPTION CLEANUP:
        - If you extract a structure (e.g. "Spiral casing unit 1") into 'structuralElement', REMOVE it from 'activityDescription' to avoid duplication, UNLESS it makes the description unclear.
        - Keep the description focused on the action (e.g., "Rebar works", "Concrete casting").
+
+    8. NO HALLUCINATIONS:
+       - DO NOT add "Top finishing", "Finishing", or any other detail that is not explicitly mentioned in the site notes.
+       - If the text says "Tailrace downstream flood wall concrete", DO NOT add "Top finishing" to the structural element or description.
 
     HIERARCHY REFERENCE:
     ${hierarchyString}

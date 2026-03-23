@@ -26,7 +26,14 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
 
   useEffect(() => {
     setLocalItem(item);
-    if (isOpen) loadSourceData();
+    if (isOpen) {
+      loadSourceData();
+      // Auto-repair inconsistent chainageOrArea
+      const expected = `${item.chainage || ''} ${item.structuralElement || ''}`.trim();
+      if (item.chainageOrArea !== expected) {
+        onUpdate(item.id, { chainageOrArea: expected });
+      }
+    }
   }, [item, isOpen]);
 
   const loadSourceData = async () => {
@@ -76,9 +83,9 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
              setLocalItem(prev => ({ ...prev, structuralElement: titled }));
          }
 
-         // Reconstruct chainageOrArea
-         const currentCh = field === 'chainage' ? localItem.chainage : item.chainage;
-         const currentStruc = field === 'structuralElement' ? (updates.structuralElement || localItem.structuralElement) : item.structuralElement;
+         // Reconstruct chainageOrArea using localItem state to avoid stale data from 'item' prop
+         const currentCh = localItem.chainage;
+         const currentStruc = updates.structuralElement || localItem.structuralElement;
          
          updates.chainageOrArea = `${currentCh || ''} ${currentStruc || ''}`.trim();
          setLocalItem(prev => ({ ...prev, chainageOrArea: updates.chainageOrArea! }));
