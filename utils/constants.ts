@@ -22,6 +22,7 @@ export const LOCATION_HIERARCHY: Record<string, string[]> = {
     "Settling Basin / Headpond",
     "Downstream Works",
     "Flood Walls",
+    "Fish Ladder",
     "Other Headworks"
   ],
   "Headrace Tunnel (HRT)": [
@@ -102,7 +103,7 @@ export const ITEM_PATTERNS = [
   { name: "C20 Concrete", pattern: /\b(c[\-\s]?20|grade[\-\s]?20|m[\-\s]?20)\b/i, defaultUnit: 'm3' },
   { name: "C15 Concrete", pattern: /\b(c[\-\s]?15|grade[\-\s]?15|m[\-\s]?15)\b/i, defaultUnit: 'm3' },
   { name: "C10 Concrete", pattern: /\b(c[\-\s]?10|pcc|infill(ed)?|grade[\-\s]?10|m[\-\s]?10)\b/i, defaultUnit: 'm3' },
-  { name: "C25 Concrete", pattern: /\b(c[\-\s]?25|grade[\-\s]?25|m[\-\s]?25|concrete|concreting|conc\.?|rcc|lining)\b/i, defaultUnit: 'm3' },
+  { name: "C25 Concrete", pattern: /\b(c[\-\s]?25|grade[\-\s]?25|m[\-\s]?25)\b/i, defaultUnit: 'm3' },
   { name: "Stone Masonry", pattern: /\b(masonry|rrm|ms\s*wall|stone soling|soling)\b/i, defaultUnit: 'm3' },
   { name: "Concrete Block", pattern: /\b(block work|concrete block|hollow block|block)\b/i, defaultUnit: 'm3' },
   { name: "Plaster", pattern: /\b(plaster)\b/i, defaultUnit: 'm2' },
@@ -112,6 +113,7 @@ export const ITEM_PATTERNS = [
   { name: "Gabion", pattern: /\b(gabion)\b/i, defaultUnit: 'm3' },
   { name: "Grouting", pattern: /\b(grouting|cement\s+consumption|bags|consolidation|contact)\b/i, defaultUnit: 'nos' },
   { name: "HDPE Pipe", pattern: /\b(hdpe|pipe)\b/i, defaultUnit: 'rm' },
+  { name: "C25 Concrete", pattern: /\b(concrete|concreting|conc\.?|rcc|lining)\b/i, defaultUnit: 'm3' },
 ];
 
 export const identifyItemType = (text: string, customItems?: any[]): string => {

@@ -74,10 +74,19 @@ export const autofillItemData = async (
     TASK: Separate "Where" (Structural ID) from "What" (Activity).
 
     STRICT RULES:
+    0. CONTEXT HEADERS (CRITICAL):
+       - If the text contains "--- CONTEXT: Location > Component ---", use those values for location and component.
+    0.1. LANGUAGE & SPELLING (CRITICAL):
+       - Site notes may be a mix of English and Romanized Nepali (e.g., "vako tiyo", "vayou sir", "hijo rati").
+       - Be resilient to spelling mistakes from less educated writers (e.g., "fish later" -> "Fish Ladder").
+       - "M" grade concrete MUST be converted to "C" (e.g., "M25" -> "C25 Concrete").
     1. structuralElement: Extract the specific part/area (e.g., "Spiral Casing Unit 1", "Crown", "end sill", "bottom sill", "Niche").
+       - If the text mentions "apron wall ra apron raft", set 'structuralElement' to "Wall And Raft".
     2. activityDescription: MUST follow format "Action (Quantity Unit)". 
        Example: "C35 Concrete works (5 m3)".
-       - IMPORTANT: Always include grades (C35, C25, M20) if present. If NO grade is mentioned for concrete, use "C25 Concrete" as the action (e.g., "C25 Concrete works").
+       - IMPORTANT: ALWAYS follow the exact concrete grade specified in the text (e.g., C10, C15, C20, C25, C30, C35). 
+       - If the text says "M25", convert it to "C25 Concrete works".
+       - If NO grade is mentioned for concrete, use "C25 Concrete" as the action (e.g., "C25 Concrete works").
        - "ms wall" ALWAYS means "Stone Masonry" (e.g., "Niche ms wall" -> Stone Masonry at Niche).
        - If structure is extracted to 'structuralElement', try to simplify the description (e.g. "Spiral Casing Rebar" -> "Rebar works").
        - If NO quantity is specified, DO NOT include "(0 unit)" or any arbitrary quantity in the description. Just write the Action.
@@ -86,12 +95,15 @@ export const autofillItemData = async (
        - For plum concrete: if the text mentions "batching only" or "batching quantity", multiply the given quantity by 1.6 to get the total plum concrete quantity (e.g., 8 * 1.6 = 12.8).
     4. chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
     5. itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). 
-       - IMPORTANT: "concreting" or "concrete" WITHOUT a grade ALWAYS defaults to "C25 Concrete".
+       - IMPORTANT: ALWAYS follow the exact concrete grade specified in the text (e.g., C10, C15, C20, C25, C30, C35). 
+       - ONLY if "concreting" or "concrete" is mentioned WITHOUT a grade, default to "C25 Concrete".
        - GRADES: Recognize C10, C15, C20, C25, C30, C35 as concrete grades.
        - INFILL: If "infill" is mentioned with a grade (e.g., "C15 infill"), use that grade (e.g., "C15 Concrete"). If "infill" is mentioned WITHOUT a grade, default to "C10 Concrete".
        - PLUM CONCRETE: If "plum" is mentioned with a grade (e.g., "plum concrete C20"), use that grade (e.g., "C20 Plum Concrete"). If "plum" is mentioned WITHOUT a grade, default to "C10 Plum Concrete".
        - "formwork" or "shuttering" ALWAYS defaults to "Formwork". NEVER use "Formworks" or "Shutters".
-    6. HIERARCHY MAPPING: If you see "River protection", map it to "River Protection Works" under "Powerhouse".
+    6. HIERARCHY MAPPING: 
+       - If you see "River protection" or "River Protection Works", map it to "River Protection Works" under "Powerhouse".
+       - If you see "LPT" or "Lower Pressure Tunnel", map it to "Lower Pressure Tunnel (LPT)" under "Pressure Tunnels".
     7. GANTRY HANDLING: If "Gantry" is mentioned, ALWAYS set "Gantry" as the 'structuralElement'.
     8. PANEL HANDLING: If "Panel" (e.g., "Panel 3", "Panel 5&6") is mentioned, ALWAYS set it as the 'structuralElement'.
     9. NEXT PLAN HANDLING: If the text contains "next plan" or "planned work", extract it into 'plannedNextActivity'.
@@ -178,12 +190,24 @@ export const parseConstructionData = async (
     You are a high-precision construction data engine. Convert site notes into structured JSON records.
 
     STRICT ATOMIC RULES:
+    0. CONTEXT HEADERS (CRITICAL):
+       - Site notes often contain headers like "--- CONTEXT: Location > Component ---".
+       - You MUST prioritize these headers for 'location' and 'component' fields.
+       - If a header is present, use it EXACTLY as specified.
+       - Example: "--- CONTEXT: Powerhouse > River Protection Works ---" means location="Powerhouse" and component="River Protection Works".
+
+    0.1. LANGUAGE & SPELLING (CRITICAL):
+       - Site notes may be a mix of English and Romanized Nepali (e.g., "vako tiyo", "vayou sir", "hijo rati").
+       - Be resilient to spelling mistakes (e.g., "fish later" ALWAYS means "Fish Ladder").
+       - "M" grade concrete MUST be converted to "C" (e.g., "M25" -> "C25 Concrete", "M15" -> "C15 Concrete").
+
     1. MULTI-ACTIVITY SPLIT:
        - Split mixed text into separate items. (e.g. "48m3 concrete and rebar" -> two items).
 
     2. ACRONYM RESOLUTION (CRITICAL):
        - "HRT" ALWAYS means "Headrace Tunnel (HRT)".
        - "TRT" ALWAYS means "Powerhouse" related (e.g. Tailrace Tunnel).
+       - "LPT" ALWAYS means "Pressure Tunnels" related (e.g. Lower Pressure Tunnel).
        - "ms wall" ALWAYS means "Stone Masonry" (e.g., "Niche ms wall" -> Stone Masonry at Niche).
        - Never put "HRT" items under "Powerhouse".
 
@@ -191,7 +215,9 @@ export const parseConstructionData = async (
        - Check the Provided HIERARCHY below. 
        - If you see "TRT Pool", map it to "Tailrace Pool (TRT Pool)" under "Powerhouse".
        - If you see "Inlet" or "Adit", map it to "Headrace Tunnel (HRT)".
-       - If you see "River protection", map it to "River Protection Works" under "Powerhouse", and leave 'structuralElement' BLANK (empty string) because it has no sub-areas. Do NOT assign it to "Powerhouse Ventilation Tunnel".
+       - If you see "LPT" or "Lower Pressure Tunnel", map it to "Lower Pressure Tunnel (LPT)" under "Pressure Tunnels".
+       - If you see "River protection" or "River Protection Works", ALWAYS map it to "River Protection Works" under "Powerhouse", and leave 'structuralElement' BLANK (empty string) because it has no sub-areas. Do NOT assign it to "Powerhouse Ventilation Tunnel" or "Powerhouse Main Access Tunnel".
+       - "Fish later" or "Fish ladder" ALWAYS maps to "Fish Ladder" under "Headworks".
 
     4. DESCRIPTION FORMAT:
        - 'activityDescription' MUST be: "Action (Quantity Unit)".
@@ -205,7 +231,9 @@ export const parseConstructionData = async (
        - For pipes (like HDPE pipe), if both length and number of pipes (nos) are provided, calculate the total quantity by multiplying length by nos. Include the calculation in the description (e.g., "HDPE pipes (22 nos x 2.5m)").
        - unit: standardized (m3, m2, Ton, nos, rm). For pipes with length, use 'rm'. If no quantity is specified, return "".
        - itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). 
-         - IMPORTANT: "concreting" or "concrete" WITHOUT a grade ALWAYS defaults to "C25 Concrete".
+         - IMPORTANT: ALWAYS use the exact concrete grade specified in the text (e.g., C15, C20, C30). 
+         - If the text says "M25", use "C25 Concrete".
+         - ONLY if "concreting" or "concrete" is mentioned WITHOUT a grade, default to "C25 Concrete".
          - GRADES: Recognize C10, C15, C20, C25, C30, C35 as concrete grades.
          - INFILL: If "infill" is mentioned with a grade (e.g., "C15 infill"), use that grade (e.g., "C15 Concrete"). If "infill" is mentioned WITHOUT a grade, default to "C10 Concrete".
          - PLUM CONCRETE: If "plum" is mentioned with a grade (e.g., "plum concrete C20"), use that grade (e.g., "C20 Plum Concrete"). If "plum" is mentioned WITHOUT a grade, default to "C10 Plum Concrete".
