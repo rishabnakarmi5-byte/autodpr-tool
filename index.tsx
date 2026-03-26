@@ -428,7 +428,7 @@ const App = () => {
                     onDeleteItem={handleDeleteItem}
                     onUpdateItem={handleUpdateItemField}
                     onUpdateRow={handleUpdateItem}
-                    onUpdateNote={handleUpdateReportNote}
+                    onUpdateNote={(note) => handleUpdateReportNote(currentReportId!, note)}
                     onUndo={handleUndo}
                     canUndo={undoStack.length > 0}
                     onRedo={handleRedo}
