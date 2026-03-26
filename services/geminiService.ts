@@ -79,12 +79,13 @@ export const autofillItemData = async (
     0.1. LANGUAGE & SPELLING (CRITICAL):
        - Site notes may be a mix of English and Romanized Nepali (e.g., "vako tiyo", "vayou sir", "hijo rati").
        - Be resilient to spelling mistakes from less educated writers (e.g., "fish later" -> "Fish Ladder").
-       - "M" grade concrete MUST be converted to "C" (e.g., "M25" -> "C25 Concrete").
+        - "M" grade concrete MUST be converted to "C" (e.g., "M25" -> "C25 Concrete", "M50" -> "C50 Concrete").
+        - This conversion also applies to Plum Concrete (e.g., "M15 Plum" -> "C15 Plum Concrete").
     1. structuralElement: Extract the specific part/area (e.g., "Spiral Casing Unit 1", "Crown", "end sill", "bottom sill", "Niche").
        - If the text mentions "apron wall ra apron raft", set 'structuralElement' to "Wall And Raft".
     2. activityDescription: MUST follow format "Action (Quantity Unit)". 
        Example: "C35 Concrete works (5 m3)".
-       - IMPORTANT: ALWAYS follow the exact concrete grade specified in the text (e.g., C10, C15, C20, C25, C30, C35, C50). 
+       - IMPORTANT: ALWAYS follow the exact concrete grade specified in the text (e.g., C10, C15, C20, C25, C30, C35, C40, C45, C50). 
        - If the text says "M" grade (e.g., M15, M25, M50), convert it to "C" grade (e.g., C15 Concrete, C25 Concrete, C50 Concrete).
        - If NO grade is mentioned for concrete, use "C25 Concrete" as the action (e.g., "C25 Concrete works").
        - "ms wall" ALWAYS means "Stone Masonry" (e.g., "Niche ms wall" -> Stone Masonry at Niche).
@@ -95,12 +96,12 @@ export const autofillItemData = async (
        - For plum concrete: if the text mentions "batching only" or "batching quantity", multiply the given quantity by 1.6 to get the total plum concrete quantity (e.g., 8 * 1.6 = 12.8).
     4. chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
     5. itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). 
-       - IMPORTANT: ALWAYS follow the exact concrete grade specified in the text (e.g., C10, C15, C20, C25, C30, C35, C50). 
+       - IMPORTANT: ALWAYS follow the exact concrete grade specified in the text (e.g., C10, C15, C20, C25, C30, C35, C40, C45, C50). 
        - If the text says "M" grade (e.g., M15, M25, M50), convert it to "C" grade (e.g., C15 Concrete, C25 Concrete, C50 Concrete).
        - ONLY if "concreting" or "concrete" is mentioned WITHOUT a grade, default to "C25 Concrete".
-       - GRADES: Recognize C10, C15, C20, C25, C30, C35, C50 as concrete grades.
+       - GRADES: Recognize C10, C15, C20, C25, C30, C35, C40, C45, C50 as concrete grades.
        - INFILL: If "infill" is mentioned with a grade (e.g., "C15 infill"), use that grade (e.g., "C15 Concrete"). If "infill" is mentioned WITHOUT a grade, default to "C10 Concrete".
-       - PLUM CONCRETE: If "plum" is mentioned with a grade (e.g., "plum concrete C20"), use that grade (e.g., "C20 Plum Concrete"). If "plum" is mentioned WITHOUT a grade, default to "C10 Plum Concrete".
+       - PLUM CONCRETE: If "plum" is mentioned with a grade (e.g., "plum concrete C20" or "M20 plum"), use that grade and convert M to C (e.g., "C20 Plum Concrete"). If "plum" is mentioned WITHOUT a grade, default to "C10 Plum Concrete".
        - "formwork" or "shuttering" ALWAYS defaults to "Formwork". NEVER use "Formworks" or "Shutters".
     6. HIERARCHY MAPPING: 
        - If you see "River protection" or "River Protection Works", map it to "River Protection Works" under "Powerhouse".
@@ -153,9 +154,26 @@ export const autofillItemData = async (
       }
 
       const identifiedType = identifyItemType(desc, customItemTypes);
-      const finalType = (identifiedType === 'Other' && result.itemType && cleanStr(result.itemType).toLowerCase() !== 'other') 
+      let finalType = (identifiedType === 'Other' && result.itemType && cleanStr(result.itemType).toLowerCase() !== 'other') 
           ? toTitleCase(cleanStr(result.itemType)) 
           : identifiedType;
+
+      // Explicit fallback for Concrete if still Other or generic C25
+      if ((finalType === 'Other' || finalType === 'C25 Concrete' || finalType === 'C10 Plum Concrete') && (desc.toLowerCase().includes('concrete') || desc.toLowerCase().includes('concreting') || desc.toLowerCase().includes('plum'))) {
+          const isPlum = desc.toLowerCase().includes('plum');
+          const suffix = isPlum ? ' Plum Concrete' : ' Concrete';
+          
+          if (desc.toLowerCase().includes('c50') || desc.toLowerCase().includes('m50')) finalType = `C50${suffix}`;
+          else if (desc.toLowerCase().includes('c45') || desc.toLowerCase().includes('m45')) finalType = `C45${suffix}`;
+          else if (desc.toLowerCase().includes('c40') || desc.toLowerCase().includes('m40')) finalType = `C40${suffix}`;
+          else if (desc.toLowerCase().includes('c35') || desc.toLowerCase().includes('m35')) finalType = `C35${suffix}`;
+          else if (desc.toLowerCase().includes('c30') || desc.toLowerCase().includes('m30')) finalType = `C30${suffix}`;
+          else if (desc.toLowerCase().includes('c25') || desc.toLowerCase().includes('m25')) finalType = `C25${suffix}`;
+          else if (desc.toLowerCase().includes('c20') || desc.toLowerCase().includes('m20')) finalType = `C20${suffix}`;
+          else if (desc.toLowerCase().includes('c15') || desc.toLowerCase().includes('m15')) finalType = `C15${suffix}`;
+          else if (desc.toLowerCase().includes('c10') || desc.toLowerCase().includes('m10')) finalType = `C10${suffix}`;
+          else if (finalType === 'Other') finalType = isPlum ? 'C10 Plum Concrete' : 'C25 Concrete';
+      }
 
       return {
         location: toTitleCase(cleanStr(result.location)),
@@ -223,7 +241,7 @@ export const parseConstructionData = async (
 
     4. DESCRIPTION FORMAT:
        - 'activityDescription' MUST be: "Action (Quantity Unit)".
-       - Include grades (C35, C25, M15) in the description. If NO grade is mentioned for concrete, use "C25 Concrete" as the action (e.g., "C25 Concrete works").
+       - Include grades (C50, C45, C40, C35, C30, C25, C20, C15, C10) in the description. If NO grade is mentioned for concrete, use "C25 Concrete" as the action (e.g., "C25 Concrete works").
        - If NO quantity is specified, DO NOT include "(0 unit)" or any arbitrary quantity in the description. Just write the Action.
        - For items like HDPE pipes, ensure the full detail (e.g., "HDPE pipe 14 nos x 2.5m") is included in the 'activityDescription' even if the total quantity is calculated.
 
@@ -233,13 +251,13 @@ export const parseConstructionData = async (
        - For pipes (like HDPE pipe), if both length and number of pipes (nos) are provided, calculate the total quantity by multiplying length by nos. Include the calculation in the description (e.g., "HDPE pipes (22 nos x 2.5m)").
        - unit: standardized (m3, m2, Ton, nos, rm). For pipes with length, use 'rm'. If no quantity is specified, return "".
        - itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). 
-         - IMPORTANT: ALWAYS use the exact concrete grade specified in the text (e.g., C15, C20, C30, C50). 
+         - IMPORTANT: ALWAYS use the exact concrete grade specified in the text (e.g., C10, C15, C20, C25, C30, C35, C40, C45, C50). 
          - If the text says "M" grade (e.g., M15, M25, M50), convert it to "C" grade (e.g., C15 Concrete, C25 Concrete, C50 Concrete).
          - If the text says "M25", use "C25 Concrete".
          - ONLY if "concreting" or "concrete" is mentioned WITHOUT a grade, default to "C25 Concrete".
-         - GRADES: Recognize C10, C15, C20, C25, C30, C35 as concrete grades.
+         - GRADES: Recognize C10, C15, C20, C25, C30, C35, C40, C45, C50 as concrete grades.
          - INFILL: If "infill" is mentioned with a grade (e.g., "C15 infill"), use that grade (e.g., "C15 Concrete"). If "infill" is mentioned WITHOUT a grade, default to "C10 Concrete".
-         - PLUM CONCRETE: If "plum" is mentioned with a grade (e.g., "plum concrete C20"), use that grade (e.g., "C20 Plum Concrete"). If "plum" is mentioned WITHOUT a grade, default to "C10 Plum Concrete".
+         - PLUM CONCRETE: If "plum" is mentioned with a grade (e.g., "plum concrete C20" or "M20 plum"), use that grade and convert M to C (e.g., "C20 Plum Concrete"). If "plum" is mentioned WITHOUT a grade, default to "C10 Plum Concrete".
         - TAILRACE DOWNSTREAM FLOOD WALL: If no grade is mentioned for concrete at this location, ALWAYS default to "C25 Concrete".
          - "formwork" or "shuttering" ALWAYS defaults to "Formwork". NEVER use "Formworks" or "Shutters".
        - structuralElement: CRITICAL: Extract the specific part, area, or structure name from the description if not explicitly provided.
@@ -379,9 +397,21 @@ export const parseConstructionData = async (
               type = toTitleCase(cleanStr(item.itemType));
           }
 
-          // Explicit fallback for Concrete if still Other
-          if (type === 'Other' && (desc.toLowerCase().includes('concrete') || desc.toLowerCase().includes('concreting'))) {
-              type = 'C25 Concrete';
+          // Explicit fallback for Concrete if still Other or generic C25
+          if ((type === 'Other' || type === 'C25 Concrete' || type === 'C10 Plum Concrete') && (desc.toLowerCase().includes('concrete') || desc.toLowerCase().includes('concreting') || desc.toLowerCase().includes('plum'))) {
+              const isPlum = desc.toLowerCase().includes('plum');
+              const suffix = isPlum ? ' Plum Concrete' : ' Concrete';
+              
+              if (desc.toLowerCase().includes('c50') || desc.toLowerCase().includes('m50')) type = `C50${suffix}`;
+              else if (desc.toLowerCase().includes('c45') || desc.toLowerCase().includes('m45')) type = `C45${suffix}`;
+              else if (desc.toLowerCase().includes('c40') || desc.toLowerCase().includes('m40')) type = `C40${suffix}`;
+              else if (desc.toLowerCase().includes('c35') || desc.toLowerCase().includes('m35')) type = `C35${suffix}`;
+              else if (desc.toLowerCase().includes('c30') || desc.toLowerCase().includes('m30')) type = `C30${suffix}`;
+              else if (desc.toLowerCase().includes('c25') || desc.toLowerCase().includes('m25')) type = `C25${suffix}`;
+              else if (desc.toLowerCase().includes('c20') || desc.toLowerCase().includes('m20')) type = `C20${suffix}`;
+              else if (desc.toLowerCase().includes('c15') || desc.toLowerCase().includes('m15')) type = `C15${suffix}`;
+              else if (desc.toLowerCase().includes('c10') || desc.toLowerCase().includes('m10')) type = `C10${suffix}`;
+              else if (type === 'Other') type = isPlum ? 'C10 Plum Concrete' : 'C25 Concrete';
           }
 
           // Explicit fallback for Formwork if still Other
