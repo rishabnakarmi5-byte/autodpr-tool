@@ -40,6 +40,7 @@ export interface DailyReport {
   companyName?: string;
   entries: DPRItem[];
   isRecovered?: boolean; 
+  note?: string;
 }
 
 export interface LogEntry {

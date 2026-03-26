@@ -15,9 +15,10 @@ interface ReportTableProps {
   canRedo: boolean;
   onInspectItem: (item: DPRItem) => void;
   hierarchy: Record<string, string[]>;
+  onUpdateNote: (note: string) => void;
 }
 
-export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUndo, onRedo, canRedo, onInspectItem }) => {
+export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUndo, onRedo, canRedo, onInspectItem, onUpdateNote }) => {
   const [fontSize, setFontSize] = useState(12);
   const [showRawInputs, setShowRawInputs] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
@@ -101,6 +102,16 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm max-w-[210mm] mx-auto w-full">
+        <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Daily Report Note</label>
+        <textarea 
+            value={report.note || ""}
+            onChange={e => onUpdateNote(e.target.value)}
+            placeholder="Enter 2-3 lines of note for this DPR..."
+            className="w-full h-24 p-5 bg-slate-50 rounded-xl border border-slate-200 outline-none text-sm font-medium transition-all placeholder:text-slate-300"
+        />
       </div>
 
       <RawInputsModal 

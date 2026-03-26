@@ -227,6 +227,20 @@ const App = () => {
       await moveItemToTrash(itemToDelete, targetReport.id, targetReport.date, user?.displayName || 'Unknown');
   };
 
+  const handleUpdateReportNote = async (reportId: string, note: string) => {
+      const targetReport = reports.find(r => r.id === reportId);
+      if (!targetReport) return;
+
+      const reportToSave = {
+          ...targetReport,
+          note: note,
+          lastUpdated: new Date().toISOString()
+      };
+
+      setReports(prev => prev.map(r => r.id === reportToSave.id ? reportToSave : r));
+      await saveReportToCloud(reportToSave);
+  };
+
   const handleUpdateItem = async (itemId: string, updates: Partial<DPRItem>) => {
       // Find which report contains this item
       let targetReport = reports.find(r => r.entries.some(e => e.id === itemId));
@@ -414,6 +428,7 @@ const App = () => {
                     onDeleteItem={handleDeleteItem}
                     onUpdateItem={handleUpdateItemField}
                     onUpdateRow={handleUpdateItem}
+                    onUpdateNote={handleUpdateReportNote}
                     onUndo={handleUndo}
                     canUndo={undoStack.length > 0}
                     onRedo={handleRedo}
