@@ -21,15 +21,21 @@ interface ReportTableProps {
 export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUndo, onRedo, canRedo, onInspectItem, onUpdateNote }) => {
   const [fontSize, setFontSize] = useState(12);
   const [showRawInputs, setShowRawInputs] = useState(false);
+  const [isEditingNote, setIsEditingNote] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
 
   const exportToJPG = async () => {
     if (!reportRef.current) return;
     try {
-      const canvas = await (window as any).html2canvas(reportRef.current, { scale: 2 });
+      const canvas = await (window as any).html2canvas(reportRef.current, { 
+        scale: 2,
+        ignoreElements: (element: HTMLElement) => {
+          return element.classList.contains('no-print');
+        }
+      });
       const link = document.createElement('a');
       link.download = `DPR_${report.date}.jpg`;
-      link.href = canvas.toDataURL('image/jpeg', 0.9);
+      link.href = canvas.toDataURL('image/jpeg', 1.0);
       link.click();
     } catch (e) {
       alert("Export failed.");
@@ -103,18 +109,31 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
             ))}
           </tbody>
         </table>
+        
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full mt-6">
+          <div className="flex justify-between items-center mb-3">
+            <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest">Daily Report Note</label>
+            <button 
+              onClick={() => setIsEditingNote(!isEditingNote)}
+              className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-widest no-print"
+            >
+              {isEditingNote ? 'Save Note' : 'Edit Note'}
+            </button>
+          </div>
+          {isEditingNote ? (
+            <textarea 
+                value={report.note || ""}
+                onChange={e => onUpdateNote(e.target.value)}
+                placeholder="Enter 2-3 lines of note for this DPR..."
+                className="w-full min-h-24 p-5 bg-slate-50 rounded-xl border border-slate-200 outline-none text-sm font-medium transition-all placeholder:text-slate-300 resize-none"
+            />
+          ) : (
+            <div className="w-full p-5 bg-slate-50 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 whitespace-pre-wrap">
+              {report.note || "No notes for this report."}
+            </div>
+          )}
+        </div>
       </div>
-
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full">
-        <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Daily Report Note</label>
-        <textarea 
-            value={report.note || ""}
-            onChange={e => onUpdateNote(e.target.value)}
-            placeholder="Enter 2-3 lines of note for this DPR..."
-            className="w-full h-24 p-5 bg-slate-50 rounded-xl border border-slate-200 outline-none text-sm font-medium transition-all placeholder:text-slate-300"
-        />
-      </div>
-
       </div>
 
       <RawInputsModal 
