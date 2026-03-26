@@ -59,7 +59,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
         </div>
       </div>
 
-      <div ref={reportRef} id="printable-report" className="bg-white shadow-2xl p-10 rounded-2xl border border-slate-100 transition-all origin-top mx-auto" style={{ width: '100%', maxWidth: '210mm' }}>
+      <div ref={reportRef} className="mx-auto w-full max-w-[210mm] space-y-6">
+        <div id="printable-report" className="bg-white shadow-2xl p-10 rounded-2xl border border-slate-100 transition-all origin-top" style={{ width: '100%' }}>
         <div className="border-b-4 border-slate-900 pb-6 mb-8 flex justify-between items-end">
           <div>
             <h1 className="text-4xl text-slate-900 font-black uppercase tracking-tighter">Daily Progress Report</h1>
@@ -104,7 +105,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
         </table>
       </div>
 
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm max-w-[210mm] mx-auto w-full">
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full">
         <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Daily Report Note</label>
         <textarea 
             value={report.note || ""}
@@ -112,6 +113,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
             placeholder="Enter 2-3 lines of note for this DPR..."
             className="w-full h-24 p-5 bg-slate-50 rounded-xl border border-slate-200 outline-none text-sm font-medium transition-all placeholder:text-slate-300"
         />
+      </div>
+
       </div>
 
       <RawInputsModal 
