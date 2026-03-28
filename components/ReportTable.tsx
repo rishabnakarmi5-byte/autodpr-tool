@@ -28,17 +28,26 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
     if (!reportRef.current) return;
     try {
       const canvas = await (window as any).html2canvas(reportRef.current, { 
-        scale: 2,
-        ignoreElements: (element: HTMLElement) => {
-          return element.classList.contains('no-print');
+        scale: 3, // Higher scale for better quality
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#f8fafc', // Match slate-50 background
+        logging: false,
+        scrollX: 0,
+        scrollY: -window.scrollY, // Fix for cropping when scrolled
+        onclone: (clonedDoc: Document) => {
+          // Ensure no-print elements are hidden in the clone
+          const noPrintElements = clonedDoc.querySelectorAll('.no-print');
+          noPrintElements.forEach((el: any) => el.style.display = 'none');
         }
       });
       const link = document.createElement('a');
       link.download = `DPR_${report.date}.jpg`;
-      link.href = canvas.toDataURL('image/jpeg', 1.0);
+      link.href = canvas.toDataURL('image/jpeg', 0.95);
       link.click();
     } catch (e) {
-      alert("Export failed.");
+      console.error("Export error:", e);
+      alert("Export failed. Please try again.");
     }
   };
 
@@ -116,6 +125,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
             <button 
               onClick={() => setIsEditingNote(!isEditingNote)}
               className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-widest no-print"
+              data-html2canvas-ignore="true"
             >
               {isEditingNote ? 'Save Note' : 'Edit Note'}
             </button>

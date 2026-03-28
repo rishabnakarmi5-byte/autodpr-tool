@@ -82,6 +82,7 @@ export const autofillItemData = async (
         - "M" grade concrete MUST be converted to "C" (e.g., "M25" -> "C25 Concrete", "M50" -> "C50 Concrete").
         - This conversion also applies to Plum Concrete (e.g., "M15 Plum" -> "C15 Plum Concrete").
     1. structuralElement: Extract the specific part/area (e.g., "Spiral Casing Unit 1", "Crown", "end sill", "bottom sill", "Niche").
+       - If the 'structuralElement' you extract is identical to the 'component' name, leave 'structuralElement' BLANK (empty string) to avoid duplication in the final report.
        - If the text mentions "apron wall ra apron raft", set 'structuralElement' to "Wall And Raft".
     2. activityDescription: MUST follow format "Action (Quantity Unit)". 
        Example: "C35 Concrete works (5 m3)".
@@ -158,12 +159,24 @@ export const autofillItemData = async (
           ? toTitleCase(cleanStr(result.itemType)) 
           : identifiedType;
 
+      let finalStructuralElement = correctStructuralTypos(toTitleCase(cleanStr(result.structuralElement)));
+      const finalComponent = toTitleCase(cleanStr(result.component));
+
+      // REPETITION PREVENTION: If structuralElement is identical to or contained within component, clear it
+      const sLower = finalStructuralElement.toLowerCase();
+      const cLower = finalComponent.toLowerCase();
+      if (sLower === cLower || (sLower.length > 5 && cLower.includes(sLower))) {
+          finalStructuralElement = '';
+      }
+
       // Explicit fallback for Concrete if still Other or generic C25
       if ((finalType === 'Other' || finalType === 'C25 Concrete' || finalType === 'C10 Plum Concrete') && (desc.toLowerCase().includes('concrete') || desc.toLowerCase().includes('concreting') || desc.toLowerCase().includes('plum'))) {
           const isPlum = desc.toLowerCase().includes('plum');
           const suffix = isPlum ? ' Plum Concrete' : ' Concrete';
           
-          if (desc.toLowerCase().includes('c50') || desc.toLowerCase().includes('m50')) finalType = `C50${suffix}`;
+          if (desc.toLowerCase().includes('c60') || desc.toLowerCase().includes('m60')) finalType = `C60${suffix}`;
+          else if (desc.toLowerCase().includes('c55') || desc.toLowerCase().includes('m55')) finalType = `C55${suffix}`;
+          else if (desc.toLowerCase().includes('c50') || desc.toLowerCase().includes('m50')) finalType = `C50${suffix}`;
           else if (desc.toLowerCase().includes('c45') || desc.toLowerCase().includes('m45')) finalType = `C45${suffix}`;
           else if (desc.toLowerCase().includes('c40') || desc.toLowerCase().includes('m40')) finalType = `C40${suffix}`;
           else if (desc.toLowerCase().includes('c35') || desc.toLowerCase().includes('m35')) finalType = `C35${suffix}`;
@@ -177,8 +190,8 @@ export const autofillItemData = async (
 
       return {
         location: toTitleCase(cleanStr(result.location)),
-        component: toTitleCase(cleanStr(result.component)),
-        structuralElement: correctStructuralTypos(toTitleCase(cleanStr(result.structuralElement))),
+        component: finalComponent,
+        structuralElement: finalStructuralElement,
         chainage: cleanStr(result.chainage),
         quantity: qty,
         unit: finalUnit,
@@ -275,6 +288,7 @@ export const parseConstructionData = async (
 
     7. DESCRIPTION CLEANUP:
        - If you extract a structure (e.g. "Spiral casing unit 1") into 'structuralElement', REMOVE it from 'activityDescription' to avoid duplication, UNLESS it makes the description unclear.
+       - If the 'structuralElement' you extract is identical to the 'component' name, leave 'structuralElement' BLANK (empty string) to avoid duplication in the final report.
        - Keep the description focused on the action (e.g., "Rebar works", "Concrete casting").
 
     8. NO HALLUCINATIONS:
@@ -402,7 +416,9 @@ export const parseConstructionData = async (
               const isPlum = desc.toLowerCase().includes('plum');
               const suffix = isPlum ? ' Plum Concrete' : ' Concrete';
               
-              if (desc.toLowerCase().includes('c50') || desc.toLowerCase().includes('m50')) type = `C50${suffix}`;
+              if (desc.toLowerCase().includes('c60') || desc.toLowerCase().includes('m60')) type = `C60${suffix}`;
+              else if (desc.toLowerCase().includes('c55') || desc.toLowerCase().includes('m55')) type = `C55${suffix}`;
+              else if (desc.toLowerCase().includes('c50') || desc.toLowerCase().includes('m50')) type = `C50${suffix}`;
               else if (desc.toLowerCase().includes('c45') || desc.toLowerCase().includes('m45')) type = `C45${suffix}`;
               else if (desc.toLowerCase().includes('c40') || desc.toLowerCase().includes('m40')) type = `C40${suffix}`;
               else if (desc.toLowerCase().includes('c35') || desc.toLowerCase().includes('m35')) type = `C35${suffix}`;
@@ -481,6 +497,13 @@ export const parseConstructionData = async (
                       structuralElement = correctStructuralTypos(toTitleCase(foundKeyword));
                   }
               }
+          }
+
+          // REPETITION PREVENTION: If structuralElement is identical to or contained within component, clear it
+          const sLower = structuralElement.toLowerCase();
+          const cLower = comp.toLowerCase();
+          if (sLower === cLower || (sLower.length > 5 && cLower.includes(sLower))) {
+              structuralElement = '';
           }
 
           // Fix typos in description as well

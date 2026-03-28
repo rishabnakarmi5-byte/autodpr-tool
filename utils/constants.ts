@@ -91,6 +91,10 @@ export const getLocationPriority = (location: string): number => {
 };
 
 export const ITEM_PATTERNS = [
+  { name: "C80 Concrete", pattern: /\b(c[\-\s]?80|grade[\-\s]?80|m[\-\s]?80)\b/i, defaultUnit: 'm3' },
+  { name: "C70 Concrete", pattern: /\b(c[\-\s]?70|grade[\-\s]?70|m[\-\s]?70)\b/i, defaultUnit: 'm3' },
+  { name: "C60 Concrete", pattern: /\b(c[\-\s]?60|grade[\-\s]?60|m[\-\s]?60)\b/i, defaultUnit: 'm3' },
+  { name: "C55 Concrete", pattern: /\b(c[\-\s]?55|grade[\-\s]?55|m[\-\s]?55)\b/i, defaultUnit: 'm3' },
   { name: "C50 Concrete", pattern: /\b(c[\-\s]?50|grade[\-\s]?50|m[\-\s]?50)\b/i, defaultUnit: 'm3' },
   { name: "C45 Concrete", pattern: /\b(c[\-\s]?45|grade[\-\s]?45|m[\-\s]?45)\b/i, defaultUnit: 'm3' },
   { name: "C40 Concrete", pattern: /\b(c[\-\s]?40|grade[\-\s]?40|m[\-\s]?40)\b/i, defaultUnit: 'm3' },
@@ -103,7 +107,7 @@ export const ITEM_PATTERNS = [
   { name: "C25 Plum Concrete", pattern: /\b((c[\-\s]?25|grade[\-\s]?25|m[\-\s]?25).*(plum)|(plum).*(c[\-\s]?25|grade[\-\s]?25|m[\-\s]?25))\b/i, defaultUnit: 'm3' },
   { name: "C20 Plum Concrete", pattern: /\b((c[\-\s]?20|grade[\-\s]?20|m[\-\s]?20).*(plum)|(plum).*(c[\-\s]?20|grade[\-\s]?20|m[\-\s]?20))\b/i, defaultUnit: 'm3' },
   { name: "C15 Plum Concrete", pattern: /\b((c[\-\s]?15|grade[\-\s]?15|m[\-\s]?15).*(plum)|(plum).*(c[\-\s]?15|grade[\-\s]?15|m[\-\s]?15))\b/i, defaultUnit: 'm3' },
-  { name: "C10 Plum Concrete", pattern: /\b(plum)\b/i, defaultUnit: 'm3' },
+  { name: "C10 Plum Concrete", pattern: /\b((c[\-\s]?10|grade[\-\s]?10|m[\-\s]?10).*(plum)|(plum).*(c[\-\s]?10|grade[\-\s]?10|m[\-\s]?10)|(plum))\b/i, defaultUnit: 'm3' },
   { name: "Shotcrete", pattern: /\b(shotcrete|s\/c)\b/i, defaultUnit: 'm3' },
   { name: "Formwork", pattern: /\b(formwork|formworks|shuttering|shutter|shutters|form\s+work|form\s+works)\b/i, defaultUnit: 'm2' },
   { name: "Rebar", pattern: /\b(rebar|reinforcement|steel|tmt|bar|tor)\b/i, defaultUnit: 'Ton' },
