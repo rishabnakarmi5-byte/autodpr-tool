@@ -119,7 +119,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
           </tbody>
         </table>
         
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full mt-6">
+        <div className={`bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full mt-6 ${!report.note ? 'no-print' : ''}`}>
           <div className="flex justify-between items-center mb-3">
             <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest">Daily Report Note</label>
             <button 
