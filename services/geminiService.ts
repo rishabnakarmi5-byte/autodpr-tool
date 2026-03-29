@@ -92,7 +92,13 @@ export const autofillItemData = async (
        - "ms wall" ALWAYS means "Stone Masonry" (e.g., "Niche ms wall" -> Stone Masonry at Niche).
        - If structure is extracted to 'structuralElement', try to simplify the description (e.g. "Spiral Casing Rebar" -> "Rebar works").
        - If NO quantity is specified, DO NOT include "(0 unit)" or any arbitrary quantity in the description. Just write the Action.
-    3. Ensure 'quantity' and 'unit' are numeric/standardized. If no quantity is specified, return 0 for quantity and "" for unit. DO NOT hallucinate or default to 1.
+    3. Ensure 'quantity' and 'unit' are numeric/standardized. 
+       - CRITICAL: Extract the EXACT number associated with the activity. DO NOT add, subtract, or perform any math on quantities unless explicitly instructed (like kg to Ton or Plum batching).
+       - DO NOT combine quantities from different activities, different item types, or different lines of text.
+       - DO NOT add numbers from "next plan", "lift", "chainage", or "elevation" to the quantity.
+       - If no quantity is specified, return 0 for quantity and "" for unit. DO NOT hallucinate or default to 1.
+       - REBAR CONVERSION (CRITICAL): If the input unit is "kg" for "Rebar", you MUST divide the quantity by 1000 and return the unit as "Ton".
+       - Example: "Rebar = 2000kg" -> quantity: 2, unit: "Ton".
        - Ignore negative signs if they are just separators (e.g., "Quantity -41m3" means 41).
        - For plum concrete: if the text mentions "batching only" or "batching quantity", multiply the given quantity by 1.6 to get the total plum concrete quantity (e.g., 8 * 1.6 = 12.8).
     4. chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
@@ -141,17 +147,28 @@ export const autofillItemData = async (
     if (response.text) {
       const result = JSON.parse(response.text);
       let desc = cleanStr(result.activityDescription);
-      const qty = Math.abs(result.quantity || 0);
-      const finalUnit = cleanStr(result.unit) || "m3";
+      let qty = Math.abs(result.quantity || 0);
+      
+      const unitMap: Record<string, string> = { 'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'nos': 'nos', 'rm': 'rm', 't': 'Ton', 'kg': 'kg', 'kgs': 'kg' };
+      let rawUnit = cleanStr(result.unit).toLowerCase();
+      let finalUnit = unitMap[rawUnit] || cleanStr(result.unit) || "m3";
+
+      // Rebar kg to Ton conversion
+      const isRebar = (result.itemType && cleanStr(result.itemType).toLowerCase().includes('rebar')) || desc.toLowerCase().includes('rebar');
+      if (isRebar && (finalUnit.toLowerCase() === 'kg' || finalUnit.toLowerCase() === 'kgs')) {
+          qty = qty / 1000;
+          finalUnit = 'Ton';
+      }
       
       if (qty > 0) {
           const qtyString = `(${qty} ${finalUnit})`;
           if (!desc.includes(qtyString)) {
-              const cleanDesc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit)[\)]?/gi, '').replace(/\s*=\s*/g, '').trim();
+              // More aggressive cleanup to avoid duplicates like (2089.28kg) (2089.28 kg)
+              const cleanDesc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit|kg|kgs)[\)]?/gi, '').replace(/\s*=\s*/g, '').trim();
               desc = `${cleanDesc} ${qtyString}`;
           }
       } else {
-          desc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit)[\)]?/gi, '').replace(/\(\s*\)/g, '').replace(/\s*=\s*/g, '').trim();
+          desc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit|kg|kgs)[\)]?/gi, '').replace(/\(\s*\)/g, '').replace(/\s*=\s*/g, '').trim();
       }
 
       const identifiedType = identifyItemType(desc, customItemTypes);
@@ -259,7 +276,13 @@ export const parseConstructionData = async (
        - For items like HDPE pipes, ensure the full detail (e.g., "HDPE pipe 14 nos x 2.5m") is included in the 'activityDescription' even if the total quantity is calculated.
 
     5. DATA MAPPING:
-       - quantity: numeric only (ignore negative signs if they are just separators, e.g., "Quantity -41m3" means 41). If no quantity is specified in the text, return 0. DO NOT hallucinate or default to 1.
+       - quantity: numeric only (ignore negative signs if they are just separators, e.g., "Quantity -41m3" means 41). 
+         - CRITICAL: Extract the EXACT quantity as written in the text. DO NOT add, subtract, or perform any math on quantities unless explicitly instructed (like kg to Ton or Plum batching).
+         - DO NOT combine quantities from different activities, different item types, or different lines of text.
+         - DO NOT add numbers from "next plan", "lift", "chainage", or "elevation" to the quantity.
+         - If no quantity is specified in the text, return 0. DO NOT hallucinate or default to 1.
+       - REBAR CONVERSION (CRITICAL): If the input unit is "kg" for "Rebar", you MUST divide the quantity by 1000 and return the unit as "Ton".
+       - Example: "Rebar = 2000kg" -> quantity: 2, unit: "Ton".
        - For plum concrete: if the text mentions "batching only" or "batching quantity", multiply the given quantity by 1.6 to get the total plum concrete quantity (e.g., 8 * 1.6 = 12.8).
        - For pipes (like HDPE pipe), if both length and number of pipes (nos) are provided, calculate the total quantity by multiplying length by nos. Include the calculation in the description (e.g., "HDPE pipes (22 nos x 2.5m)").
        - unit: standardized (m3, m2, Ton, nos, rm). For pipes with length, use 'rm'. If no quantity is specified, return "".
@@ -339,12 +362,19 @@ export const parseConstructionData = async (
 
     if (response.text) {
       const result = JSON.parse(response.text);
-      const unitMap: Record<string, string> = { 'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'nos': 'nos', 'rm': 'rm', 't': 'Ton' };
+      const unitMap: Record<string, string> = { 'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'nos': 'nos', 'rm': 'rm', 't': 'Ton', 'kg': 'kg', 'kgs': 'kg' };
 
       const processedItems = result.items.map((item: any) => {
           let rawUnit = cleanStr(item.unit).toLowerCase();
           let finalUnit = unitMap[rawUnit] || cleanStr(item.unit) || "m3";
           let qty = Math.abs(item.quantity || 0);
+
+          // Rebar kg to Ton conversion
+          const isRebar = (item.itemType && cleanStr(item.itemType).toLowerCase().includes('rebar')) || cleanStr(item.activityDescription).toLowerCase().includes('rebar');
+          if (isRebar && (finalUnit === 'kg' || finalUnit === 'kgs')) {
+              qty = qty / 1000;
+              finalUnit = 'Ton';
+          }
           
           let rawLoc = cleanStr(item.location);
           let rawComp = cleanStr(item.component);
@@ -396,12 +426,12 @@ export const parseConstructionData = async (
               const qtyString = `(${qty} ${finalUnit})`;
               
               if (!desc.includes(qtyString)) {
-                  const cleanDesc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit)[\)]?/gi, '').replace(/\s*=\s*/g, '').trim();
+                  const cleanDesc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit|kg|kgs)[\)]?/gi, '').replace(/\s*=\s*/g, '').trim();
                   desc = `${cleanDesc} ${qtyString}`;
               }
           } else {
               // Strip out any hallucinated quantities if qty is 0
-              desc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit)[\)]?/gi, '').replace(/\(\s*\)/g, '').replace(/\s*=\s*/g, '').trim();
+              desc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit|kg|kgs)[\)]?/gi, '').replace(/\(\s*\)/g, '').replace(/\s*=\s*/g, '').trim();
           }
 
           let type = identifyItemType(desc, customItemTypes);

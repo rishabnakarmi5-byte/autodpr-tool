@@ -182,7 +182,19 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                   <select 
                     className="w-full p-3 border border-slate-200 rounded-lg text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-indigo-500" 
                     value={localItem.itemType} 
-                    onChange={e => { handleChange('itemType', e.target.value); onUpdate(item.id, {itemType: e.target.value}); }}
+                    onChange={e => { 
+                      const newType = e.target.value;
+                      handleChange('itemType', newType); 
+                      
+                      // Auto-update unit based on default unit for the type
+                      const pattern = ITEM_PATTERNS.find(p => p.name === newType);
+                      if (pattern && pattern.defaultUnit) {
+                        handleChange('unit', pattern.defaultUnit);
+                        onUpdate(item.id, { itemType: newType, unit: pattern.defaultUnit });
+                      } else {
+                        onUpdate(item.id, { itemType: newType });
+                      }
+                    }}
                   >
                     <option value="Other">Unclassified / Other</option>
                     {allItemTypes.map(name => <option key={name} value={name}>{name}</option>)}
