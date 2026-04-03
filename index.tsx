@@ -364,6 +364,34 @@ const App = () => {
       alert(`Restored ${backupsToRecover.length} sessions.`);
   };
 
+  const handleSplitItem = async (item: DPRItem) => {
+      const newItem: DPRItem = {
+          ...item,
+          id: crypto.randomUUID(),
+          activityDescription: `${item.activityDescription} (Split)`,
+          lastModifiedAt: new Date().toISOString()
+      };
+      
+      const targetReport = reports.find(r => r.entries.some(e => e.id === item.id));
+      if (!targetReport) return;
+
+      const updatedEntries = [...targetReport.entries, newItem];
+      
+      if (currentReportId === targetReport.id) {
+          setCurrentEntries(updatedEntries);
+      }
+
+      const reportToSave = {
+          ...targetReport,
+          entries: updatedEntries,
+          lastUpdated: new Date().toISOString()
+      };
+      
+      setReports(prev => prev.map(r => r.id === reportToSave.id ? reportToSave : r));
+      await saveReportToCloud(reportToSave);
+      setInspectItem(newItem);
+  };
+
   const handleToggleBlockItem = async (itemId: string) => {
       if (!settings) return;
       const currentBlocked = settings.blockedLiningItemIds || [];
@@ -408,6 +436,42 @@ const App = () => {
     );
   }
 
+  const handleReorderEntries = async (newEntries: DPRItem[]) => {
+      if (!currentReportId) return;
+      
+      const targetReport = reports.find(r => r.id === currentReportId);
+      if (!targetReport) return;
+
+      setCurrentEntries(newEntries);
+
+      const reportToSave = {
+          ...targetReport,
+          entries: newEntries,
+          lastUpdated: new Date().toISOString()
+      };
+      
+      setReports(prev => prev.map(r => r.id === reportToSave.id ? reportToSave : r));
+      await saveReportToCloud(reportToSave);
+  };
+
+  const handleManualEntry = async () => {
+      const newItem: DPRItem = {
+          id: crypto.randomUUID(),
+          location: Object.keys(hierarchy)[0] || "Headworks",
+          component: hierarchy[Object.keys(hierarchy)[0]]?.[0] || "",
+          chainageOrArea: "",
+          activityDescription: "New manual entry",
+          quantity: 0,
+          unit: "m3",
+          plannedNextActivity: "",
+          createdBy: user?.displayName || 'Unknown',
+          lastModifiedAt: new Date().toISOString()
+      };
+      
+      await handleItemsAdded([newItem], "Manual Creation");
+      setInspectItem(newItem);
+  };
+
   const renderContent = () => {
       switch(activeTab) {
           case TabView.INPUT:
@@ -434,13 +498,18 @@ const App = () => {
                     onRedo={handleRedo}
                     canRedo={redoStack.length > 0}
                     onInspectItem={setInspectItem}
+                    onAddManualItem={handleManualEntry}
+                    onReorderEntries={handleReorderEntries}
                     hierarchy={hierarchy}
                  /> 
              ) : (
                  <div className="text-center py-20 text-slate-400">
                     <i className="fas fa-folder-open text-4xl mb-4"></i>
                     <p>No report exists for {currentDate}</p>
-                    <button onClick={() => setActiveTab(TabView.INPUT)} className="text-indigo-600 font-bold mt-2 underline">Create entries</button>
+                    <div className="flex flex-col gap-3 mt-6 items-center">
+                        <button onClick={() => setActiveTab(TabView.INPUT)} className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all">Create entries via AI</button>
+                        <button onClick={handleManualEntry} className="text-indigo-600 font-bold hover:underline">Or create manual entry</button>
+                    </div>
                  </div>
              );
           case TabView.HISTORY:
@@ -512,7 +581,7 @@ const App = () => {
                 isOpen={!!inspectItem} 
                 onClose={() => setInspectItem(null)}
                 onUpdate={handleUpdateItem}
-                onSplit={() => {}} 
+                onSplit={handleSplitItem} 
                 onDelete={(id) => { handleDeleteItem(id); setInspectItem(null); }}
                 hierarchy={hierarchy}
                 customItemTypes={settings?.itemTypes}
