@@ -1,5 +1,6 @@
 
 import React, { useState, useRef } from 'react';
+import { Reorder } from 'motion/react';
 import { DailyReport, DPRItem } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 import { RawInputsModal } from './RawInputsModal';
@@ -82,8 +83,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
             <span className="text-xs font-bold text-slate-500 w-8">{fontSize}px</span>
           </div>
           <button onClick={() => setIsRearranging(!isRearranging)} className={`p-2.5 rounded-xl transition-all flex items-center gap-2 font-bold text-xs ${isRearranging ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-            <i className={`fas ${isRearranging ? 'fa-check' : 'fa-sort'}`}></i> 
-            {isRearranging ? 'Done Rearranging' : 'Rearrange Rows'}
+            <i className={`fas ${isRearranging ? 'fa-check' : 'fa-up-down-left-right'}`}></i> 
+            {isRearranging ? 'Done Rearranging' : 'Drag to Reorder'}
           </button>
           <button onClick={onAddManualItem} className="flex-1 md:flex-none bg-indigo-50 text-indigo-600 px-4 py-2.5 rounded-xl font-bold border border-indigo-100 flex items-center justify-center gap-2 hover:bg-indigo-100 transition-all text-sm">
             <i className="fas fa-plus"></i> Manual Entry
@@ -120,42 +121,29 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
               <th className="p-3 w-[12%] text-left font-black">Next Plan</th>
             </tr>
           </thead>
-          <tbody>
+          <Reorder.Group 
+            as="tbody" 
+            axis="y" 
+            values={report.entries} 
+            onReorder={onReorderEntries}
+          >
             {report.entries.length === 0 ? (
               <tr><td colSpan={5} className="p-20 text-center italic text-slate-300">No records found for this date.</td></tr>
-            ) : report.entries.map((item, index) => (
-              <tr key={item.id} onClick={() => !isRearranging && onInspectItem({ ...item, date: report.date })} className={`group border-b border-slate-900 hover:bg-indigo-50/50 cursor-pointer align-top text-black ${isRearranging ? 'bg-indigo-50/20' : ''}`}>
+            ) : report.entries.map((item) => (
+              <Reorder.Item 
+                as="tr" 
+                key={item.id} 
+                value={item}
+                dragListener={isRearranging}
+                onClick={() => !isRearranging && onInspectItem({ ...item, date: report.date })} 
+                className={`group border-b border-slate-900 hover:bg-indigo-50/50 cursor-pointer align-top text-black ${isRearranging ? 'bg-indigo-50/20 select-none' : ''}`}
+              >
                 <td className="border-r border-slate-900 p-2 font-bold relative">
                   {isRearranging && (
-                    <div className="absolute -left-10 top-1/2 -translate-y-1/2 flex flex-col gap-1 no-print z-10">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (index === 0) return;
-                          const newEntries = [...report.entries];
-                          [newEntries[index - 1], newEntries[index]] = [newEntries[index], newEntries[index - 1]];
-                          onReorderEntries(newEntries);
-                        }}
-                        disabled={index === 0}
-                        className="w-7 h-7 bg-indigo-600 text-white rounded-md shadow-md flex items-center justify-center hover:bg-indigo-700 disabled:opacity-30 disabled:bg-slate-400"
-                        title="Move Up"
-                      >
-                        <i className="fas fa-arrow-up text-[10px]"></i>
-                      </button>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (index === report.entries.length - 1) return;
-                          const newEntries = [...report.entries];
-                          [newEntries[index + 1], newEntries[index]] = [newEntries[index], newEntries[index + 1]];
-                          onReorderEntries(newEntries);
-                        }}
-                        disabled={index === report.entries.length - 1}
-                        className="w-7 h-7 bg-indigo-600 text-white rounded-md shadow-md flex items-center justify-center hover:bg-indigo-700 disabled:opacity-30 disabled:bg-slate-400"
-                        title="Move Down"
-                      >
-                        <i className="fas fa-arrow-down text-[10px]"></i>
-                      </button>
+                    <div className="absolute -left-10 top-1/2 -translate-y-1/2 flex items-center justify-center no-print z-10">
+                      <div className="w-8 h-8 bg-indigo-600 text-white rounded-lg shadow-md flex items-center justify-center cursor-grab active:cursor-grabbing">
+                        <i className="fas fa-grip-vertical"></i>
+                      </div>
                     </div>
                   )}
                   <span className={isRearranging ? 'ml-2' : ''}>{item.location}</span>
@@ -168,9 +156,9 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
                   </div>
                 </td>
                 <td className="p-2 leading-tight">{item.plannedNextActivity}</td>
-              </tr>
+              </Reorder.Item>
             ))}
-          </tbody>
+          </Reorder.Group>
         </table>
         
         <div className={`bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full mt-6 ${!report.note ? 'no-print' : ''}`}>
