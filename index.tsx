@@ -35,7 +35,8 @@ import {
   missingKeys, 
   createSystemCheckpoint,
   saveRawInput,
-  updateRawInputStatus
+  updateRawInputStatus,
+  mergeReportsInCloud
 } from './services/firebaseService';
 import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, BackupEntry } from './types';
 import { LOCATION_HIERARCHY } from './utils/constants';
@@ -142,8 +143,14 @@ const App = () => {
       
       let reportId = currentReportId;
       if (!reportId) {
-          reportId = `${currentDate}_${crypto.randomUUID()}`;
-          setCurrentReportId(reportId);
+          const existingReport = reports.find(r => r.date === currentDate);
+          if (existingReport) {
+              reportId = existingReport.id;
+              setCurrentReportId(reportId);
+          } else {
+              reportId = `${currentDate}_${crypto.randomUUID()}`;
+              setCurrentReportId(reportId);
+          }
       }
 
       const reportData: DailyReport = {
@@ -195,6 +202,23 @@ const App = () => {
       } finally {
           setIsGlobalSaving(false);
       }
+  };
+
+  const mergeDuplicateReports = async (date: string) => {
+      const duplicateReports = reports.filter(r => r.date === date);
+      if (duplicateReports.length <= 1) return;
+
+      // Sort by lastUpdated, keep the most recent one
+      duplicateReports.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
+      
+      const targetReport = duplicateReports[0];
+      const sourceReports = duplicateReports.slice(1);
+
+      for (const source of sourceReports) {
+          await mergeReportsInCloud(source.id, targetReport.id);
+      }
+      
+      // Refresh local state will happen automatically via subscription
   };
 
   const handleDeleteItem = async (itemId: string) => {
@@ -586,6 +610,17 @@ const App = () => {
                 hierarchy={hierarchy}
                 customItemTypes={settings?.itemTypes}
             />
+        )}
+        
+        {reports.filter(r => r.date === currentDate).length > 1 && (
+            <div className="fixed bottom-20 right-8 z-50">
+                <button 
+                    onClick={() => mergeDuplicateReports(currentDate)}
+                    className="bg-amber-500 text-white px-6 py-3 rounded-full font-bold shadow-lg hover:bg-amber-600 transition-all"
+                >
+                    Merge Duplicate Reports
+                </button>
+            </div>
         )}
     </Layout>
   );

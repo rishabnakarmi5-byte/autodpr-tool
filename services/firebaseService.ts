@@ -222,6 +222,29 @@ export const deleteReportFromCloud = async (reportId: string) => {
     await deleteDoc(doc(db, REPORT_COLLECTION, reportId));
 };
 
+export const mergeReportsInCloud = async (sourceReportId: string, targetReportId: string) => {
+    if (!db) return;
+    const sourceRef = doc(db, REPORT_COLLECTION, sourceReportId);
+    const targetRef = doc(db, REPORT_COLLECTION, targetReportId);
+    
+    const sourceSnap = await getDoc(sourceRef);
+    const targetSnap = await getDoc(targetRef);
+    
+    if (!sourceSnap.exists() || !targetSnap.exists()) return;
+    
+    const sourceData = sourceSnap.data() as DailyReport;
+    const targetData = targetSnap.data() as DailyReport;
+    
+    const mergedEntries = [...targetData.entries, ...sourceData.entries];
+    
+    await updateDoc(targetRef, {
+        entries: mergedEntries,
+        lastUpdated: new Date().toISOString()
+    });
+    
+    await deleteDoc(sourceRef);
+};
+
 export const saveReportHistory = async (report: DailyReport) => {
     if(!db) return;
     await addDoc(collection(db, REPORT_HISTORY_COLLECTION), {

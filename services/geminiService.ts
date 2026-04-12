@@ -267,7 +267,8 @@ export const parseConstructionData = async (
        - If you see "Inlet" or "Adit", map it to "Headrace Tunnel (HRT)".
        - If you see "LPT" or "Lower Pressure Tunnel", map it to "Lower Pressure Tunnel (LPT)" under "Pressure Tunnels".
        - If you see "River protection" or "River Protection Works", ALWAYS map it to "River Protection Works" under "Powerhouse", and leave 'structuralElement' BLANK (empty string) because it has no sub-areas. Do NOT assign it to "Powerhouse Ventilation Tunnel" or "Powerhouse Main Access Tunnel".
-       - "Fish later" or "Fish ladder" ALWAYS maps to "Fish Ladder" under "Headworks".
+       - "Fish later", "Fish ladder", or any variation ALWAYS maps to "Fish Ladder" under "Headworks".
+       - "Powerhouse Ventilation Tunnel", "Powerhouse Ventilation Tunr", or any variation ALWAYS maps to "Powerhouse Ventilation Tunnel" under "Powerhouse".
 
     4. DESCRIPTION FORMAT:
        - 'activityDescription' MUST be: "Action (Quantity Unit)".

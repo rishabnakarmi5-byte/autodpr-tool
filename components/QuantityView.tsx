@@ -97,6 +97,21 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
     });
   }, [quantities, filterType, filterLocation, filterComponent, search, dateStart, dateEnd]);
 
+  const totals = useMemo(() => {
+    const map: Record<string, Record<string, number>> = {};
+    filtered.forEach(q => {
+        const type = q.itemType || 'Other';
+        const unit = q.unit || 'm3';
+        const qty = q.quantity || 0;
+        if (qty > 0.001) { // Only include if quantity is greater than a small threshold
+            if (!map[type]) map[type] = {};
+            if (!map[type][unit]) map[type][unit] = 0;
+            map[type][unit] += qty;
+        }
+    });
+    return map;
+  }, [filtered]);
+
   const exportCSV = () => {
     const headers = "Date,Location,Component,Structure/Area,CH/EL,Activity,Item Type,Qty,Unit\n";
     const rows = filtered.map(q => 
@@ -195,27 +210,42 @@ export const QuantityView: React.FC<QuantityViewProps> = ({ reports, onInspectIt
                 <tr>
                     <td colSpan={8} className="p-12 text-center text-slate-400 italic">No matching quantities found.</td>
                 </tr>
-              ) : filtered.map(q => (
-                <tr key={q.id} onClick={() => onInspectItem?.(q)} className="hover:bg-indigo-50/50 cursor-pointer transition-colors group">
-                  <td className="p-4 text-sm font-mono text-slate-500">{q.date}</td>
-                  <td className="p-4">
-                    <div className="text-sm font-bold text-slate-800">{q.location}</div>
-                    <div className="text-[10px] text-indigo-500 font-bold uppercase">{q.component || "General"}</div>
-                  </td>
-                  <td className="p-4 text-xs font-bold text-slate-600 uppercase">{q.structuralElement || '-'}</td>
-                  <td className="p-4 text-xs font-mono text-slate-500 uppercase">{q.chainage || '-'}</td>
-                  <td className="p-4">
-                    <div className="text-sm text-slate-600 leading-snug">{q.activityDescription}</div>
-                  </td>
-                  <td className="p-4">
-                    <span className={`text-[10px] font-black px-2 py-1 rounded-md uppercase ${q.itemType === 'Other' ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>
-                      {q.itemType}
-                    </span>
-                  </td>
-                  <td className="p-4 text-right font-black text-indigo-600 text-lg">{q.quantity || '-'}</td>
-                  <td className="p-4 text-[10px] font-black text-slate-400 uppercase">{q.unit || 'm3'}</td>
-                </tr>
-              ))}
+              ) : (
+                <>
+                    {filtered.map(q => (
+                        <tr key={q.id} onClick={() => onInspectItem?.(q)} className="hover:bg-indigo-50/50 cursor-pointer transition-colors group">
+                          <td className="p-4 text-sm font-mono text-slate-500">{q.date}</td>
+                          <td className="p-4">
+                            <div className="text-sm font-bold text-slate-800">{q.location}</div>
+                            <div className="text-[10px] text-indigo-500 font-bold uppercase">{q.component || "General"}</div>
+                          </td>
+                          <td className="p-4 text-xs font-bold text-slate-600 uppercase">{q.structuralElement || '-'}</td>
+                          <td className="p-4 text-xs font-mono text-slate-500 uppercase">{q.chainage || '-'}</td>
+                          <td className="p-4">
+                            <div className="text-sm text-slate-600 leading-snug">{q.activityDescription}</div>
+                          </td>
+                          <td className="p-4">
+                            <span className={`text-[10px] font-black px-2 py-1 rounded-md uppercase ${q.itemType === 'Other' ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>
+                              {q.itemType}
+                            </span>
+                          </td>
+                          <td className="p-4 text-right font-black text-indigo-600 text-lg">{q.quantity || '-'}</td>
+                          <td className="p-4 text-[10px] font-black text-slate-400 uppercase">{q.unit || 'm3'}</td>
+                        </tr>
+                    ))}
+                    <tr className="bg-slate-900 text-white">
+                        <td colSpan={6} className="p-4 text-right font-black uppercase tracking-widest text-xs">Total Sum</td>
+                        <td className="p-4 text-right font-black text-lg">
+                            {Object.entries(totals).map(([type, units]) => (
+                                <div key={type} className="text-[10px] font-bold text-slate-300">
+                                    {type}: {Object.entries(units).map(([unit, val]) => `${val.toFixed(2)} ${unit}`).join(', ')}
+                                </div>
+                            ))}
+                        </td>
+                        <td className="p-4"></td>
+                    </tr>
+                </>
+              )}
             </tbody>
           </table>
         </div>

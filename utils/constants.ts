@@ -54,6 +54,7 @@ export const LOCATION_HIERARCHY: Record<string, string[]> = {
     "Control Building",
     "Service Bay",
     "River Protection Works",
+    "Powerhouse Ventilation Tunnel",
     "Other Works"
   ]
 };
