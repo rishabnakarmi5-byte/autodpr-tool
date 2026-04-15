@@ -1,0 +1,79 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "rishabnakarmi5@gmail.com" && request.auth.token.email_verified == true)); // Default admin
+    }
+
+    // Global access for authenticated users (Single Project App)
+    match /daily_reports/{reportId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /activity_logs/{logId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /trash_bin/{trashId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /permanent_backups/{backupId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /report_history/{historyId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /quantities/{qtyId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /lining_data/{liningId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /system_checkpoints/{checkpointId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /raw_inputs/{inputId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /sub_contractors/{scId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // Settings Collection
+    match /project_settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    // User Profiles Collection
+    match /user_profiles/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    match /ai_training_examples/{exampleId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /user_moods/{moodId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+    }
+  }
+}

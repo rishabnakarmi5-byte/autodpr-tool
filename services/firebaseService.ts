@@ -564,7 +564,7 @@ export const deleteSubContractor = async (id: string) => {
 
 // --- System Checkpoints ---
 
-export const createSystemCheckpoint = async (user: string): Promise<string> => {
+export const createSystemCheckpoint = async (user: string, isMajor: boolean = false): Promise<string> => {
     if (!db) throw new Error("Database not connected");
     const reportsSnap = await getDocs(collection(db, REPORT_COLLECTION));
     const reports = reportsSnap.docs.map((d: any) => d.data() as DailyReport);
@@ -578,7 +578,7 @@ export const createSystemCheckpoint = async (user: string): Promise<string> => {
     const checkpoint: SystemCheckpoint = {
         id: checkpointId,
         timestamp: new Date().toISOString(),
-        name: `Checkpoint ${new Date().toLocaleDateString()}`,
+        name: `${isMajor ? '[MAJOR] ' : ''}Checkpoint ${new Date().toLocaleDateString()}`,
         createdBy: user,
         data: { reports, quantities, lining, settings }
     };
