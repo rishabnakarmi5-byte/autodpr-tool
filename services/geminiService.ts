@@ -241,8 +241,8 @@ export const parseConstructionData = async (
     STRICT ATOMIC RULES:
     0. CONTEXT HEADERS (CRITICAL):
        - Site notes often contain headers like "--- CONTEXT: Location > Component ---".
-       - You MUST prioritize these headers for 'location' and 'component' fields.
-       - If a header is present, use it EXACTLY as specified.
+       - If a context header is present, you are FORBIDDEN from choosing any location or component not explicitly listed in that header, even if it exists in the general hierarchy.
+       - You must treat the context header as the absolute, exclusive source of truth for the 'location' and 'component' fields.
        - Example: "--- CONTEXT: Powerhouse > River Protection Works ---" means location="Powerhouse" and component="River Protection Works".
 
     0.1. LANGUAGE & SPELLING (CRITICAL):
