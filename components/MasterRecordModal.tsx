@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { DPRItem, BackupEntry, ItemTypeDefinition } from '../types';
 import { getBackupById, getBackups } from '../services/firebaseService';
+import { uploadPhoto } from '../services/photoService';
 import { ITEM_PATTERNS, toTitleCase } from '../utils/constants';
 import { parseConstructionData, autofillItemData } from '../services/geminiService';
 
@@ -14,15 +15,16 @@ interface MasterRecordModalProps {
   onDelete: (id: string) => void;
   hierarchy: Record<string, string[]>;
   customItemTypes?: ItemTypeDefinition[];
+  user: any;
 }
 
-export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOpen, onClose, onUpdate, onSplit, onDelete, hierarchy, customItemTypes }) => {
+export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOpen, onClose, onUpdate, onSplit, onDelete, hierarchy, customItemTypes, user }) => {
   const [localItem, setLocalItem] = useState<DPRItem>(item);
   const [sourceBackup, setSourceBackup] = useState<BackupEntry | null>(null);
-  const [activeTab, setActiveTab] = useState<'source' | 'history'>('source');
+  const [activeTab, setActiveTab] = useState<'source' | 'history' | 'photos'>('source');
   const [loadingSource, setLoadingSource] = useState(false);
-  const [isAutofilling, setIsAutofilling] = useState(false);
-  const [mobileTab, setMobileTab] = useState<'form' | 'context'>('form');
+  const [isUploading, setIsUploading] = useState(false);
+  const [mobileTab, setMobileTab] = useState<'form' | 'context' | 'photos'>('form');
 
   useEffect(() => {
     setLocalItem(item);
@@ -51,6 +53,23 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
       console.error("Source fetch failed:", e);
     } finally {
       setLoadingSource(false);
+    }
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setIsUploading(true);
+      try {
+        const photo = await uploadPhoto(e.target.files[0], user.uid, item); 
+        const newPhotoIds = [...(localItem.photoIds || []), photo.id];
+        setLocalItem(prev => ({ ...prev, photoIds: newPhotoIds }));
+        onUpdate(item.id, { photoIds: newPhotoIds });
+      } catch (error) {
+        console.error("Photo upload failed:", error);
+        alert("Photo upload failed.");
+      } finally {
+        setIsUploading(false);
+      }
     }
   };
 
@@ -89,6 +108,14 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
          
          updates.chainageOrArea = `${currentCh || ''} ${currentStruc || ''}`.trim();
          setLocalItem(prev => ({ ...prev, chainageOrArea: updates.chainageOrArea! }));
+      }
+
+      // Ensure Gantry is included in activityDescription if structuralElement is Gantry
+      if (field === 'structuralElement' && localItem.structuralElement?.toLowerCase().includes('gantry')) {
+          if (!localItem.activityDescription.toLowerCase().includes('gantry')) {
+              updates.activityDescription = `Gantry: ${localItem.activityDescription}`;
+              setLocalItem(prev => ({ ...prev, activityDescription: updates.activityDescription! }));
+          }
       }
 
       onUpdate(item.id, updates);
@@ -145,6 +172,7 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
         <div className="md:hidden flex border-b border-slate-200 bg-slate-50 shrink-0">
            <button onClick={() => setMobileTab('form')} className={`flex-1 py-3 text-sm font-bold uppercase transition-colors ${mobileTab === 'form' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-white' : 'text-slate-500 hover:text-slate-700'}`}>Edit Record</button>
            <button onClick={() => setMobileTab('context')} className={`flex-1 py-3 text-sm font-bold uppercase transition-colors ${mobileTab === 'context' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-white' : 'text-slate-500 hover:text-slate-700'}`}>Audit</button>
+           <button onClick={() => setMobileTab('photos')} className={`flex-1 py-3 text-sm font-bold uppercase transition-colors ${mobileTab === 'photos' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-white' : 'text-slate-500 hover:text-slate-700'}`}>Photos</button>
         </div>
 
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
@@ -235,10 +263,11 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
           </div>
 
           {/* RIGHT: TABS */}
-          <div className={`w-full md:w-2/5 border-t md:border-l border-slate-200 bg-white flex flex-col ${mobileTab === 'context' ? 'block' : 'hidden md:block'}`}>
+          <div className={`w-full md:w-2/5 border-t md:border-l border-slate-200 bg-white flex flex-col ${mobileTab === 'context' || mobileTab === 'photos' ? 'block' : 'hidden md:block'}`}>
             <div className="flex border-b border-slate-200 shrink-0">
               <button onClick={() => setActiveTab('source')} className={`flex-1 py-4 text-xs font-bold uppercase ${activeTab === 'source' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>Context</button>
               <button onClick={() => setActiveTab('history')} className={`flex-1 py-4 text-xs font-bold uppercase ${activeTab === 'history' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>History</button>
+              <button onClick={() => setActiveTab('photos')} className={`flex-1 py-4 text-xs font-bold uppercase ${activeTab === 'photos' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>Photos</button>
             </div>
             <div className="flex-1 overflow-y-auto p-6">
               {activeTab === 'source' ? (
@@ -254,15 +283,30 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                     </>
                   ) : <div className="text-center p-12 text-slate-300 italic">No source context found.</div>}
                 </div>
-              ) : (
+              ) : activeTab === 'history' ? (
                 <div className="space-y-4">
                   {item.editHistory?.slice().reverse().map((log, i) => (
-                    <div key={i} className="pl-4 border-l-2 border-slate-100 pb-4 relative">
+                    <div key={`${log.timestamp}-${i}`} className="pl-4 border-l-2 border-slate-100 pb-4 relative">
                       <div className="absolute -left-[5px] top-0 w-2 h-2 rounded-full bg-indigo-500"></div>
                       <div className="text-[10px] font-black text-slate-400 uppercase">{log.user} • {new Date(log.timestamp).toLocaleTimeString()}</div>
-                      <div className="text-xs text-slate-700 mt-1">Changed <span className="font-bold">{log.field}</span> to <span className="font-bold text-indigo-600">{log.newValue}</span></div>
+                      <div className="text-xs text-slate-700 mt-1">Changed <span className="font-bold">{log.field}</span> from <span className="font-bold text-red-600">{log.oldValue}</span> to <span className="font-bold text-indigo-600">{log.newValue}</span></div>
                     </div>
                   )) || <div className="text-center p-12 text-slate-300 italic">No history found.</div>}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <label className="block w-full p-4 border-2 border-dashed border-slate-300 rounded-xl text-center cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition-all">
+                    <i className="fas fa-camera text-3xl text-slate-400 mb-2"></i>
+                    <div className="text-sm font-bold text-slate-600">{isUploading ? 'Uploading...' : 'Add Photos'}</div>
+                    <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} disabled={isUploading} />
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {localItem.photoIds?.map(pid => (
+                        <div key={pid} className="aspect-square bg-slate-100 rounded-lg flex items-center justify-center">
+                            <i className="fas fa-image text-slate-400"></i>
+                        </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

@@ -1,14 +1,15 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { parseConstructionData } from '../services/geminiService';
 import { saveRawInput, updateRawInputStatus } from '../services/firebaseService';
+import { uploadPhoto } from '../services/photoService';
 import { DPRItem, ItemTypeDefinition } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 
 interface InputSectionProps {
   currentDate: string;
   onDateChange: (date: string) => void;
-  onItemsAdded: (items: DPRItem[], rawText: string, existingLogId?: string) => Promise<void>;
+  onItemsAdded: (items: DPRItem[], rawText: string, photoIds: string[], existingLogId?: string) => Promise<void>;
   onViewReport: () => void;
   entryCount: number;
   user: any;
@@ -23,6 +24,8 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const [instructions, setInstructions] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingPhotos, setPendingPhotos] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [aiLocations, setAiLocations] = useState<string[]>([]);
   const [aiComponents, setAiComponents] = useState<string[]>([]);
@@ -84,6 +87,17 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     }
 
     try {
+      // Upload and associate photos
+      const photoIds: string[] = [];
+      if (pendingPhotos.length > 0) {
+          for (const file of pendingPhotos) {
+              const photo = await uploadPhoto(file, user.uid, []);
+              photoIds.push(photo.id);
+          }
+          setPendingPhotos([]);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+
       const { items } = await parseConstructionData(
         aggregatedRaw, 
         instructions, 
@@ -96,10 +110,11 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       const stamped = items.map(item => ({ 
           ...item, 
           id: crypto.randomUUID(), 
-          createdBy: user?.displayName || user?.email || 'AI' 
+          createdBy: user?.displayName || user?.email || 'AI',
+          photoIds: photoIds // Associate photos
       })) as DPRItem[];
 
-      await onItemsAdded(stamped, aggregatedRaw, logId);
+      await onItemsAdded(stamped, aggregatedRaw, photoIds, logId);
       
       const newTexts = { ...contextTexts };
       entriesToProcess.forEach(ctx => {
@@ -266,6 +281,14 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                             {error}
                         </div>
                     )}
+
+                    <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
+                        <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Add Photos (Optional)</label>
+                        <input type="file" multiple accept="image/*" ref={fileInputRef} onChange={e => setPendingPhotos(Array.from(e.target.files || []))} className="hidden" />
+                        <button onClick={() => fileInputRef.current?.click()} className="w-full border-2 border-dashed border-slate-300 rounded-xl py-4 text-slate-500 font-bold text-sm hover:border-indigo-400 hover:text-indigo-600 transition-all">
+                            <i className="fas fa-camera mr-2"></i> {pendingPhotos.length > 0 ? `${pendingPhotos.length} photos selected` : 'Select Photos'}
+                        </button>
+                    </div>
 
                     <button 
                         onClick={handleProcessAndAdd} 

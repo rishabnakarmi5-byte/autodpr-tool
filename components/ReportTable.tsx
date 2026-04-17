@@ -1,9 +1,15 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Reorder } from 'motion/react';
-import { DailyReport, DPRItem } from '../types';
+import { DailyReport, DPRItem, Photo } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 import { RawInputsModal } from './RawInputsModal';
+import { collection, query, where, onSnapshot, getFirestore, doc, updateDoc } from 'firebase/firestore';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
+import html2pdf from 'html2pdf.js';
+
+const db = getFirestore();
 
 interface ReportTableProps {
   report: DailyReport;
@@ -19,46 +25,78 @@ interface ReportTableProps {
   onUpdateNote: (note: string) => void;
   onAddManualItem: () => void;
   onReorderEntries: (newEntries: DPRItem[]) => void;
+  onNavigateDate: (direction: 'prev' | 'next') => void;
+  onGoToHistory: () => void;
 }
 
-export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUndo, onRedo, canRedo, onInspectItem, onUpdateNote, onAddManualItem, onReorderEntries }) => {
+export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUndo, onRedo, canRedo, onInspectItem, onUpdateNote, onAddManualItem, onReorderEntries, onNavigateDate, onGoToHistory }) => {
   const [fontSize, setFontSize] = useState(12);
   const [showRawInputs, setShowRawInputs] = useState(false);
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [isRearranging, setIsRearranging] = useState(false);
+  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const reportRef = useRef<HTMLDivElement>(null);
 
-  const exportToJPG = async () => {
-    if (!reportRef.current) return;
-    try {
-      const canvas = await (window as any).html2canvas(reportRef.current, { 
-        scale: 3, // Higher scale for better quality
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#f8fafc', // Match slate-50 background
-        logging: false,
-        scrollX: 0,
-        scrollY: -window.scrollY, // Fix for cropping when scrolled
-        onclone: (clonedDoc: Document) => {
-          // Ensure no-print elements are hidden in the clone
-          const noPrintElements = clonedDoc.querySelectorAll('.no-print');
-          noPrintElements.forEach((el: any) => el.style.display = 'none');
-          
-          // Remove rearrange padding from the cloned element
-          const reportContainer = clonedDoc.querySelector('.mx-auto.w-full.max-w-\\[210mm\\]');
-          if (reportContainer) {
-            (reportContainer as HTMLElement).style.paddingLeft = '0';
-          }
-        }
-      });
-      const link = document.createElement('a');
-      link.download = `DPR_${report.date}.jpg`;
-      link.href = canvas.toDataURL('image/jpeg', 0.95);
-      link.click();
-    } catch (e) {
-      console.error("Export error:", e);
-      alert("Export failed. Please try again.");
+  useEffect(() => {
+    const photoIds = report.entries.flatMap(e => e.photoIds || []);
+    if (photoIds.length === 0) {
+        setPhotos([]);
+        return;
     }
+    
+    // Firestore 'in' query supports up to 30 elements
+    const chunks = [];
+    for (let i = 0; i < photoIds.length; i += 30) {
+        chunks.push(photoIds.slice(i, i + 30));
+    }
+    
+    const unsubscribes = chunks.map(chunk => {
+        const q = query(collection(db, 'photos'), where('id', 'in', chunk));
+        return onSnapshot(q, (snapshot) => {
+            const newPhotos = snapshot.docs.map(doc => doc.data() as Photo);
+            
+            // Update state by combining all chunks, ensuring we only have photos that exist in the current report
+            setPhotos(prev => {
+                const otherChunksPhotos = prev.filter(p => !chunk.includes(p.id));
+                return [...otherChunksPhotos, ...newPhotos].filter(p => photoIds.includes(p.id));
+            });
+        });
+    });
+    
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [report.entries]);
+
+  const updatePhotoCaption = async (photoId: string, caption: string) => {
+      const photoRef = doc(db, 'photos', photoId);
+      const [location, component] = caption.split(' -> ');
+      await updateDoc(photoRef, { location, component });
+  };
+
+  const downloadAllPhotos = async () => {
+      const zip = new JSZip();
+      for (const photo of photos) {
+          const response = await fetch(photo.url);
+          const blob = await response.blob();
+          zip.file(`${photo.id}.jpg`, blob);
+      }
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, `report_photos_${report.date}.zip`);
+  };
+
+  const exportToPDF = async () => {
+      if (!reportRef.current) return;
+      
+      const opt = {
+        margin: [10, 10, 10, 10],
+        filename: `DPR_${report.date}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+      };
+      
+      html2pdf().set(opt).from(reportRef.current).save();
   };
 
   return (
@@ -66,12 +104,14 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 no-print">
         <div className="flex gap-2 w-full md:w-auto justify-between md:justify-start">
           <div className="flex gap-2">
+            <button onClick={() => onNavigateDate('prev')} className="p-2.5 bg-slate-100 rounded-xl hover:bg-slate-200 transition-all"><i className="fas fa-chevron-left"></i></button>
+            <button onClick={() => onNavigateDate('next')} className="p-2.5 bg-slate-100 rounded-xl hover:bg-slate-200 transition-all"><i className="fas fa-chevron-right"></i></button>
+            <button onClick={onGoToHistory} className="p-2.5 bg-slate-100 rounded-xl hover:bg-slate-200 transition-all text-xs font-bold">History</button>
+          </div>
+          <div className="flex gap-2">
             <button onClick={onUndo} disabled={!canUndo} className="p-2.5 bg-slate-100 rounded-xl hover:bg-slate-200 disabled:opacity-30 transition-all"><i className="fas fa-undo"></i></button>
             <button onClick={onRedo} disabled={!canRedo} className="p-2.5 bg-slate-100 rounded-xl hover:bg-slate-200 disabled:opacity-30 transition-all"><i className="fas fa-redo"></i></button>
           </div>
-          <button onClick={() => setShowRawInputs(true)} className="md:hidden text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-2">
-             <i className="fas fa-terminal"></i> Raw Inputs
-          </button>
         </div>
         <div className="flex flex-wrap items-center justify-center md:justify-end gap-3 md:gap-6 w-full md:w-auto">
           <button onClick={() => setShowRawInputs(true)} className="hidden md:flex text-sm font-bold text-indigo-600 hover:text-indigo-800 items-center gap-2">
@@ -89,8 +129,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
           <button onClick={onAddManualItem} className="flex-1 md:flex-none bg-indigo-50 text-indigo-600 px-4 py-2.5 rounded-xl font-bold border border-indigo-100 flex items-center justify-center gap-2 hover:bg-indigo-100 transition-all text-sm">
             <i className="fas fa-plus"></i> Manual Entry
           </button>
-          <button onClick={exportToJPG} className="flex-1 md:flex-none bg-slate-900 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 hover:bg-black transition-all text-sm">
-            <i className="fas fa-image"></i> Export JPG
+          <button onClick={exportToPDF} className="flex-1 md:flex-none bg-slate-900 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 hover:bg-black transition-all text-sm">
+            <i className="fas fa-file-pdf"></i> Export PDF
           </button>
         </div>
       </div>
@@ -161,32 +201,87 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
           </Reorder.Group>
         </table>
         
-        <div className={`bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full mt-6 ${!report.note ? 'no-print' : ''}`}>
-          <div className="flex justify-between items-center mb-3">
-            <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest">Daily Report Note</label>
-            <button 
-              onClick={() => setIsEditingNote(!isEditingNote)}
-              className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-widest no-print"
-              data-html2canvas-ignore="true"
-            >
-              {isEditingNote ? 'Save Note' : 'Edit Note'}
-            </button>
-          </div>
-          {isEditingNote ? (
-            <textarea 
-                value={report.note || ""}
-                onChange={e => onUpdateNote(e.target.value)}
-                placeholder="Enter 2-3 lines of note for this DPR..."
-                className="w-full min-h-24 p-5 bg-slate-50 rounded-xl border border-slate-200 outline-none text-sm font-medium transition-all placeholder:text-slate-300 resize-none"
-            />
-          ) : (
-            <div className="w-full p-5 bg-slate-50 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 whitespace-pre-wrap">
-              {report.note || "No notes for this report."}
+        {report.note && report.note !== "No notes for this report." && (
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full mt-6">
+            <div className="flex justify-between items-center mb-3">
+              <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest">Daily Report Note</label>
+              <button 
+                onClick={() => setIsEditingNote(!isEditingNote)}
+                className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-widest no-print"
+                data-html2canvas-ignore="true"
+              >
+                {isEditingNote ? 'Save Note' : 'Edit Note'}
+              </button>
             </div>
-          )}
+            {isEditingNote ? (
+              <textarea 
+                  value={report.note || ""}
+                  onChange={e => onUpdateNote(e.target.value)}
+                  placeholder="Enter 2-3 lines of note for this DPR..."
+                  className="w-full min-h-24 p-5 bg-slate-50 rounded-xl border border-slate-200 outline-none text-sm font-medium transition-all placeholder:text-slate-300 resize-none"
+              />
+            ) : (
+              <div className="w-full p-5 bg-slate-50 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 whitespace-pre-wrap">
+                {report.note}
+              </div>
+            )}
+          </div>
+        )}
+
+        {photos.length > 0 && (
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full mt-6">
+                <div className="flex justify-between items-center mb-6">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest">Site Activity Photos</label>
+                    <button onClick={downloadAllPhotos} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-widest no-print">Download All</button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {photos.map(photo => (
+                        <div key={photo.id} className="space-y-4 cursor-pointer" onClick={() => setSelectedPhoto(photo)}>
+                            <img src={photo.url} alt="Site Activity" className="w-full aspect-video object-cover rounded-2xl shadow-lg" referrerPolicy="no-referrer" />
+                            <input 
+                                type="text" 
+                                value={report.entries.find(e => e.photoIds?.includes(photo.id)) ? 
+                                       `${report.entries.find(e => e.photoIds?.includes(photo.id))?.location} -> ${report.entries.find(e => e.photoIds?.includes(photo.id))?.component}` : 
+                                       'Caption'}
+                                readOnly
+                                className="w-full text-lg font-bold text-slate-900 bg-slate-100 p-4 rounded-lg border-none outline-none text-center"
+                            />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )}
+      </div>
+      </div>
+
+      {selectedPhoto && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm" onClick={() => setSelectedPhoto(null)}>
+          <div className="bg-white p-6 rounded-2xl shadow-2xl w-full max-w-2xl" onClick={e => e.stopPropagation()}>
+            <h2 className="text-xl font-bold mb-4">Associated Master Records</h2>
+            <div className="space-y-2">
+              {report.entries.filter(e => e.photoIds?.includes(selectedPhoto.id)).map(entry => (
+                <div key={entry.id} className="p-4 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
+                  <div>
+                    <div className="font-bold text-indigo-600">{entry.location} - {entry.component}</div>
+                    <div className="text-sm">{entry.activityDescription}</div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                        const newPhotoIds = entry.photoIds?.filter(id => id !== selectedPhoto.id) || [];
+                        onUpdateRow(entry.id, { photoIds: newPhotoIds });
+                        setSelectedPhoto(null);
+                    }}
+                    className="text-red-500 hover:text-red-700 p-2"
+                  >
+                    <i className="fas fa-trash-alt"></i>
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setSelectedPhoto(null)} className="mt-6 w-full bg-slate-900 text-white py-2 rounded-lg font-bold">Close</button>
+          </div>
         </div>
-      </div>
-      </div>
+      )}
 
       <RawInputsModal 
         date={report.date} 

@@ -1,5 +1,18 @@
 
 
+export interface Photo {
+  id: string;
+  url: string;
+  thumbnailUrl: string;
+  uploadedAt: string;
+  uploaderId: string;
+  associatedMasterRecordIds: string[];
+  date: string;
+  location: string;
+  component: string;
+  metadataSnapshot: DPRItem; // Snapshot of the Master Record at upload
+}
+
 export interface EditHistory {
   timestamp: string;
   user: string;
@@ -30,6 +43,7 @@ export interface DPRItem {
   lastModifiedAt?: string;
   editHistory?: EditHistory[]; 
   isRecovered?: boolean;
+  photoIds?: string[]; // Added for photo association
 }
 
 export interface DailyReport {
@@ -182,5 +196,6 @@ export enum TabView {
   LOGS = 'logs',
   RECYCLE_BIN = 'recycle_bin',
   SETTINGS = 'settings',
-  PROFILE = 'profile'
+  PROFILE = 'profile',
+  PHOTOS = 'photos'
 }

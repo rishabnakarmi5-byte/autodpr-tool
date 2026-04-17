@@ -15,6 +15,7 @@ import { SubContractorBillingView } from './components/SubContractorBillingView'
 import { ProjectSettingsView } from './components/ProjectSettings';
 import { ProfileView } from './components/ProfileView';
 import { MasterRecordModal } from './components/MasterRecordModal';
+import { PhotoGalleryView } from './components/PhotoGalleryView';
 import { 
   subscribeToReports, 
   saveReportToCloud, 
@@ -38,6 +39,7 @@ import {
   updateRawInputStatus,
   mergeReportsInCloud
 } from './services/firebaseService';
+import { deletePhotoAssociation } from './services/photoService';
 import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, BackupEntry } from './types';
 import { LOCATION_HIERARCHY } from './utils/constants';
 
@@ -135,7 +137,7 @@ const App = () => {
       setRedoStack([]);
   }, [currentDate, reports]);
   
-  const handleItemsAdded = async (newItems: DPRItem[], rawText: string, existingRawLogId?: string) => {
+  const handleItemsAdded = async (newItems: DPRItem[], rawText: string, photoIds: string[], existingRawLogId?: string) => {
       setIsGlobalSaving(true);
       
       const updatedEntries = [...currentEntries, ...newItems];
@@ -232,6 +234,13 @@ const App = () => {
       const itemToDelete = targetReport.entries.find(i => i.id === itemId);
       if (!itemToDelete) return;
 
+      // Clean up photo associations
+      if (itemToDelete.photoIds) {
+          for (const photoId of itemToDelete.photoIds) {
+              await deletePhotoAssociation(photoId, itemToDelete.id);
+          }
+      }
+      
       const updatedEntries = targetReport.entries.filter(i => i.id !== itemId);
       
       if (currentReportId === targetReport.id) {
@@ -277,7 +286,28 @@ const App = () => {
           return;
       }
 
-      const updatedEntries = targetReport.entries.map(i => i.id === itemId ? { ...i, ...updates, lastModifiedBy: user?.displayName, lastModifiedAt: new Date().toISOString() } : i);
+      const updatedEntries = targetReport.entries.map(i => {
+          if (i.id === itemId) {
+              const newHistoryEntries = Object.keys(updates)
+                  .filter(key => key !== 'lastModifiedBy' && key !== 'lastModifiedAt' && key !== 'editHistory' && (i as any)[key] !== updates[key as keyof DPRItem])
+                  .map(key => ({
+                      timestamp: new Date().toISOString(),
+                      user: user?.displayName || 'Unknown',
+                      field: key,
+                      oldValue: String((i as any)[key] || ''),
+                      newValue: String((updates as any)[key] || '')
+                  }));
+
+              return { 
+                  ...i, 
+                  ...updates,
+                  lastModifiedBy: user?.displayName, 
+                  lastModifiedAt: new Date().toISOString(),
+                  editHistory: (i.editHistory || []).concat(newHistoryEntries)
+              };
+          }
+          return i;
+      });
       
       // If we are currently viewing this report, update currentEntries state too
       if (currentReportId === targetReport.id) {
@@ -492,12 +522,18 @@ const App = () => {
           lastModifiedAt: new Date().toISOString()
       };
       
-      await handleItemsAdded([newItem], "Manual Creation");
+      await handleItemsAdded([newItem], "Manual Creation", []);
       setInspectItem(newItem);
   };
 
+  const handleNavigateDate = (direction: 'prev' | 'next') => {
+      const date = new Date(currentDate);
+      date.setDate(date.getDate() + (direction === 'prev' ? -1 : 1));
+      setCurrentDate(date.toISOString().split('T')[0]);
+  };
+
   const renderContent = () => {
-      switch(activeTab) {
+       switch(activeTab) {
           case TabView.INPUT:
              return <InputSection 
                 currentDate={currentDate} 
@@ -525,12 +561,23 @@ const App = () => {
                     onAddManualItem={handleManualEntry}
                     onReorderEntries={handleReorderEntries}
                     hierarchy={hierarchy}
+                    onNavigateDate={handleNavigateDate}
+                    onGoToHistory={() => setActiveTab(TabView.HISTORY)}
                  /> 
              ) : (
                  <div className="text-center py-20 text-slate-400">
                     <i className="fas fa-folder-open text-4xl mb-4"></i>
                     <p>No report exists for {currentDate}</p>
                     <div className="flex flex-col gap-3 mt-6 items-center">
+                        <div className="flex gap-2">
+                             <button onClick={() => handleNavigateDate('prev')} className="bg-slate-200 text-slate-700 px-4 py-2 rounded-xl font-bold hover:bg-slate-300 transition-all text-sm">
+                                Previous {new Date(new Date(currentDate).setDate(new Date(currentDate).getDate() - 1)).toISOString().split('T')[0]}
+                             </button>
+                             <button onClick={() => handleNavigateDate('next')} className="bg-slate-200 text-slate-700 px-4 py-2 rounded-xl font-bold hover:bg-slate-300 transition-all text-sm">
+                                Next {new Date(new Date(currentDate).setDate(new Date(currentDate).getDate() + 1)).toISOString().split('T')[0]}
+                             </button>
+                        </div>
+                        <button onClick={() => setActiveTab(TabView.HISTORY)} className="text-indigo-600 font-bold hover:underline text-sm">Check all history</button>
                         <button onClick={() => setActiveTab(TabView.INPUT)} className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all">Create entries via AI</button>
                         <button onClick={handleManualEntry} className="text-indigo-600 font-bold hover:underline">Or create manual entry</button>
                     </div>
@@ -584,6 +631,8 @@ const App = () => {
              />;
           case TabView.PROFILE:
              return <ProfileView user={user} />;
+          case TabView.PHOTOS:
+             return <PhotoGalleryView reports={reports} onInspectItem={setInspectItem} />;
           default:
              return null;
       }
@@ -609,6 +658,7 @@ const App = () => {
                 onDelete={(id) => { handleDeleteItem(id); setInspectItem(null); }}
                 hierarchy={hierarchy}
                 customItemTypes={settings?.itemTypes}
+                user={user}
             />
         )}
         

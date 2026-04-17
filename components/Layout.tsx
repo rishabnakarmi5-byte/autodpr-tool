@@ -120,6 +120,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
             label="History"
             desc="Past records"
           />
+          <NavButton 
+            active={activeTab === TabView.PHOTOS} 
+            onClick={() => onTabChange(TabView.PHOTOS)}
+            icon="fa-camera"
+            label="Photos"
+            desc="Gallery view"
+          />
           <div className="pt-4 pb-2">
              <div className="border-t border-slate-800"></div>
           </div>
@@ -250,6 +257,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
             onClick={() => onTabChange(TabView.HISTORY)}
             icon="fa-clock-rotate-left"
             label="History"
+            />
+            <MobileNavButton 
+            active={activeTab === TabView.PHOTOS} 
+            onClick={() => onTabChange(TabView.PHOTOS)}
+            icon="fa-camera"
+            label="Photos"
             />
             <MobileNavButton 
             active={activeTab === TabView.LOGS} 

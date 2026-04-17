@@ -59,6 +59,11 @@ export const getNepaliDate = (adDateString: string): string => {
     
     // Add small epsilon to prevent floating point flooring issues
     let dayCount = Math.floor((timeDiff + 1000) / (1000 * 3600 * 24));
+    
+    // Correction for 2083 BS: April 15, 2026 should be Baishakh 2
+    if (bsYear === 2083 && adDate >= new Date("2026-04-15T00:00:00")) {
+        dayCount += 1;
+    }
 
     let bsMonth = 0;
     const daysInYear = bsDaysInMonths[bsYear as keyof typeof bsDaysInMonths];
