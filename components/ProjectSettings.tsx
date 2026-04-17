@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { ProjectSettings, DailyReport, QuantityEntry, ItemTypeDefinition, SystemCheckpoint, TrainingExample, SubContractor } from '../types';
 import { LOCATION_HIERARCHY, ITEM_PATTERNS } from '../utils/constants';
-import { createSystemCheckpoint, getCheckpoints, restoreSystemCheckpoint, saveTrainingExample, deleteTrainingExample, subscribeToTrainingExamples, exportAllData, subscribeToSubContractors, saveSubContractor, deleteSubContractor } from '../services/firebaseService';
+import { createSystemCheckpoint, getCheckpoints, restoreSystemCheckpoint, saveTrainingExample, deleteTrainingExample, subscribeToTrainingExamples, exportAllData, subscribeToSubContractors, saveSubContractor, deleteSubContractor, repairHistoricalDates } from '../services/firebaseService';
 
 interface ProjectSettingsProps {
   currentSettings: ProjectSettings | null;
@@ -29,6 +29,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   const [snapshots, setSnapshots] = useState<SystemCheckpoint[]>([]);
   const [loadingSnapshots, setLoadingSnapshots] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isRepairing, setIsRepairing] = useState(false);
 
   // Training State
   const [trainingExamples, setTrainingExamples] = useState<TrainingExample[]>([]);
@@ -206,6 +207,19 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
         alert("Export failed: " + (e as any).message);
     } finally {
         setIsExporting(false);
+    }
+  };
+
+  const handleRepairDates = async () => {
+    if (!window.confirm("This will shift all April 16-18 records back by one day. Continue?")) return;
+    setIsRepairing(true);
+    try {
+        await repairHistoricalDates();
+    } catch (e) {
+        console.error(e);
+        alert("Repair failed: " + (e as any).message);
+    } finally {
+        setIsRepairing(false);
     }
   };
 
@@ -650,6 +664,40 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
                         >
                             {isExporting ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-download"></i>}
                             Export Data
+                        </button>
+                    </div>
+                </div>
+
+                <div className="border-t border-slate-100 mt-8 pt-6">
+                    <div className="bg-red-50 p-6 rounded-2xl border border-red-100 flex justify-between items-center">
+                        <div>
+                            <h3 className="text-lg font-bold text-red-900">Repair Historical Dates</h3>
+                            <p className="text-sm text-red-700 mt-1">Fix date mapping for records shifted due to calendar errors (Apr 16-18 only).</p>
+                        </div>
+                        <button 
+                            onClick={handleRepairDates} 
+                            disabled={isRepairing}
+                            className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all disabled:opacity-50"
+                        >
+                            {isRepairing ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-calendar-alt"></i>}
+                            Run Repair
+                        </button>
+                    </div>
+                </div>
+
+                <div className="border-t border-slate-100 mt-8 pt-6">
+                    <div className="bg-red-50 p-6 rounded-2xl border border-red-100 flex justify-between items-center">
+                        <div>
+                            <h3 className="text-lg font-bold text-red-900">Repair Historical Dates</h3>
+                            <p className="text-sm text-red-700 mt-1">Fix date mapping for records shifted due to calendar errors (Apr 16-18 only).</p>
+                        </div>
+                        <button 
+                            onClick={handleRepairDates} 
+                            disabled={isRepairing}
+                            className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all disabled:opacity-50"
+                        >
+                            {isRepairing ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-calendar-alt"></i>}
+                            Run Repair
                         </button>
                     </div>
                 </div>

@@ -620,6 +620,66 @@ export const restoreSystemCheckpoint = async (checkpoint: SystemCheckpoint) => {
 
 // --- DATA EXPORT ---
 
+export const repairHistoricalDates = async () => {
+    if (!db) return;
+
+    // Helper to fetch fresh state
+    const getReports = async () => {
+        const reportsSnap = await getDocs(collection(db, REPORT_COLLECTION));
+        return reportsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as DailyReport));
+    };
+
+    let reports = await getReports();
+
+    // Define the shifts
+    const shifts = [
+        { from: '2026-04-16', to: '2026-04-15' },
+        { from: '2026-04-17', to: '2026-04-16' },
+        { from: '2026-04-18', to: '2026-04-17' },
+    ];
+    
+    for (const shift of shifts) {
+        console.log(`Processing shift: ${shift.from} to ${shift.to}`);
+        // Refetch source reports based on new perspective
+        const sourceReports = reports.filter(r => r.date === shift.from);
+        console.log(`Found ${sourceReports.length} source reports for ${shift.from}`);
+        if (sourceReports.length === 0) continue;
+
+        for (const sourceReport of sourceReports) {
+            console.log(`Moving report ${sourceReport.id} with ${sourceReport.entries.length} entries`);
+            // Find target report
+            let targetReport = reports.find(r => r.date === shift.to);
+            
+            if (targetReport) {
+                console.log(`Appending to existing target report ${targetReport.id}`);
+                // Append entries to existing target report
+                targetReport.entries = [...targetReport.entries, ...sourceReport.entries];
+                targetReport.lastUpdated = new Date().toISOString();
+                await saveReportToCloud(targetReport);
+            } else {
+                console.log(`Creating new target report for ${shift.to}`);
+                // Create new report for target date with source entries
+                const newReport: DailyReport = {
+                    ...sourceReport,
+                    id: `${shift.to}_${crypto.randomUUID()}`,
+                    date: shift.to,
+                    lastUpdated: new Date().toISOString()
+                };
+                targetReport = newReport;
+                reports.push(newReport); // Add to local reports array
+                await saveReportToCloud(newReport);
+            }
+
+            // Delete source report to make it empty
+            console.log(`Deleting source report ${sourceReport.id}`);
+            await deleteReportFromCloud(sourceReport.id);
+        }
+        // Refresh local reports state after each shift
+        reports = await getReports();
+    }
+    alert("Historical dates shifted successfully.");
+};
+
 export const exportAllData = async () => {
     if (!db) throw new Error("Database not connected");
     const collections = [
