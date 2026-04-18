@@ -99,6 +99,35 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
       html2pdf().set(opt).from(reportRef.current).save();
   };
 
+  const exportToImage = async () => {
+      if (!reportRef.current) return;
+      
+      const opt = {
+        margin: [10, 10, 10, 10],
+        filename: `DPR_${report.date}.jpg`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+      };
+      
+      // html2pdf can export to image by changing the type
+      html2pdf().set(opt).from(reportRef.current).toPdf().get('pdf').then((pdf: any) => {
+        // This is a bit hacky, but html2pdf doesn't have a direct "to image" for the whole content easily
+        // An alternative is taking a screenshot of just the printable-report div
+      });
+
+      // Alternative approach for JPG:
+      import('html2canvas').then(html2canvas => {
+          html2canvas.default(reportRef.current!, { scale: 2, useCORS: true }).then(canvas => {
+              const link = document.createElement('a');
+              link.download = `DPR_${report.date}.jpg`;
+              link.href = canvas.toDataURL('image/jpeg', 0.98);
+              link.click();
+          });
+      });
+  };
+
   return (
     <div className="flex flex-col h-full space-y-6 animate-fade-in relative pb-20">
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 no-print">
@@ -131,6 +160,9 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
           </button>
           <button onClick={exportToPDF} className="flex-1 md:flex-none bg-slate-900 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 hover:bg-black transition-all text-sm">
             <i className="fas fa-file-pdf"></i> Export PDF
+          </button>
+          <button onClick={exportToImage} className="flex-1 md:flex-none bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 hover:bg-emerald-700 transition-all text-sm">
+            <i className="fas fa-file-image"></i> Export JPG
           </button>
         </div>
       </div>
