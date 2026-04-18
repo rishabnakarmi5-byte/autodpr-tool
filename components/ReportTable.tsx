@@ -69,17 +69,35 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
 
   const updatePhotoCaption = async (photoId: string, caption: string) => {
       const photoRef = doc(db, 'photos', photoId);
-      const [location, component] = caption.split(' -> ');
-      await updateDoc(photoRef, { location, component });
+      await updateDoc(photoRef, { caption });
   };
 
   const downloadAllPhotos = async () => {
       const zip = new JSZip();
-      for (const photo of photos) {
-          const response = await fetch(photo.url);
-          const blob = await response.blob();
-          zip.file(`${photo.id}.jpg`, blob);
-      }
+      
+      const downloadPromises = photos.map(async (photo) => {
+          return new Promise<void>((resolve) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open("GET", photo.url);
+              xhr.responseType = "blob";
+              xhr.onload = () => {
+                  if (xhr.status === 200) {
+                      zip.file(`${photo.id}.jpg`, xhr.response);
+                  } else {
+                      console.error(`Failed to download photo ${photo.id}: Status ${xhr.status}`);
+                  }
+                  resolve();
+              };
+              xhr.onerror = () => {
+                  console.error(`Failed to download photo ${photo.id}: CORS or network error`);
+                  resolve();
+              };
+              xhr.send();
+          });
+      });
+      
+      await Promise.all(downloadPromises);
+      
       const content = await zip.generateAsync({ type: "blob" });
       saveAs(content, `report_photos_${report.date}.zip`);
   };
@@ -268,16 +286,11 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {photos.map(photo => (
-                        <div key={photo.id} className="space-y-4 cursor-pointer" onClick={() => setSelectedPhoto(photo)}>
-                            <img src={photo.url} alt="Site Activity" className="w-full aspect-video object-cover rounded-2xl shadow-lg" referrerPolicy="no-referrer" />
-                            <input 
-                                type="text" 
-                                value={report.entries.find(e => e.photoIds?.includes(photo.id)) ? 
-                                       `${report.entries.find(e => e.photoIds?.includes(photo.id))?.location} -> ${report.entries.find(e => e.photoIds?.includes(photo.id))?.component}` : 
-                                       'Caption'}
-                                readOnly
-                                className="w-full text-lg font-bold text-slate-900 bg-slate-100 p-4 rounded-lg border-none outline-none text-center"
-                            />
+                        <div key={photo.id} className="space-y-4">
+                            <img src={photo.url} alt="Site Activity" className="w-full aspect-video object-cover rounded-2xl shadow-lg cursor-pointer transition-transform hover:scale-[1.02]" referrerPolicy="no-referrer" onClick={() => setSelectedPhoto(photo)} />
+                            <div className="w-full text-lg font-bold text-slate-700 bg-slate-100 p-4 rounded-lg text-center">
+                                {photo.caption || `${report.entries.find(e => e.photoIds?.includes(photo.id))?.location || 'Location'} -> ${report.entries.find(e => e.photoIds?.includes(photo.id))?.component || 'Component'}`}
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -288,29 +301,66 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
 
       {selectedPhoto && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm" onClick={() => setSelectedPhoto(null)}>
-          <div className="bg-white p-6 rounded-2xl shadow-2xl w-full max-w-2xl" onClick={e => e.stopPropagation()}>
-            <h2 className="text-xl font-bold mb-4">Associated Master Records</h2>
-            <div className="space-y-2">
-              {report.entries.filter(e => e.photoIds?.includes(selectedPhoto.id)).map(entry => (
-                <div key={entry.id} className="p-4 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
-                  <div>
-                    <div className="font-bold text-indigo-600">{entry.location} - {entry.component}</div>
-                    <div className="text-sm">{entry.activityDescription}</div>
-                  </div>
-                  <button 
-                    onClick={() => {
-                        const newPhotoIds = entry.photoIds?.filter(id => id !== selectedPhoto.id) || [];
-                        onUpdateRow(entry.id, { photoIds: newPhotoIds });
-                        setSelectedPhoto(null);
+          <div className="bg-white p-6 rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col md:flex-row gap-6 max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            {/* Enlarged Photo */}
+            <div className="flex-1 flex flex-col gap-4">
+                <img src={selectedPhoto.url} alt="Enlarged" className="w-full h-auto max-h-[60vh] object-contain rounded-xl bg-slate-100" referrerPolicy="no-referrer" />
+                
+                <input 
+                    type="text" 
+                    value={selectedPhoto.caption || `${report.entries.find(e => e.photoIds?.includes(selectedPhoto.id))?.location || 'Location'} -> ${report.entries.find(e => e.photoIds?.includes(selectedPhoto.id))?.component || 'Component'}`}
+                    onChange={(e) => {
+                        const newCaption = e.target.value;
+                        setSelectedPhoto(prev => prev ? { ...prev, caption: newCaption } : null);
+                        setPhotos(prev => prev.map(p => p.id === selectedPhoto.id ? { ...p, caption: newCaption } : p));
                     }}
-                    className="text-red-500 hover:text-red-700 p-2"
-                  >
-                    <i className="fas fa-trash-alt"></i>
-                  </button>
-                </div>
-              ))}
+                    onBlur={(e) => updatePhotoCaption(selectedPhoto.id, e.target.value)}
+                    className="w-full text-lg font-bold text-slate-900 bg-slate-100 p-4 rounded-lg border border-slate-300 outline-none hover:bg-slate-200 transition-colors"
+                    placeholder="Enter caption..."
+                />
+
+                <button onClick={async () => {
+                    const response = await fetch(selectedPhoto.url);
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${selectedPhoto.id}.jpg`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(url);
+                }} className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold text-center hover:bg-indigo-700 transition-colors">
+                    <i className="fas fa-download mr-2"></i> Download Image
+                </button>
             </div>
-            <button onClick={() => setSelectedPhoto(null)} className="mt-6 w-full bg-slate-900 text-white py-2 rounded-lg font-bold">Close</button>
+
+            {/* Associated Records */}
+            <div className="w-full md:w-80 flex flex-col overflow-hidden">
+                <h2 className="text-xl font-bold mb-4 shrink-0">Associated Master Records</h2>
+                <div className="space-y-2 overflow-y-auto flex-1 pr-2">
+                {report.entries.filter(e => e.photoIds?.includes(selectedPhoto.id)).map(entry => (
+                    <div key={entry.id} className="p-4 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center cursor-pointer hover:bg-slate-100" onClick={() => { onInspectItem({...entry, date: report.date}); setSelectedPhoto(null); }}>
+                    <div>
+                        <div className="font-bold text-indigo-600">{entry.location} - {entry.component}</div>
+                        <div className="text-sm">{entry.activityDescription}</div>
+                    </div>
+                    <button 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const newPhotoIds = entry.photoIds?.filter(id => id !== selectedPhoto.id) || [];
+                            onUpdateRow(entry.id, { photoIds: newPhotoIds });
+                            setSelectedPhoto(null);
+                        }}
+                        className="text-red-500 hover:text-red-700 p-2"
+                    >
+                        <i className="fas fa-trash-alt"></i>
+                    </button>
+                    </div>
+                ))}
+                </div>
+                <button onClick={() => setSelectedPhoto(null)} className="mt-6 w-full bg-slate-900 text-white py-3 rounded-lg font-bold shrink-0">Close</button>
+            </div>
           </div>
         </div>
       )}

@@ -11,6 +11,7 @@ export interface Photo {
   location: string;
   component: string;
   metadataSnapshot: DPRItem; // Snapshot of the Master Record at upload
+  caption?: string; // Editable caption
 }
 
 export interface EditHistory {
