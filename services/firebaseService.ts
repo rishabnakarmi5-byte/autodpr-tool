@@ -680,6 +680,33 @@ export const repairHistoricalDates = async () => {
     alert("Historical dates shifted successfully.");
 };
 
+export const addEntriesToReport = async (date: string, entries: DPRItem[]) => {
+    if (!db) return;
+    const reportsSnap = await getDocs(query(collection(db, REPORT_COLLECTION), where("date", "==", date)));
+    let reportId = "";
+    let existingEntries: DPRItem[] = [];
+
+    if (!reportsSnap.empty) {
+        const doc = reportsSnap.docs[0];
+        const report = doc.data() as DailyReport;
+        reportId = doc.id;
+        existingEntries = report.entries;
+    } else {
+        reportId = `${date}_${crypto.randomUUID()}`;
+    }
+
+    const updatedEntries = [...existingEntries, ...entries];
+    const reportData: DailyReport = {
+        id: reportId,
+        date: date,
+        lastUpdated: new Date().toISOString(),
+        projectTitle: "Bhotekoshi Hydroelectric Project",
+        entries: updatedEntries
+    };
+
+    await saveReportToCloud(reportData);
+};
+
 export const exportAllData = async () => {
     if (!db) throw new Error("Database not connected");
     const collections = [
