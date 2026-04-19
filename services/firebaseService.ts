@@ -100,6 +100,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 
 const REPORT_COLLECTION = "daily_reports";
 const LOG_COLLECTION = "activity_logs";
+const MASTER_RECORD_AUDIT_COLLECTION = "master_record_audit_logs";
 const TRASH_COLLECTION = "trash_bin";
 const BACKUP_COLLECTION = "permanent_backups";
 const REPORT_HISTORY_COLLECTION = "report_history";
@@ -245,13 +246,16 @@ export const mergeReportsInCloud = async (sourceReportId: string, targetReportId
     await deleteDoc(sourceRef);
 };
 
-export const saveReportHistory = async (report: DailyReport) => {
+export const logMasterRecordChange = async (recordId: string, userId: string, userName: string, field: string, oldValue: string, newValue: string) => {
     if(!db) return;
-    await addDoc(collection(db, REPORT_HISTORY_COLLECTION), {
-        reportId: report.id,
-        date: report.date,
-        entries: report.entries,
-        timestamp: new Date().toISOString()
+    await addDoc(collection(db, MASTER_RECORD_AUDIT_COLLECTION), {
+        recordId,
+        userId,
+        userName,
+        timestamp: new Date().toISOString(),
+        field,
+        oldValue,
+        newValue
     });
 };
 

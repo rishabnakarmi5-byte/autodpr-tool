@@ -111,7 +111,14 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           ...item, 
           id: crypto.randomUUID(), 
           createdBy: user?.displayName || user?.email || 'AI',
-          photoIds: photoIds // Associate photos
+          lastModifiedAt: new Date().toISOString(),
+          editHistory: [],
+          creationDetails: {
+              userId: user?.uid || 'Unknown',
+              userName: user?.displayName || 'Unknown',
+              timestamp: new Date().toISOString()
+          },
+          photoIds: photoIds
       })) as DPRItem[];
 
       await onItemsAdded(stamped, aggregatedRaw, photoIds, logId);
@@ -147,7 +154,13 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           itemType: 'Other',
           plannedNextActivity: '',
           createdBy: user?.displayName || 'Manual',
-          lastModifiedAt: new Date().toISOString()
+          lastModifiedAt: new Date().toISOString(),
+          editHistory: [],
+          creationDetails: {
+              userId: user?.uid || 'Unknown',
+              userName: user?.displayName || 'Unknown',
+              timestamp: new Date().toISOString()
+          }
       };
       await onItemsAdded([blankItem], "Manual Creation (Blank Card)");
       setModalStep(1);

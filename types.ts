@@ -22,9 +22,15 @@ export interface EditHistory {
   newValue: string;
 }
 
+export interface CreationMetadata {
+  userId: string;
+  userName: string;
+  timestamp: string;
+}
+
 export interface DPRItem {
   id: string;
-  date?: string; // Added for context in views like SC Billing
+  date?: string; 
   location: string;
   component?: string; 
   structuralElement?: string; 
@@ -35,16 +41,17 @@ export interface DPRItem {
   // Master Record Specifics
   quantity: number;
   unit: string;
-  itemType?: string; // Auto-classified type (e.g. C25 Concrete)
+  itemType?: string; 
   
   plannedNextActivity: string;
   createdBy?: string; 
   sourceBackupId?: string; 
   lastModifiedBy?: string;
   lastModifiedAt?: string;
-  editHistory?: EditHistory[]; 
+  editHistory: EditHistory[]; // Made mandatory
+  creationDetails?: CreationMetadata; // Added creation snapshot
   isRecovered?: boolean;
-  photoIds?: string[]; // Added for photo association
+  photoIds?: string[];
 }
 
 export interface DailyReport {

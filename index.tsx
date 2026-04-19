@@ -37,10 +37,11 @@ import {
   createSystemCheckpoint,
   saveRawInput,
   updateRawInputStatus,
-  mergeReportsInCloud
+  mergeReportsInCloud,
+  logMasterRecordChange
 } from './services/firebaseService';
 import { deletePhotoAssociation } from './services/photoService';
-import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, BackupEntry } from './types';
+import { DailyReport, DPRItem, TabView, LogEntry, TrashItem, ProjectSettings, BackupEntry, CreationMetadata } from './types';
 import { LOCATION_HIERARCHY } from './utils/constants';
 
 const App = () => {
@@ -140,7 +141,20 @@ const App = () => {
   const handleItemsAdded = async (newItems: DPRItem[], rawText: string, photoIds: string[], existingRawLogId?: string) => {
       setIsGlobalSaving(true);
       
-      const updatedEntries = [...currentEntries, ...newItems];
+      const itemsWithMetadata = newItems.map(item => ({
+          ...item,
+          id: crypto.randomUUID(),
+          createdBy: user?.displayName || 'Unknown',
+          lastModifiedAt: new Date().toISOString(),
+          editHistory: [],
+          creationDetails: {
+              userId: user?.uid || 'Unknown',
+              userName: user?.displayName || 'Unknown',
+              timestamp: new Date().toISOString()
+          }
+      }));
+      
+      const updatedEntries = [...currentEntries, ...itemsWithMetadata];
       setCurrentEntries(updatedEntries);
       
       let reportId = currentReportId;
@@ -290,13 +304,21 @@ const App = () => {
           if (i.id === itemId) {
               const newHistoryEntries = Object.keys(updates)
                   .filter(key => key !== 'lastModifiedBy' && key !== 'lastModifiedAt' && key !== 'editHistory' && (i as any)[key] !== updates[key as keyof DPRItem])
-                  .map(key => ({
-                      timestamp: new Date().toISOString(),
-                      user: user?.displayName || 'Unknown',
-                      field: key,
-                      oldValue: String((i as any)[key] || ''),
-                      newValue: String((updates as any)[key] || '')
-                  }));
+                  .map(key => {
+                      const oldValue = String((i as any)[key] || '');
+                      const newValue = String((updates as any)[key] || '');
+                      
+                      // Log to separate audit_logs collection
+                      logMasterRecordChange(i.id, user?.uid || 'Unknown', user?.displayName || 'Unknown', key, oldValue, newValue);
+                      
+                      return {
+                          timestamp: new Date().toISOString(),
+                          user: user?.displayName || 'Unknown',
+                          field: key,
+                          oldValue,
+                          newValue
+                      };
+                  });
 
               return { 
                   ...i, 
@@ -423,7 +445,13 @@ const App = () => {
           ...item,
           id: crypto.randomUUID(),
           activityDescription: `${item.activityDescription} (Split)`,
-          lastModifiedAt: new Date().toISOString()
+          lastModifiedAt: new Date().toISOString(),
+          editHistory: [],
+          creationDetails: {
+              userId: user?.uid || 'Unknown',
+              userName: user?.displayName || 'Unknown',
+              timestamp: new Date().toISOString()
+          }
       };
       
       const targetReport = reports.find(r => r.entries.some(e => e.id === item.id));
@@ -519,7 +547,13 @@ const App = () => {
           unit: "m3",
           plannedNextActivity: "",
           createdBy: user?.displayName || 'Unknown',
-          lastModifiedAt: new Date().toISOString()
+          lastModifiedAt: new Date().toISOString(),
+          editHistory: [],
+          creationDetails: {
+              userId: user?.uid || 'Unknown',
+              userName: user?.displayName || 'Unknown',
+              timestamp: new Date().toISOString()
+          }
       };
       
       await handleItemsAdded([newItem], "Manual Creation", []);
