@@ -91,7 +91,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
       const photoIds: string[] = [];
       if (pendingPhotos.length > 0) {
           for (const file of pendingPhotos) {
-              const photo = await uploadPhoto(file, user.uid, []);
+              const photo = await uploadPhoto(file, user.uid, {} as DPRItem);
               photoIds.push(photo.id);
           }
           setPendingPhotos([]);

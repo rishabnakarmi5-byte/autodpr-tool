@@ -101,7 +101,8 @@ export const autofillItemData = async (
        - Example: "Rebar = 2000kg" -> quantity: 2, unit: "Ton".
        - Ignore negative signs if they are just separators (e.g., "Quantity -41m3" means 41).
        - For plum concrete: if the text mentions "batching only" or "batching quantity", multiply the given quantity by 1.6 to get the total plum concrete quantity (e.g., 8 * 1.6 = 12.8).
-    4. chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
+    4. chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "EL. 100", "Elevation 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
+       - CRITICAL: If the text says "EL. 1241", you MUST include the "EL." prefix in the chainage field.
     5. itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). 
        - IMPORTANT: ALWAYS follow the exact concrete grade specified in the text (e.g., C10, C15, C20, C25, C30, C35, C40, C45, C50). 
        - If the text says "M" grade (e.g., M15, M25, M50), convert it to "C" grade (e.g., C15 Concrete, C25 Concrete, C50 Concrete).
@@ -302,7 +303,8 @@ export const parseConstructionData = async (
          - If you see "Inverter" or "Tunnel Inverter", convert it to "Invert".
          - If you see "Gantry" or "Gantry concreting", ensure "Gantry" is ALWAYS set as the 'structuralElement'.
          - If you see "Panel" (e.g., "Panel 3", "Panel 5&6"), ensure it is ALWAYS set as the 'structuralElement'.
-       - chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
+       - chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "EL. 100", "Elevation 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
+         - CRITICAL: If the text says "EL. 1241", you MUST include the "EL." prefix in the chainage field.
        - plannedNextActivity: Extract any "next plan" or "planned work" information.
 
     6. NEXT PLAN HANDLING (CRITICAL):

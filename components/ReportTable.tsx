@@ -29,11 +29,27 @@ interface ReportTableProps {
   onGoToHistory: () => void;
 }
 
-export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUndo, onRedo, canRedo, onInspectItem, onUpdateNote, onAddManualItem, onReorderEntries, onNavigateDate, onGoToHistory }) => {
+export const ReportTable: React.FC<ReportTableProps> = ({ 
+  report, 
+  onDeleteItem,
+  onUpdateItem,
+  onUpdateRow,
+  onUndo, 
+  canUndo, 
+  onRedo, 
+  canRedo, 
+  onInspectItem, 
+  onUpdateNote, 
+  onAddManualItem, 
+  onReorderEntries, 
+  onNavigateDate, 
+  onGoToHistory 
+}) => {
   const [fontSize, setFontSize] = useState(12);
   const [showRawInputs, setShowRawInputs] = useState(false);
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [isRearranging, setIsRearranging] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const reportRef = useRef<HTMLDivElement>(null);
@@ -105,45 +121,84 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
   const exportToPDF = async () => {
       if (!reportRef.current) return;
       
-      const opt = {
-        margin: [10, 10, 10, 10],
-        filename: `DPR_${report.date}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-      };
+      setIsPrinting(true);
       
-      html2pdf().set(opt).from(reportRef.current).save();
+      // Allow DOM to update first (removing empty notes, etc.)
+      setTimeout(async () => {
+          if (!reportRef.current) return;
+
+          // --- SMART PAGE BREAK CALCULATION ---
+          // A4 is 210x297mm. With 10mm margins, usable area is 190x277mm.
+          // Ratio: 277/190 = 1.458
+          const containerWidth = reportRef.current.offsetWidth;
+          const pageHeightPx = containerWidth * 1.458;
+          
+          // Clear any old spacers
+          reportRef.current.querySelectorAll('.print-spacer').forEach(el => el.remove());
+
+          // Check for splits in atomic elements
+          const avoidElements = reportRef.current.querySelectorAll('.avoid-break');
+          avoidElements.forEach((el: any) => {
+              const rect = el.getBoundingClientRect();
+              const containerRect = reportRef.current!.getBoundingClientRect();
+              
+              const relativeTop = rect.top - containerRect.top;
+              const relativeBottom = rect.bottom - containerRect.top;
+              
+              const startPage = Math.floor(relativeTop / pageHeightPx);
+              const endPage = Math.floor((relativeBottom - 1) / pageHeightPx); // 1px buffer
+              
+              // If element spans multiple pages, push it to the IMMEDIATELY next one
+              if (startPage !== endPage) {
+                  const spacer = document.createElement('div');
+                  spacer.className = 'print-spacer';
+                  // Calculate height needed to reach the start of the VERY NEXT page
+                  const nextPageStart = (startPage + 1) * pageHeightPx;
+                  const neededHeight = nextPageStart - relativeTop;
+                  
+                  // Only add spacer if it's significant and doesn't exceed a full page
+                  if (neededHeight > 2 && neededHeight < pageHeightPx) {
+                      spacer.style.height = `${neededHeight}px`;
+                      spacer.style.width = '100%';
+                      el.parentNode.insertBefore(spacer, el);
+                  }
+              }
+          });
+
+          const opt = {
+            margin: [10, 10, 10, 10] as [number, number, number, number],
+            filename: `DPR_${report.date}.pdf`,
+            image: { type: 'jpeg' as const, quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, logging: false, scrollY: 0 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const },
+            pagebreak: { mode: 'css' }
+          };
+          
+          try {
+              await html2pdf().set(opt).from(reportRef.current).save();
+          } finally {
+              setIsPrinting(false);
+              // Clean up spacers after export
+              reportRef.current?.querySelectorAll('.print-spacer').forEach(el => el.remove());
+          }
+      }, 250); // Increased timeout to ensure DOM layout settles
   };
 
   const exportToImage = async () => {
       if (!reportRef.current) return;
-      
-      const opt = {
-        margin: [10, 10, 10, 10],
-        filename: `DPR_${report.date}.jpg`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-      };
-      
-      // html2pdf can export to image by changing the type
-      html2pdf().set(opt).from(reportRef.current).toPdf().get('pdf').then((pdf: any) => {
-        // This is a bit hacky, but html2pdf doesn't have a direct "to image" for the whole content easily
-        // An alternative is taking a screenshot of just the printable-report div
-      });
+      setIsPrinting(true);
 
-      // Alternative approach for JPG:
-      import('html2canvas').then(html2canvas => {
-          html2canvas.default(reportRef.current!, { scale: 2, useCORS: true }).then(canvas => {
-              const link = document.createElement('a');
-              link.download = `DPR_${report.date}.jpg`;
-              link.href = canvas.toDataURL('image/jpeg', 0.98);
-              link.click();
+      setTimeout(async () => {
+          import('html2canvas').then(html2canvas => {
+              html2canvas.default(reportRef.current!, { scale: 2, useCORS: true, scrollY: 0 }).then(canvas => {
+                  const link = document.createElement('a');
+                  link.download = `DPR_${report.date}.jpg`;
+                  link.href = canvas.toDataURL('image/jpeg', 0.98);
+                  link.click();
+                  setIsPrinting(false);
+              });
           });
-      });
+      }, 150);
   };
 
   return (
@@ -186,7 +241,18 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
       </div>
 
       <div ref={reportRef} className={`mx-auto w-full max-w-[210mm] space-y-6 ${isRearranging ? 'pl-12' : ''}`}>
-        <div id="printable-report" className="bg-white shadow-2xl p-10 rounded-2xl border border-slate-100 transition-all origin-top" style={{ width: '100%' }}>
+        <style>{`
+          .avoid-break {
+            break-inside: avoid !important;
+            -webkit-column-break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          /* Specific fixes for table rows in chrome/html2canvas */
+          tr.avoid-break {
+            display: table-row !important;
+          }
+        `}</style>
+        <div id="printable-report" className={`bg-white p-10 rounded-2xl border border-slate-100 transition-all origin-top ${isPrinting ? 'shadow-none' : 'shadow-2xl'}`} style={{ width: '100%' }}>
         <div className="border-b-4 border-slate-900 pb-6 mb-8 flex justify-between items-end">
           <div>
             <h1 className="text-4xl text-slate-900 font-black uppercase tracking-tighter">Daily Progress Report</h1>
@@ -226,7 +292,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
                 value={item}
                 dragListener={isRearranging}
                 onClick={() => !isRearranging && onInspectItem({ ...item, date: report.date })} 
-                className={`group border-b border-slate-900 hover:bg-indigo-50/50 cursor-pointer align-top text-black ${isRearranging ? 'bg-indigo-50/20 select-none' : ''}`}
+                className={`group border-b border-slate-900 hover:bg-indigo-50/50 cursor-pointer align-top text-black avoid-break ${isRearranging ? 'bg-indigo-50/20 select-none' : ''}`}
               >
                 <td className="border-r border-slate-900 p-2 font-bold relative">
                   {isRearranging && (
@@ -251,42 +317,30 @@ export const ReportTable: React.FC<ReportTableProps> = ({ report, onUndo, canUnd
           </Reorder.Group>
         </table>
         
-        {report.note && report.note !== "No notes for this report." && (
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full mt-6">
-            <div className="flex justify-between items-center mb-3">
-              <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest">Daily Report Note</label>
-              <button 
-                onClick={() => setIsEditingNote(!isEditingNote)}
-                className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-widest no-print"
-                data-html2canvas-ignore="true"
-              >
-                {isEditingNote ? 'Save Note' : 'Edit Note'}
-              </button>
-            </div>
-            {isEditingNote ? (
+        {/* Conditional rendering for export: Remove empty note entirely from DOM if printing */}
+        {(!isPrinting || (report.note && report.note.trim().length > 0)) && (
+          <div className={`bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full mt-6 avoid-break ${!report.note || report.note.trim().length === 0 ? 'no-print' : ''}`}>
+              <div className="flex justify-between items-center mb-3">
+                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest">Daily Report Note</label>
+              </div>
               <textarea 
                   value={report.note || ""}
                   onChange={e => onUpdateNote(e.target.value)}
                   placeholder="Enter 2-3 lines of note for this DPR..."
                   className="w-full min-h-24 p-5 bg-slate-50 rounded-xl border border-slate-200 outline-none text-sm font-medium transition-all placeholder:text-slate-300 resize-none"
               />
-            ) : (
-              <div className="w-full p-5 bg-slate-50 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 whitespace-pre-wrap">
-                {report.note}
-              </div>
-            )}
           </div>
         )}
 
         {photos.length > 0 && (
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full mt-6">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full mt-6 avoid-break">
                 <div className="flex justify-between items-center mb-6">
                     <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest">Site Activity Photos</label>
                     <button onClick={downloadAllPhotos} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-widest no-print">Download All</button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className={`grid gap-6 ${isPrinting ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}>
                     {photos.map(photo => (
-                        <div key={photo.id} className="space-y-4">
+                        <div key={photo.id} className="space-y-4 avoid-break">
                             <img src={photo.url} alt="Site Activity" className="w-full aspect-video object-cover rounded-2xl shadow-lg cursor-pointer transition-transform hover:scale-[1.02]" referrerPolicy="no-referrer" onClick={() => setSelectedPhoto(photo)} />
                             <div className="w-full text-lg font-bold text-slate-700 bg-slate-100 p-4 rounded-lg text-center">
                                 {photo.caption || `${report.entries.find(e => e.photoIds?.includes(photo.id))?.location || 'Location'} -> ${report.entries.find(e => e.photoIds?.includes(photo.id))?.component || 'Component'}`}

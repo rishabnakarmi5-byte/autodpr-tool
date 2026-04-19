@@ -199,8 +199,8 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                   <input className="w-full p-2.5 border border-slate-200 rounded-lg text-sm" value={localItem.structuralElement || ''} onChange={e => handleChange('structuralElement', e.target.value)} onBlur={() => handleBlur('structuralElement')} />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Chainage</label>
-                  <input className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-mono" value={localItem.chainage || ''} onChange={e => handleChange('chainage', e.target.value)} onBlur={() => handleBlur('chainage')} />
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Chainage / EL</label>
+                  <input className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-mono" value={localItem.chainage || ''} onChange={e => handleChange('chainage', e.target.value)} onBlur={() => handleBlur('chainage')} placeholder="e.g. 0+100 or EL. 1241" />
                 </div>
               </div>
             </div>

@@ -1,6 +1,6 @@
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { getFirestore, collection, doc, setDoc, updateDoc, arrayUnion, getDoc, getDocs, query, where } from "firebase/firestore";
-import { Photo } from "../types";
+import { Photo, DPRItem } from "../types";
 
 const storage = getStorage();
 const db = getFirestore();
