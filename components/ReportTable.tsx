@@ -127,6 +127,26 @@ export const ReportTable: React.FC<ReportTableProps> = ({
       setTimeout(async () => {
           if (!reportRef.current) return;
 
+          // --- INTENSE IMAGE LOADING VERIFICATION ---
+          const images = reportRef.current.querySelectorAll('img');
+          const imagePromises = Array.from(images).map(img => {
+              if (img.complete) return Promise.resolve();
+              return new Promise((resolve) => {
+                  img.onload = resolve;
+                  img.onerror = resolve; // Continue anyway to not hang
+              });
+          });
+          
+          // Also wait for decode if supported
+          const decodePromises = Array.from(images).map(img => {
+            if (img.decode) return img.decode().catch(() => {}); 
+            return Promise.resolve();
+          });
+
+          await Promise.all([...imagePromises, ...decodePromises]);
+          // Short extra settling time after all images are "ready"
+          await new Promise(resolve => setTimeout(resolve, 500));
+
           // --- SMART PAGE BREAK CALCULATION ---
           // A4 is 210x297mm. With 10mm margins, usable area is 190x277mm.
           // Ratio: 277/190 = 1.458
@@ -181,22 +201,39 @@ export const ReportTable: React.FC<ReportTableProps> = ({
               // Clean up spacers after export
               reportRef.current?.querySelectorAll('.print-spacer').forEach(el => el.remove());
           }
-      }, 250); // Increased timeout to ensure DOM layout settles
+      }, 250); 
   };
 
   const exportToImage = async () => {
       if (!reportRef.current) return;
       setIsPrinting(true);
 
-      // Increase timeout significantly to ensure all lazy images, especially
-      // those loaded from external Firebase Storage URLs, are fully rendered.
       setTimeout(async () => {
+          if (!reportRef.current) return;
+
+          // --- INTENSE IMAGE LOADING VERIFICATION ---
+          const images = reportRef.current.querySelectorAll('img');
+          const imagePromises = Array.from(images).map(img => {
+              if (img.complete) return Promise.resolve();
+              return new Promise((resolve) => {
+                  img.onload = resolve;
+                  img.onerror = resolve;
+              });
+          });
+
+          const decodePromises = Array.from(images).map(img => {
+            if (img.decode) return img.decode().catch(() => {}); 
+            return Promise.resolve();
+          });
+
+          await Promise.all([...imagePromises, ...decodePromises]);
+          await new Promise(resolve => setTimeout(resolve, 500));
+
           import('html2canvas').then(html2canvas => {
               html2canvas.default(reportRef.current!, { 
                   scale: 2, 
                   useCORS: true, 
                   scrollY: 0,
-                  // Ensure images with cross-origin are handled
                   allowTaint: false 
               }).then(canvas => {
                   const link = document.createElement('a');
@@ -209,7 +246,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                   setIsPrinting(false);
               });
           });
-      }, 1000); // Increased to 1000ms
+      }, 250);
   };
 
   return (
