@@ -249,6 +249,16 @@ export const ReportTable: React.FC<ReportTableProps> = ({
       }, 250);
   };
 
+  const handleRotatePhoto = async (photoId: string, currentRotation: number = 0) => {
+    const newRotation = (currentRotation + 90) % 360;
+    setPhotos(prev => prev.map(p => p.id === photoId ? { ...p, rotation: newRotation } : p));
+    if (selectedPhoto && selectedPhoto.id === photoId) {
+      setSelectedPhoto(prev => prev ? { ...prev, rotation: newRotation } : null);
+    }
+    const { updatePhotoRotation } = await import('../services/photoService');
+    await updatePhotoRotation(photoId, newRotation);
+  };
+
   return (
     <div className="flex flex-col h-full space-y-6 animate-fade-in relative pb-20">
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 no-print">
@@ -384,13 +394,25 @@ export const ReportTable: React.FC<ReportTableProps> = ({
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full mt-6 avoid-break">
                 <div className="flex justify-between items-center mb-6">
                     <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest">Site Activity Photos</label>
-                    <button onClick={downloadAllPhotos} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-widest no-print">Download All</button>
+                    {!isPrinting && (
+                      <button onClick={downloadAllPhotos} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-widest no-print">Download All</button>
+                    )}
                 </div>
-                <div className={`grid gap-6 ${isPrinting ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}>
+                <div className={`grid gap-6 ${isPrinting ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2'}`}>
                     {photos.map(photo => (
-                        <div key={photo.id} className="space-y-4 avoid-break">
-                            <img src={photo.url} alt="Site Activity" className="w-full aspect-video object-cover rounded-2xl shadow-lg cursor-pointer transition-transform hover:scale-[1.02]" referrerPolicy="no-referrer" onClick={() => setSelectedPhoto(photo)} />
-                            <div className="w-full text-lg font-bold text-slate-700 bg-slate-100 p-4 rounded-lg text-center">
+                        <div key={photo.id} className="space-y-4 avoid-break flex flex-col">
+                            <div className="w-full bg-slate-50 rounded-2xl overflow-hidden shadow-lg border border-slate-100 flex items-center justify-center">
+                              <img 
+                                src={photo.url} 
+                                alt="Site Activity" 
+                                className="w-full h-auto object-contain max-h-[450px] cursor-pointer transition-all hover:scale-[1.02]" 
+                                style={{ transform: `rotate(${photo.rotation || 0}deg)` }}
+                                referrerPolicy="no-referrer" 
+                                crossOrigin="anonymous" 
+                                onClick={() => setSelectedPhoto(photo)} 
+                              />
+                            </div>
+                            <div className={`w-full font-bold text-slate-700 bg-slate-50 p-3 rounded-xl text-center border border-slate-100 ${isPrinting ? 'text-sm' : 'text-lg'}`}>
                                 {photo.caption || `${report.entries.find(e => e.photoIds?.includes(photo.id))?.location || 'Location'} -> ${report.entries.find(e => e.photoIds?.includes(photo.id))?.component || 'Component'}`}
                             </div>
                         </div>
@@ -406,7 +428,22 @@ export const ReportTable: React.FC<ReportTableProps> = ({
           <div className="bg-white p-6 rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col md:flex-row gap-6 max-h-[90vh]" onClick={e => e.stopPropagation()}>
             {/* Enlarged Photo */}
             <div className="flex-1 flex flex-col gap-4">
-                <img src={selectedPhoto.url} alt="Enlarged" className="w-full h-auto max-h-[60vh] object-contain rounded-xl bg-slate-100" referrerPolicy="no-referrer" />
+                <div className="relative w-full h-auto max-h-[60vh] flex items-center justify-center bg-slate-100 rounded-xl overflow-hidden">
+                  <img 
+                    src={selectedPhoto.url} 
+                    alt="Enlarged" 
+                    className="max-w-full max-h-full object-contain transition-transform" 
+                    style={{ transform: `rotate(${selectedPhoto.rotation || 0}deg)` }}
+                    referrerPolicy="no-referrer" 
+                    crossOrigin="anonymous" 
+                  />
+                  <button 
+                    onClick={() => handleRotatePhoto(selectedPhoto.id, selectedPhoto.rotation)}
+                    className="absolute top-4 right-4 bg-white/80 backdrop-blur-md p-3 rounded-full shadow-lg hover:bg-white transition-all text-slate-900 z-10"
+                  >
+                    <i className="fas fa-rotate"></i>
+                  </button>
+                </div>
                 
                 <input 
                     type="text" 

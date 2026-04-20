@@ -12,6 +12,7 @@ export interface Photo {
   component: string;
   metadataSnapshot: DPRItem; // Snapshot of the Master Record at upload
   caption?: string; // Editable caption
+  rotation?: number; // 0, 90, 180, 270
 }
 
 export interface EditHistory {

@@ -76,6 +76,11 @@ export const deletePhotoAssociation = async (photoId: string, masterRecordId: st
     }
 };
 
+export const updatePhotoRotation = async (photoId: string, rotation: number) => {
+    const photoRef = doc(db, PHOTO_COLLECTION, photoId);
+    await updateDoc(photoRef, { rotation });
+};
+
 export const uploadPhoto = async (file: File, uploaderId: string, masterRecord: DPRItem): Promise<Photo> => {
     const photoId = crypto.randomUUID();
     const compressedBlob = await compressImage(file);

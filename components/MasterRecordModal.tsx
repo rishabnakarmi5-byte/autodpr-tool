@@ -131,6 +131,13 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
     setLocalItem(prev => ({ ...prev, [field]: value }));
   };
 
+  const handleRotatePhoto = async (photoId: string, currentRotation: number = 0) => {
+    const newRotation = (currentRotation + 90) % 360;
+    setPhotos(prev => prev.map(p => p.id === photoId ? { ...p, rotation: newRotation } : p));
+    const { updatePhotoRotation } = await import('../services/photoService');
+    await updatePhotoRotation(photoId, newRotation);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -307,8 +314,21 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     {photos.map(photo => (
-                        <div key={photo.id} className="aspect-square bg-slate-100 rounded-lg flex items-center justify-center overflow-hidden border border-slate-200">
-                           <img src={photo.url} alt="Photo" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                        <div key={photo.id} className="aspect-square bg-slate-100 rounded-lg relative overflow-hidden border border-slate-200 flex items-center justify-center">
+                           <img 
+                              src={photo.url} 
+                              alt="Photo" 
+                              referrerPolicy="no-referrer" 
+                              crossOrigin="anonymous" 
+                              className="max-w-full max-h-full object-contain transition-transform" 
+                              style={{ transform: `rotate(${photo.rotation || 0}deg)` }}
+                           />
+                           <button 
+                              onClick={() => handleRotatePhoto(photo.id, photo.rotation)}
+                              className="absolute top-1 right-1 w-7 h-7 bg-white/90 backdrop-blur-md rounded-full shadow-sm flex items-center justify-center text-xs text-slate-900 hover:bg-white transition-all z-10"
+                           >
+                              <i className="fas fa-rotate"></i>
+                           </button>
                         </div>
                     ))}
                   </div>
