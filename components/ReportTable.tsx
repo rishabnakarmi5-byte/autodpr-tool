@@ -432,7 +432,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                                 className={`w-full h-auto object-contain cursor-pointer transition-all hover:scale-[1.02] ${isPrinting ? 'max-h-[650px]' : 'max-h-[450px]'}`} 
                                 style={{ transform: `rotate(${photo.rotation || 0}deg)` }}
                                 referrerPolicy="no-referrer" 
-                                crossOrigin="anonymous" 
+                                crossOrigin={isPrinting ? "anonymous" : undefined}
                                 onClick={() => setSelectedPhoto(photo)} 
                               />
                             </div>
@@ -459,7 +459,6 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                     className="max-w-full max-h-full object-contain transition-transform" 
                     style={{ transform: `rotate(${selectedPhoto.rotation || 0}deg)` }}
                     referrerPolicy="no-referrer" 
-                    crossOrigin="anonymous" 
                   />
                   <button 
                     onClick={() => handleRotatePhoto(selectedPhoto.id, selectedPhoto.rotation)}

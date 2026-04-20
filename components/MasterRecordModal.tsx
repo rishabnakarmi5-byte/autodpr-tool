@@ -319,7 +319,6 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                               src={photo.url} 
                               alt="Photo" 
                               referrerPolicy="no-referrer" 
-                              crossOrigin="anonymous" 
                               className="max-w-full max-h-full object-contain transition-transform" 
                               style={{ transform: `rotate(${photo.rotation || 0}deg)` }}
                            />
