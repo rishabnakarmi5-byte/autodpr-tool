@@ -1,13 +1,15 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { DPRItem, BackupEntry, ItemTypeDefinition, Photo } from '../types';
+import { DailyReport, DPRItem, BackupEntry, ItemTypeDefinition, Photo } from '../types';
 import { getBackupById, getBackups } from '../services/firebaseService';
 import { uploadPhoto, getPhotosByIds } from '../services/photoService';
 import { ITEM_PATTERNS, toTitleCase } from '../utils/constants';
 import { parseConstructionData, autofillItemData } from '../services/geminiService';
+import { PhotoInspectionModal } from './PhotoInspectionModal';
 
 interface MasterRecordModalProps {
   item: DPRItem;
+  reports: DailyReport[];
   isOpen: boolean;
   onClose: () => void;
   onUpdate: (id: string, updates: Partial<DPRItem>) => void;
@@ -18,7 +20,7 @@ interface MasterRecordModalProps {
   user: any;
 }
 
-export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOpen, onClose, onUpdate, onSplit, onDelete, hierarchy, customItemTypes, user }) => {
+export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, reports, isOpen, onClose, onUpdate, onSplit, onDelete, hierarchy, customItemTypes, user }) => {
   const [localItem, setLocalItem] = useState<DPRItem>(item);
   const [sourceBackup, setSourceBackup] = useState<BackupEntry | null>(null);
   const [activeTab, setActiveTab] = useState<'source' | 'history' | 'photos'>('source');
@@ -26,6 +28,7 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [mobileTab, setMobileTab] = useState<'form' | 'context' | 'photos'>('form');
+  const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
 
   useEffect(() => {
     setLocalItem(item);
@@ -314,13 +317,14 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     {photos.map(photo => (
-                        <div key={photo.id} className="aspect-square bg-slate-100 rounded-lg relative overflow-hidden border border-slate-200 flex items-center justify-center">
+                        <div key={photo.id} className="aspect-square bg-slate-100 rounded-lg relative overflow-hidden border border-slate-200 flex items-center justify-center group">
                            <img 
                               src={photo.url} 
                               alt="Photo" 
                               referrerPolicy="no-referrer" 
-                              className="max-w-full max-h-full object-contain transition-transform" 
+                              className="max-w-full max-h-full object-contain transition-transform cursor-zoom-in" 
                               style={{ transform: `rotate(${photo.rotation || 0}deg)` }}
+                              onClick={() => setSelectedPhoto(photo)}
                            />
                            <button 
                               onClick={() => handleRotatePhoto(photo.id, photo.rotation)}
@@ -336,6 +340,27 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
             </div>
           </div>
         </div>
+
+        {selectedPhoto && (
+            <PhotoInspectionModal 
+               photo={selectedPhoto}
+               reports={reports}
+               onClose={() => setSelectedPhoto(null)}
+               onInspectItem={(item) => {
+                   if (item.id === localItem.id) {
+                       setSelectedPhoto(null);
+                   } else {
+                       setSelectedPhoto(null);
+                   }
+               }}
+               onUpdatePhoto={(updated) => {
+                   setPhotos(prev => prev.map(p => p.id === updated.id ? updated : p));
+                   if (selectedPhoto?.id === updated.id) setSelectedPhoto(updated);
+               }}
+               onUpdateReport={onUpdate}
+            />
+        )}
+
       </div>
     </div>
   );

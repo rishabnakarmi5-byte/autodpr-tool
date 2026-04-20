@@ -4,6 +4,7 @@ import { Reorder } from 'motion/react';
 import { DailyReport, DPRItem, Photo } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 import { RawInputsModal } from './RawInputsModal';
+import { PhotoInspectionModal } from './PhotoInspectionModal';
 import { collection, query, where, onSnapshot, getFirestore, doc, updateDoc } from 'firebase/firestore';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -13,6 +14,7 @@ const db = getFirestore();
 
 interface ReportTableProps {
   report: DailyReport;
+  reports: DailyReport[];
   onDeleteItem: (id: string) => void;
   onUpdateItem: (id: string, field: keyof DPRItem, value: string) => void;
   onUpdateRow: (id: string, updates: Partial<DPRItem>) => void;
@@ -31,6 +33,7 @@ interface ReportTableProps {
 
 export const ReportTable: React.FC<ReportTableProps> = ({ 
   report, 
+  reports,
   onDeleteItem,
   onUpdateItem,
   onUpdateRow,
@@ -164,7 +167,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({
           // --- INTENSE IMAGE LOADING VERIFICATION ---
           // Since we are using Base64 now, loading is near-instant, but we still verify
           const images = reportRef.current.querySelectorAll('img');
-          const imagePromises = Array.from(images).map(img => {
+          const imagePromises = Array.from(images).map(elem => {
+              const img = elem as HTMLImageElement;
               if (img.complete) return Promise.resolve();
               return new Promise((resolve) => {
                   img.onload = resolve;
@@ -242,7 +246,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({
 
           // --- INTENSE IMAGE LOADING VERIFICATION ---
           const images = reportRef.current.querySelectorAll('img');
-          const imagePromises = Array.from(images).map(img => {
+          const imagePromises = Array.from(images).map(elem => {
+              const img = elem as HTMLImageElement;
               if (img.complete) return Promise.resolve();
               return new Promise((resolve) => {
                   img.onload = resolve;
@@ -447,83 +452,14 @@ export const ReportTable: React.FC<ReportTableProps> = ({
       </div>
 
       {selectedPhoto && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm" onClick={() => setSelectedPhoto(null)}>
-          <div className="bg-white p-6 rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col md:flex-row gap-6 max-h-[90vh]" onClick={e => e.stopPropagation()}>
-            {/* Enlarged Photo */}
-            <div className="flex-1 flex flex-col gap-4">
-                <div className="relative w-full h-auto max-h-[60vh] flex items-center justify-center bg-slate-100 rounded-xl overflow-hidden">
-                  <img 
-                    src={selectedPhoto.url} 
-                    alt="Enlarged" 
-                    className="max-w-full max-h-full object-contain transition-transform" 
-                    style={{ transform: `rotate(${selectedPhoto.rotation || 0}deg)` }}
-                    referrerPolicy="no-referrer" 
-                  />
-                  <button 
-                    onClick={() => handleRotatePhoto(selectedPhoto.id, selectedPhoto.rotation)}
-                    className="absolute top-4 right-4 bg-white/80 backdrop-blur-md p-3 rounded-full shadow-lg hover:bg-white transition-all text-slate-900 z-10"
-                  >
-                    <i className="fas fa-rotate"></i>
-                  </button>
-                </div>
-                
-                <input 
-                    type="text" 
-                    value={selectedPhoto.caption || `${report.entries.find(e => e.photoIds?.includes(selectedPhoto.id))?.location || 'Location'} -> ${report.entries.find(e => e.photoIds?.includes(selectedPhoto.id))?.component || 'Component'}`}
-                    onChange={(e) => {
-                        const newCaption = e.target.value;
-                        setSelectedPhoto(prev => prev ? { ...prev, caption: newCaption } : null);
-                        setPhotos(prev => prev.map(p => p.id === selectedPhoto.id ? { ...p, caption: newCaption } : p));
-                    }}
-                    onBlur={(e) => updatePhotoCaption(selectedPhoto.id, e.target.value)}
-                    className="w-full text-lg font-bold text-slate-900 bg-slate-100 p-4 rounded-lg border border-slate-300 outline-none hover:bg-slate-200 transition-colors"
-                    placeholder="Enter caption..."
-                />
-
-                <button onClick={async () => {
-                    const response = await fetch(selectedPhoto.url);
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${selectedPhoto.id}.jpg`;
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
-                    window.URL.revokeObjectURL(url);
-                }} className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold text-center hover:bg-indigo-700 transition-colors">
-                    <i className="fas fa-download mr-2"></i> Download Image
-                </button>
-            </div>
-
-            {/* Associated Records */}
-            <div className="w-full md:w-80 flex flex-col overflow-hidden">
-                <h2 className="text-xl font-bold mb-4 shrink-0">Associated Master Records</h2>
-                <div className="space-y-2 overflow-y-auto flex-1 pr-2">
-                {report.entries.filter(e => e.photoIds?.includes(selectedPhoto.id)).map(entry => (
-                    <div key={entry.id} className="p-4 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center cursor-pointer hover:bg-slate-100" onClick={() => { onInspectItem({...entry, date: report.date}); setSelectedPhoto(null); }}>
-                    <div>
-                        <div className="font-bold text-indigo-600">{entry.location} - {entry.component}</div>
-                        <div className="text-sm">{entry.activityDescription}</div>
-                    </div>
-                    <button 
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            const newPhotoIds = entry.photoIds?.filter(id => id !== selectedPhoto.id) || [];
-                            onUpdateRow(entry.id, { photoIds: newPhotoIds });
-                            setSelectedPhoto(null);
-                        }}
-                        className="text-red-500 hover:text-red-700 p-2"
-                    >
-                        <i className="fas fa-trash-alt"></i>
-                    </button>
-                    </div>
-                ))}
-                </div>
-                <button onClick={() => setSelectedPhoto(null)} className="mt-6 w-full bg-slate-900 text-white py-3 rounded-lg font-bold shrink-0">Close</button>
-            </div>
-          </div>
-        </div>
+        <PhotoInspectionModal 
+            photo={selectedPhoto}
+            reports={reports}
+            onClose={() => setSelectedPhoto(null)}
+            onInspectItem={onInspectItem}
+            onUpdatePhoto={(updated) => setPhotos(prev => prev.map(p => p.id === updated.id ? updated : p))}
+            onUpdateReport={onUpdateRow}
+        />
       )}
 
       <RawInputsModal 

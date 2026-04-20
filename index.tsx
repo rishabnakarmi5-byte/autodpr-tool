@@ -583,6 +583,7 @@ const App = () => {
              return currentReportId ? (
                  <ReportTable 
                     report={reports.find(r => r.id === currentReportId)!} 
+                    reports={reports}
                     onDeleteItem={handleDeleteItem}
                     onUpdateItem={handleUpdateItemField}
                     onUpdateRow={handleUpdateItem}
@@ -666,7 +667,7 @@ const App = () => {
           case TabView.PROFILE:
              return <ProfileView user={user} />;
           case TabView.PHOTOS:
-             return <PhotoGalleryView reports={reports} onInspectItem={setInspectItem} />;
+             return <PhotoGalleryView reports={reports} onInspectItem={setInspectItem} onUpdateReport={handleUpdateItem} />;
           default:
              return null;
       }
@@ -685,6 +686,7 @@ const App = () => {
         {inspectItem && (
             <MasterRecordModal 
                 item={inspectItem} 
+                reports={reports}
                 isOpen={!!inspectItem} 
                 onClose={() => setInspectItem(null)}
                 onUpdate={handleUpdateItem}
