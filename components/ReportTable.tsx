@@ -188,17 +188,28 @@ export const ReportTable: React.FC<ReportTableProps> = ({
       if (!reportRef.current) return;
       setIsPrinting(true);
 
+      // Increase timeout significantly to ensure all lazy images, especially
+      // those loaded from external Firebase Storage URLs, are fully rendered.
       setTimeout(async () => {
           import('html2canvas').then(html2canvas => {
-              html2canvas.default(reportRef.current!, { scale: 2, useCORS: true, scrollY: 0 }).then(canvas => {
+              html2canvas.default(reportRef.current!, { 
+                  scale: 2, 
+                  useCORS: true, 
+                  scrollY: 0,
+                  // Ensure images with cross-origin are handled
+                  allowTaint: false 
+              }).then(canvas => {
                   const link = document.createElement('a');
                   link.download = `DPR_${report.date}.jpg`;
                   link.href = canvas.toDataURL('image/jpeg', 0.98);
                   link.click();
                   setIsPrinting(false);
+              }).catch(err => {
+                  console.error("html2canvas export error:", err);
+                  setIsPrinting(false);
               });
           });
-      }, 150);
+      }, 1000); // Increased to 1000ms
   };
 
   return (

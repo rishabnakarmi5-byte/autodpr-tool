@@ -40,6 +40,26 @@ export const compressImage = async (file: File, maxWidth = 1024, maxHeight = 102
     });
 };
 
+export const getPhotosByIds = async (photoIds: string[]): Promise<Photo[]> => {
+    if (photoIds.length === 0) return [];
+    
+    // Fetch photos in chunks for Firestore 'in' query limit
+    const CHUNK_SIZE = 10;
+    const chunks = [];
+    for (let i = 0; i < photoIds.length; i += CHUNK_SIZE) {
+        chunks.push(photoIds.slice(i, i + CHUNK_SIZE));
+    }
+    
+    let allPhotos: Photo[] = [];
+    for (const chunk of chunks) {
+        const q = query(collection(db, PHOTO_COLLECTION), where("id", "in", chunk));
+        const snap = await getDocs(q);
+        allPhotos = [...allPhotos, ...snap.docs.map(doc => doc.data() as Photo)];
+    }
+    
+    return allPhotos;
+};
+
 export const deletePhotoAssociation = async (photoId: string, masterRecordId: string) => {
     const photoRef = doc(db, PHOTO_COLLECTION, photoId);
     const photoSnap = await getDoc(photoRef);

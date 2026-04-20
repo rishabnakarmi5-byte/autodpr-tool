@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { DPRItem, BackupEntry, ItemTypeDefinition } from '../types';
+import { DPRItem, BackupEntry, ItemTypeDefinition, Photo } from '../types';
 import { getBackupById, getBackups } from '../services/firebaseService';
-import { uploadPhoto } from '../services/photoService';
+import { uploadPhoto, getPhotosByIds } from '../services/photoService';
 import { ITEM_PATTERNS, toTitleCase } from '../utils/constants';
 import { parseConstructionData, autofillItemData } from '../services/geminiService';
 
@@ -23,6 +23,7 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
   const [sourceBackup, setSourceBackup] = useState<BackupEntry | null>(null);
   const [activeTab, setActiveTab] = useState<'source' | 'history' | 'photos'>('source');
   const [loadingSource, setLoadingSource] = useState(false);
+  const [photos, setPhotos] = useState<Photo[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [mobileTab, setMobileTab] = useState<'form' | 'context' | 'photos'>('form');
 
@@ -30,6 +31,9 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
     setLocalItem(item);
     if (isOpen) {
       loadSourceData();
+      if (item.photoIds && item.photoIds.length > 0) {
+        getPhotosByIds(item.photoIds).then(setPhotos);
+      }
       // Auto-repair inconsistent chainageOrArea
       const expected = `${item.chainage || ''} ${item.structuralElement || ''}`.trim();
       if (item.chainageOrArea !== expected) {
@@ -63,6 +67,7 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
         const photo = await uploadPhoto(e.target.files[0], user.uid, item); 
         const newPhotoIds = [...(localItem.photoIds || []), photo.id];
         setLocalItem(prev => ({ ...prev, photoIds: newPhotoIds }));
+        setPhotos(prev => [...prev, photo]);
         onUpdate(item.id, { photoIds: newPhotoIds });
       } catch (error) {
         console.error("Photo upload failed:", error);
@@ -301,9 +306,9 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, isOp
                     <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} disabled={isUploading} />
                   </label>
                   <div className="grid grid-cols-2 gap-2">
-                    {localItem.photoIds?.map(pid => (
-                        <div key={pid} className="aspect-square bg-slate-100 rounded-lg flex items-center justify-center">
-                            <i className="fas fa-image text-slate-400"></i>
+                    {photos.map(photo => (
+                        <div key={photo.id} className="aspect-square bg-slate-100 rounded-lg flex items-center justify-center overflow-hidden border border-slate-200">
+                           <img src={photo.url} alt="Photo" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                         </div>
                     ))}
                   </div>
