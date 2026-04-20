@@ -118,34 +118,62 @@ export const ReportTable: React.FC<ReportTableProps> = ({
       saveAs(content, `report_photos_${report.date}.zip`);
   };
 
+  const [exportPhotos, setExportPhotos] = useState<Record<string, string>>({});
+
+  const preparePhotosForExport = async () => {
+    const loadedPhotos: Record<string, string> = {};
+    const fetchPromises = photos.map(async (photo) => {
+      try {
+        // Fetch the image with a cache-buster and CORS mode
+        const response = await fetch(`${photo.url}${photo.url.includes('?') ? '&' : '?'}t=${Date.now()}`, {
+          mode: 'cors',
+          credentials: 'omit'
+        });
+        const blob = await response.blob();
+        
+        return new Promise<void>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            loadedPhotos[photo.id] = reader.result as string;
+            resolve();
+          };
+          reader.onerror = () => resolve();
+          reader.readAsDataURL(blob);
+        });
+      } catch (err) {
+        console.error(`Failed to pre-fetch photo ${photo.id} for export:`, err);
+        return Promise.resolve();
+      }
+    });
+
+    await Promise.all(fetchPromises);
+    setExportPhotos(loadedPhotos);
+    return loadedPhotos;
+  };
+
   const exportToPDF = async () => {
       if (!reportRef.current) return;
       
       setIsPrinting(true);
+      const base64Photos = await preparePhotosForExport();
       
-      // Allow DOM to update first (removing empty notes, etc.)
+      // Allow DOM to update with base64 images
       setTimeout(async () => {
           if (!reportRef.current) return;
 
           // --- INTENSE IMAGE LOADING VERIFICATION ---
+          // Since we are using Base64 now, loading is near-instant, but we still verify
           const images = reportRef.current.querySelectorAll('img');
           const imagePromises = Array.from(images).map(img => {
               if (img.complete) return Promise.resolve();
               return new Promise((resolve) => {
                   img.onload = resolve;
-                  img.onerror = resolve; // Continue anyway to not hang
+                  img.onerror = resolve; 
               });
           });
-          
-          // Also wait for decode if supported
-          const decodePromises = Array.from(images).map(img => {
-            if (img.decode) return img.decode().catch(() => {}); 
-            return Promise.resolve();
-          });
 
-          await Promise.all([...imagePromises, ...decodePromises]);
-          // Short extra settling time after all images are "ready"
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await Promise.all(imagePromises);
+          await new Promise(resolve => setTimeout(resolve, 300));
 
           // --- SMART PAGE BREAK CALCULATION ---
           // A4 is 210x297mm. With 10mm margins, usable area is 190x277mm.
@@ -207,6 +235,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({
   const exportToImage = async () => {
       if (!reportRef.current) return;
       setIsPrinting(true);
+      const base64Photos = await preparePhotosForExport();
 
       setTimeout(async () => {
           if (!reportRef.current) return;
@@ -221,13 +250,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({
               });
           });
 
-          const decodePromises = Array.from(images).map(img => {
-            if (img.decode) return img.decode().catch(() => {}); 
-            return Promise.resolve();
-          });
-
-          await Promise.all([...imagePromises, ...decodePromises]);
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await Promise.all(imagePromises);
+          await new Promise(resolve => setTimeout(resolve, 300));
 
           import('html2canvas').then(html2canvas => {
               html2canvas.default(reportRef.current!, { 
@@ -398,21 +422,21 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                       <button onClick={downloadAllPhotos} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 uppercase tracking-widest no-print">Download All</button>
                     )}
                 </div>
-                <div className={`grid gap-6 ${isPrinting ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2'}`}>
+                <div className={`grid gap-8 ${isPrinting ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}>
                     {photos.map(photo => (
-                        <div key={photo.id} className="space-y-4 avoid-break flex flex-col">
-                            <div className="w-full bg-slate-50 rounded-2xl overflow-hidden shadow-lg border border-slate-100 flex items-center justify-center">
+                        <div key={photo.id} className="space-y-4 avoid-break flex flex-col mb-4">
+                            <div className={`w-full bg-slate-50 rounded-2xl overflow-hidden shadow-lg border border-slate-100 flex items-center justify-center ${isPrinting ? 'p-0 bg-white' : ''}`}>
                               <img 
-                                src={photo.url} 
+                                src={isPrinting && exportPhotos[photo.id] ? exportPhotos[photo.id] : photo.url} 
                                 alt="Site Activity" 
-                                className="w-full h-auto object-contain max-h-[450px] cursor-pointer transition-all hover:scale-[1.02]" 
+                                className={`w-full h-auto object-contain cursor-pointer transition-all hover:scale-[1.02] ${isPrinting ? 'max-h-[650px]' : 'max-h-[450px]'}`} 
                                 style={{ transform: `rotate(${photo.rotation || 0}deg)` }}
                                 referrerPolicy="no-referrer" 
                                 crossOrigin="anonymous" 
                                 onClick={() => setSelectedPhoto(photo)} 
                               />
                             </div>
-                            <div className={`w-full font-bold text-slate-700 bg-slate-50 p-3 rounded-xl text-center border border-slate-100 ${isPrinting ? 'text-sm' : 'text-lg'}`}>
+                            <div className={`w-full font-bold text-slate-700 bg-slate-50 p-4 rounded-xl text-center border border-slate-100 ${isPrinting ? 'text-lg' : 'text-lg'}`}>
                                 {photo.caption || `${report.entries.find(e => e.photoIds?.includes(photo.id))?.location || 'Location'} -> ${report.entries.find(e => e.photoIds?.includes(photo.id))?.component || 'Component'}`}
                             </div>
                         </div>
