@@ -425,14 +425,13 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                 <div className={`grid gap-8 ${isPrinting ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}>
                     {photos.map(photo => (
                         <div key={photo.id} className="space-y-4 avoid-break flex flex-col mb-4">
-                            <div className={`w-full bg-slate-50 rounded-2xl overflow-hidden shadow-lg border border-slate-100 flex items-center justify-center ${isPrinting ? 'p-0 bg-white' : ''}`}>
+                            <div className={`w-full bg-slate-50 rounded-2xl overflow-hidden shadow-lg border border-slate-100 flex items-center justify-center min-h-[200px] ${isPrinting ? 'p-0 bg-white' : ''}`}>
                               <img 
                                 src={isPrinting && exportPhotos[photo.id] ? exportPhotos[photo.id] : photo.url} 
                                 alt="Site Activity" 
                                 className={`w-full h-auto object-contain cursor-pointer transition-all hover:scale-[1.02] ${isPrinting ? 'max-h-[650px]' : 'max-h-[450px]'}`} 
                                 style={{ transform: `rotate(${photo.rotation || 0}deg)` }}
                                 referrerPolicy="no-referrer" 
-                                crossOrigin={isPrinting ? "anonymous" : undefined}
                                 onClick={() => setSelectedPhoto(photo)} 
                               />
                             </div>
