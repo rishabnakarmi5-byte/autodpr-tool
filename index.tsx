@@ -141,9 +141,12 @@ const App = () => {
   const handleItemsAdded = async (newItems: DPRItem[], rawText: string, photoIds: string[], existingRawLogId?: string) => {
       setIsGlobalSaving(true);
       
+      const backupId = crypto.randomUUID();
+      
       const itemsWithMetadata = newItems.map(item => ({
           ...item,
-          id: crypto.randomUUID(),
+          id: item.id || crypto.randomUUID(),
+          sourceBackupId: backupId,
           createdBy: user?.displayName || 'Unknown',
           lastModifiedAt: new Date().toISOString(),
           editHistory: [],
@@ -154,6 +157,7 @@ const App = () => {
           }
       }));
       
+      const currentEntries = currentReportId ? (reports.find(r => r.id === currentReportId)?.entries || []) : [];
       const updatedEntries = [...currentEntries, ...itemsWithMetadata];
       setCurrentEntries(updatedEntries);
       
@@ -179,9 +183,10 @@ const App = () => {
       };
 
       try {
-          await saveReportToCloud(reportData);
+          // Save the backup first with the LINKED items (that have backupId set)
+          await savePermanentBackup(currentDate, rawText, itemsWithMetadata, user?.displayName || 'Unknown', reportId, backupId);
           
-          const backupId = await savePermanentBackup(currentDate, rawText, newItems, user?.displayName || 'Unknown', reportId);
+          await saveReportToCloud(reportData);
           
           const locs = Array.from(new Set(newItems.map(i => i.location)));
           const comps = Array.from(new Set(newItems.filter(i => i.component).map(i => i.component!)));

@@ -93,38 +93,38 @@ export const ReportTable: React.FC<ReportTableProps> = ({
 
   const downloadAllPhotos = async () => {
       const zip = new JSZip();
+      let addedAny = false;
       
       const downloadPromises = photos.map(async (photo) => {
-          return new Promise<void>((resolve) => {
-              const xhr = new XMLHttpRequest();
-              xhr.open("GET", photo.url);
-              xhr.responseType = "blob";
-              xhr.onload = () => {
-                  if (xhr.status === 200) {
-                      zip.file(`${photo.id}.jpg`, xhr.response);
-                  } else {
-                      console.error(`Failed to download photo ${photo.id}: Status ${xhr.status}`);
-                  }
-                  resolve();
-              };
-              xhr.onerror = () => {
-                  console.error(`Failed to download photo ${photo.id}: CORS or network error`);
-                  resolve();
-              };
-              xhr.send();
-          });
+          try {
+              const response = await fetch(photo.url, { mode: 'cors' });
+              if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+              const blob = await response.blob();
+              zip.file(`${photo.id}.jpg`, blob);
+              addedAny = true;
+          } catch (err) {
+              console.error(`Failed to download photo ${photo.id}:`, err);
+          }
       });
       
       await Promise.all(downloadPromises);
+      
+      if (!addedAny) {
+          alert("Could not download any photos. This might be due to CORS or network issues.");
+          return;
+      }
       
       const content = await zip.generateAsync({ type: "blob" });
       saveAs(content, `report_photos_${report.date}.zip`);
   };
 
   const [exportPhotos, setExportPhotos] = useState<Record<string, string>>({});
+  const [printingMode, setPrintingMode] = useState<'all' | 'no-photos'>('all');
 
   const preparePhotosForExport = async () => {
     const loadedPhotos: Record<string, string> = {};
+    if (printingMode === 'no-photos') return loadedPhotos;
+    
     const fetchPromises = photos.map(async (photo) => {
       try {
         // Fetch the image with a cache-buster and CORS mode
@@ -239,10 +239,16 @@ export const ReportTable: React.FC<ReportTableProps> = ({
   const exportToImage = async () => {
       if (!reportRef.current) return;
       setIsPrinting(true);
+      setPrintingMode('no-photos'); // As requested: JPG export should not include photos
+      
       const base64Photos = await preparePhotosForExport();
 
       setTimeout(async () => {
           if (!reportRef.current) return;
+          
+          // Double check if elements are hidden
+          const photosSection = reportRef.current.querySelector('.photos-section');
+          if (photosSection) (photosSection as HTMLElement).style.display = 'none';
 
           // --- INTENSE IMAGE LOADING VERIFICATION ---
           const images = reportRef.current.querySelectorAll('img');
@@ -269,10 +275,12 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                   link.download = `DPR_${report.date}.jpg`;
                   link.href = canvas.toDataURL('image/jpeg', 0.98);
                   link.click();
-                  setIsPrinting(false);
               }).catch(err => {
                   console.error("html2canvas export error:", err);
+              }).finally(() => {
                   setIsPrinting(false);
+                  setPrintingMode('all');
+                  if (photosSection) (photosSection as HTMLElement).style.display = 'block';
               });
           });
       }, 250);
@@ -419,8 +427,8 @@ export const ReportTable: React.FC<ReportTableProps> = ({
           </div>
         )}
 
-        {photos.length > 0 && (
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full mt-6 avoid-break">
+        {photos.length > 0 && printingMode !== 'no-photos' && (
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full mt-6 avoid-break photos-section">
                 <div className="flex justify-between items-center mb-6">
                     <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest">Site Activity Photos</label>
                     {!isPrinting && (

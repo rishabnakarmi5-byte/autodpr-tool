@@ -408,9 +408,9 @@ export const restoreTrashItem = async (item: TrashItem) => {
 
 // --- Permanent Backups ---
 
-export const savePermanentBackup = async (date: string, rawText: string, parsedItems: DPRItem[], user: string, reportIdContext: string) => {
+export const savePermanentBackup = async (date: string, rawText: string, parsedItems: DPRItem[], user: string, reportIdContext: string, manualId?: string) => {
     if (!db) return null;
-    const id = crypto.randomUUID();
+    const id = manualId || crypto.randomUUID();
     const backup: BackupEntry = {
         id,
         date,

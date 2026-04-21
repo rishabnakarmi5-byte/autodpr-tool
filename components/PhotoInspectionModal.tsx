@@ -47,6 +47,17 @@ export const PhotoInspectionModal: React.FC<PhotoInspectionModalProps> = ({
     window.URL.revokeObjectURL(url);
   };
 
+  const handleDeletePhoto = async () => {
+    if (!confirm("PERMANENTLY DELETE this photo from the database and storage? This cannot be undone.")) return;
+    
+    // Use the photoService to delete it completely
+    const { deletePhotoCompletely } = await import('../services/photoService');
+    await deletePhotoCompletely(photo.id, photo.url);
+    
+    // Update local state by closing the modal
+    onClose();
+  };
+
   // Robust association lookup: Search all reports for this photo ID
   // This ensures that even if photo.associatedMasterRecordIds is out of sync, we find them.
   const associations = reports.reduce((acc, report) => {
@@ -126,6 +137,13 @@ export const PhotoInspectionModal: React.FC<PhotoInspectionModalProps> = ({
                  title="Download Original"
                >
                  <i className="fas fa-download text-lg"></i>
+               </button>
+               <button 
+                 onClick={handleDeletePhoto}
+                 className="w-12 h-12 bg-red-500/20 hover:bg-red-500/80 backdrop-blur-md rounded-full flex items-center justify-center text-white transition-all border border-red-500/30 shadow-xl"
+                 title="Delete Photo Permanently"
+               >
+                 <i className="fas fa-trash-alt text-lg"></i>
                </button>
              </div>
           </div>

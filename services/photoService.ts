@@ -1,5 +1,5 @@
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { getFirestore, collection, doc, setDoc, updateDoc, arrayUnion, getDoc, getDocs, query, where } from "firebase/firestore";
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { getFirestore, collection, doc, setDoc, updateDoc, arrayUnion, getDoc, getDocs, query, where, deleteDoc } from "firebase/firestore";
 import { Photo, DPRItem } from "../types";
 
 const storage = getStorage();
@@ -84,6 +84,42 @@ export const updatePhotoRotation = async (photoId: string, rotation: number) => 
 export const updatePhotoCaption = async (photoId: string, caption: string) => {
     const photoRef = doc(db, PHOTO_COLLECTION, photoId);
     await updateDoc(photoRef, { caption });
+};
+
+export const deletePhotoCompletely = async (photoId: string, photoUrl: string) => {
+    if (!db) return;
+    
+    // 1. Delete from Firestore
+    await deleteDoc(doc(db, PHOTO_COLLECTION, photoId));
+    
+    // 2. Delete from Storage
+    try {
+        const storageRef = ref(storage, photoUrl); // getDownloadURL doesn't directly map to ref usually, but if it's the full path it might.
+        // Better: parse path from URL or use a known path format
+        // In our upload, we use `photos/${photoId}.jpg`
+        const actualStorageRef = ref(storage, `photos/${photoId}.jpg`);
+        await deleteObject(actualStorageRef);
+    } catch (err) {
+        console.warn("Storage deletion failed (might already be gone):", err);
+    }
+    
+    // 3. Remove photoId from all DailyReports
+    const reportsSnap = await getDocs(collection(db, "daily_reports"));
+    for (const reportDoc of reportsSnap.docs) {
+        const report = reportDoc.data() as any;
+        let modified = false;
+        const newEntries = report.entries.map((item: any) => {
+            if (item.photoIds?.includes(photoId)) {
+                modified = true;
+                return { ...item, photoIds: item.photoIds.filter((id: string) => id !== photoId) };
+            }
+            return item;
+        });
+        
+        if (modified) {
+            await updateDoc(reportDoc.ref, { entries: newEntries });
+        }
+    }
 };
 
 export const uploadPhoto = async (file: File, uploaderId: string, masterRecord: DPRItem): Promise<Photo> => {

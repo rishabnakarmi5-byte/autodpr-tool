@@ -72,16 +72,21 @@ export const PhotoGalleryView: React.FC<PhotoGalleryViewProps> = ({ reports, onI
     try {
       for (let i = 0; i < filteredPhotos.length; i++) {
         const photo = filteredPhotos[i];
-        const res = await fetch(photo.url);
-        const blob = await res.blob();
-        folder?.file(`Photo_${photo.location}_${photo.date}_${photo.id.split('-')[1] || photo.id.split('-')[0]}.jpg`, blob);
+        try {
+          const res = await fetch(photo.url, { mode: 'cors' });
+          if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+          const blob = await res.blob();
+          folder?.file(`Photo_${photo.location}_${photo.date}_${photo.id.substring(0, 8)}.jpg`, blob);
+        } catch (err) {
+          console.error(`Failed to download photo ${photo.id}:`, err);
+        }
         setDownloadProgress(Math.round(((i + 1) / filteredPhotos.length) * 100));
       }
-      const content = await zip.generateAsync({ type: 'blob' });
-      saveAs(content, `Photos_Batch_${filteredPhotos.length}_items.zip`);
+      const zipContent = await zip.generateAsync({ type: 'blob' });
+      saveAs(zipContent, `DPR_Photos_${filteredPhotos.length}_items.zip`);
     } catch (error) {
-      console.error("Batch download failed:", error);
-      alert("Failed to download some images.");
+      console.error("Batch download process failed:", error);
+      alert("Failed to create zip package. Check console for details.");
     } finally {
       setIsDownloadingAll(false);
       setDownloadProgress(0);

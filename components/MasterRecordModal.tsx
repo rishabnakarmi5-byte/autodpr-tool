@@ -54,7 +54,25 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, repo
         if (b) { setSourceBackup(b); setLoadingSource(false); return; }
       }
       const recentBackups = await getBackups(30);
-      const found = recentBackups.find(b => b.rawInput.toLowerCase().includes(item.activityDescription.toLowerCase().substring(0, 20)) || b.parsedItems.some(p => p.id === item.id));
+      const found = recentBackups.find(b => {
+          // 1. Precise ID match (Gold standard)
+          if (b.parsedItems?.some(p => p.id === item.id)) return true;
+          
+          // 2. Fuzzy match on description keywords
+          const rawLC = b.rawInput.toLowerCase();
+          const descLC = item.activityDescription.toLowerCase();
+          
+          // Extract meaningful keywords (words > 3 chars)
+          const keywords = descLC.split(/[\s,()]+/).filter(w => w.length > 3);
+          const matchesKeywords = keywords.length > 0 && keywords.every(k => rawLC.includes(k));
+          
+          // Fallback: Check if location and component match the context headers usually used (--- CONTEXT: Loc > Comp ---)
+          const locLC = item.location.toLowerCase();
+          const compLC = (item.component || '').toLowerCase();
+          const matchesContext = rawLC.includes(locLC) && (compLC ? rawLC.includes(compLC) : true);
+          
+          return matchesKeywords || matchesContext || rawLC.includes(descLC.substring(0, 15));
+      });
       if (found) setSourceBackup(found);
     } catch (e) {
       console.error("Source fetch failed:", e);
