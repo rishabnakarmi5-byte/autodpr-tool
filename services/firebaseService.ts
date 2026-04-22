@@ -5,7 +5,32 @@ import * as _auth from "firebase/auth";
 import * as _storage from "firebase/storage";
 import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry, ProjectSettings, UserProfile, LiningEntry, SystemCheckpoint, TrainingExample, UserMood } from "../types";
 import { LOCATION_HIERARCHY, identifyItemType, parseQuantityDetails } from "../utils/constants";
-import firebaseConfig from "../firebase-applet-config.json";
+
+// Configuration Loader: Now relies solely on Environment Variables to protect keys from GitHub
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID
+};
+
+// Diagnostic Logging (Safe)
+console.log("Firebase Initialization Diagnostic:", {
+    hasApiKey: !!firebaseConfig.apiKey,
+    keyStart: firebaseConfig.apiKey ? firebaseConfig.apiKey.substring(0, 8) + "..." : "MISSING",
+    projectId: firebaseConfig.projectId || "MISSING",
+    authDomain: firebaseConfig.authDomain || "MISSING",
+    hasDatabaseId: !!firebaseConfig.firestoreDatabaseId
+});
+
+export const isConfigured = !!firebaseConfig.apiKey;
+
+if (!isConfigured) {
+  console.error("Firebase Configuration Error: VITE_FIREBASE_API_KEY is missing. Please set your Firebase secrets in the App Settings menu.");
+}
 
 // Workaround for potential type definition mismatches
 const { initializeApp } = _app as any;
@@ -19,7 +44,6 @@ let auth: any;
 let storage: any;
 
 export const missingKeys: string[] = [];
-export const isConfigured = true;
 
 try {
   app = initializeApp(firebaseConfig);
