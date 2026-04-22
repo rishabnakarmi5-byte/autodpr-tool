@@ -10,9 +10,10 @@ interface PhotoGalleryViewProps {
   reports: DailyReport[];
   onInspectItem: (item: DPRItem) => void;
   onUpdateReport?: (itemId: string, updates: Partial<DPRItem>) => void;
+  hierarchy: Record<string, string[]>;
 }
 
-export const PhotoGalleryView: React.FC<PhotoGalleryViewProps> = ({ reports, onInspectItem, onUpdateReport }) => {
+export const PhotoGalleryView: React.FC<PhotoGalleryViewProps> = ({ reports, onInspectItem, onUpdateReport, hierarchy }) => {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
@@ -76,7 +77,9 @@ export const PhotoGalleryView: React.FC<PhotoGalleryViewProps> = ({ reports, onI
       
     const caption = !isDefaultCaption 
       ? photo.caption 
-      : (photo.metadataSnapshot?.activityDescription || firstItem?.activityDescription || 'Untitled Site Photo');
+      : (firstItem 
+          ? `${firstItem.location} > ${firstItem.component || 'Unclassified'}`
+          : (photo.metadataSnapshot?.activityDescription || 'Untitled Site Photo'));
 
     return { location, component, caption, associationsCount: associations.length };
   };
@@ -318,6 +321,7 @@ export const PhotoGalleryView: React.FC<PhotoGalleryViewProps> = ({ reports, onI
         <PhotoInspectionModal 
             photo={selectedPhoto}
             reports={reports}
+            hierarchy={hierarchy}
             onClose={() => setSelectedPhoto(null)}
             onInspectItem={onInspectItem}
             onUpdatePhoto={(updated) => setPhotos(prev => prev.map(p => p.id === updated.id ? updated : p))}

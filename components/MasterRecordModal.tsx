@@ -363,6 +363,7 @@ export const MasterRecordModal: React.FC<MasterRecordModalProps> = ({ item, repo
             <PhotoInspectionModal 
                photo={selectedPhoto}
                reports={reports}
+               hierarchy={hierarchy}
                onClose={() => setSelectedPhoto(null)}
                onInspectItem={(item) => {
                    if (item.id === localItem.id) {

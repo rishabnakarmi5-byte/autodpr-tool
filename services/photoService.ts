@@ -146,6 +146,7 @@ export const uploadPhoto = async (file: File, uploaderId: string, masterRecord: 
         date: masterRecord.date || new Date().toISOString().split('T')[0],
         location: masterRecord.location,
         component: masterRecord.component || 'N/A',
+        caption: `${masterRecord.location} > ${masterRecord.component || 'Unclassified'}`,
         metadataSnapshot: masterRecord
     };
     

@@ -4,11 +4,82 @@ import { DPRItem, TrainingExample } from "../types";
 import { LOCATION_HIERARCHY, identifyItemType, ITEM_PATTERNS, toTitleCase } from "../utils/constants";
 import { getTrainingExamples } from "./firebaseService";
 
-const API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.API_KEY || '';
 // Using gemini-3-flash-preview for high-speed, high-accuracy extraction
-const MODEL_NAME = process.env.MODEL_NAME || 'gemini-3-flash-preview';
+const MODEL_NAME = import.meta.env.VITE_MODEL_NAME || process.env.MODEL_NAME || 'gemini-3-flash-preview';
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
+
+/**
+ * AI-powered photo analysis to extract location, component, and activity.
+ * Prioritizes location and component over activity.
+ */
+export const analyzePhoto = async (
+  imageDataB64: string,
+  mimeType: string,
+  hierarchy: Record<string, string[]>
+): Promise<{ location: string; component: string; activity: string; caption: string }> => {
+  const hierarchyStr = Object.entries(hierarchy)
+    .map(([loc, comps]) => `- ${loc}: ${comps.join(', ')}`)
+    .join('\n');
+
+  const prompt = `
+    Analyze this construction site photo.
+    
+    STRICT HIERARCHY (Only choose from these if possible):
+    ${hierarchyStr}
+    
+    TASK:
+    1. Identify the 'location' from the hierarchy.
+    2. Identify the 'component' within that location.
+    3. Describe the 'activity' being performed (e.g., Concreting, Rebar tying, Excavation).
+    
+    PRIORITIZATION RULE:
+    Your focus is primarily on determining the EXACT Location and Component. The activity is secondary.
+    
+    OUTPUT FORMAT:
+    Return ONLY JSON with these keys: "location", "component", "activity", "caption".
+    The "caption" field should be formatted as: "{location} > {component}: {activity}"
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: MODEL_NAME,
+      contents: {
+        parts: [
+          { inlineData: { data: imageDataB64, mimeType } },
+          { text: prompt }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            location: { type: Type.STRING },
+            component: { type: Type.STRING },
+            activity: { type: Type.STRING },
+            caption: { type: Type.STRING }
+          },
+          required: ["location", "component", "activity", "caption"]
+        }
+      }
+    });
+
+    if (response.text) {
+      return JSON.parse(response.text);
+    }
+  } catch (error) {
+    console.error("Photo Analysis Error:", error);
+  }
+  
+  return { 
+    location: "Unknown", 
+    component: "Unknown", 
+    activity: "Site Photo", 
+    caption: "Untitled Site Photo" 
+  };
+};
 
 // --- UTILITY: Retry with Exponential Backoff & Timeout ---
 async function generateContentWithRetry(params: any, retries = 2, timeoutMs = 35000): Promise<any> {

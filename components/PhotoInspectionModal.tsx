@@ -6,6 +6,7 @@ import { updatePhotoRotation, updatePhotoCaption, deletePhotoAssociation, update
 interface PhotoInspectionModalProps {
   photo: Photo;
   reports: DailyReport[];
+  hierarchy: Record<string, string[]>;
   onClose: () => void;
   onInspectItem: (item: DPRItem) => void;
   onUpdatePhoto?: (photo: Photo) => void;
@@ -15,6 +16,7 @@ interface PhotoInspectionModalProps {
 export const PhotoInspectionModal: React.FC<PhotoInspectionModalProps> = ({ 
   photo, 
   reports, 
+  hierarchy,
   onClose, 
   onInspectItem,
   onUpdatePhoto,
@@ -119,8 +121,11 @@ export const PhotoInspectionModal: React.FC<PhotoInspectionModalProps> = ({
     if (!firstAssociation) return;
     
     setIsSyncing(true);
+    // Simplified caption: "Location > Component"
+    const newCaption = `${firstAssociation.item.location} > ${firstAssociation.item.component || 'Unclassified'}`;
+    
     const updates: Partial<Photo> = {
-      caption: firstAssociation.item.activityDescription,
+      caption: newCaption,
       location: firstAssociation.item.location,
       component: firstAssociation.item.component
     };
@@ -198,22 +203,24 @@ export const PhotoInspectionModal: React.FC<PhotoInspectionModalProps> = ({
           </div>
           
           <div className="p-6 bg-white/5 backdrop-blur-xl border-t border-white/10">
-             <div className="flex items-center justify-between gap-3 mb-2">
+              <div className="flex items-center justify-between gap-3 mb-2">
                 <div className="flex items-center gap-3">
                   <span className="px-2 py-0.5 bg-indigo-500 text-white text-[10px] font-black rounded uppercase">Source</span>
                   <span className="text-white/60 text-xs font-mono">{localPhoto.date || 'Unknown Date'}</span>
                 </div>
-                {associations.length > 0 && (
-                  <button 
-                    onClick={handleSyncWithFirstAssociation}
-                    disabled={isSyncing}
-                    className="text-[10px] font-black uppercase text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                  >
-                    <i className={`fas ${isSyncing ? 'fa-spinner fa-spin' : 'fa-magic'}`}></i>
-                    {isSyncing ? 'Syncing...' : 'Auto-fill from Master'}
-                  </button>
-                )}
-             </div>
+                <div className="flex gap-4">
+                  {associations.length > 0 && (
+                    <button 
+                      onClick={handleSyncWithFirstAssociation}
+                      disabled={isSyncing}
+                      className="text-[10px] font-black uppercase text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    >
+                      <i className={`fas ${isSyncing ? 'fa-spinner fa-spin' : 'fa-sync'}`}></i>
+                      {isSyncing ? 'Syncing...' : 'Sync with Master Record'}
+                    </button>
+                  )}
+                </div>
+              </div>
              <input 
                 type="text"
                 value={localPhoto.caption || ''}

@@ -709,7 +709,7 @@ const App = () => {
           case TabView.PROFILE:
              return <ProfileView user={user} />;
           case TabView.PHOTOS:
-             return <PhotoGalleryView reports={reports} onInspectItem={setInspectItem} onUpdateReport={handleUpdateItem} />;
+             return <PhotoGalleryView reports={reports} onInspectItem={setInspectItem} onUpdateReport={handleUpdateItem} hierarchy={hierarchy} />;
           default:
              return null;
       }

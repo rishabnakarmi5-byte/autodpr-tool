@@ -5,12 +5,11 @@ import { DailyReport, DPRItem, Photo } from '../types';
 import { getNepaliDate } from '../utils/nepaliDate';
 import { RawInputsModal } from './RawInputsModal';
 import { PhotoInspectionModal } from './PhotoInspectionModal';
-import { collection, query, where, onSnapshot, getFirestore, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { db } from '../services/firebaseService';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import html2pdf from 'html2pdf.js';
-
-const db = getFirestore();
 
 interface ReportTableProps {
   report: DailyReport;
@@ -58,7 +57,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({
   const reportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const photoIds = report.entries.flatMap(e => e.photoIds || []);
+    const photoIds = Array.from(new Set(report.entries.flatMap(e => e.photoIds || [])));
     if (photoIds.length === 0) {
         setPhotos([]);
         return;
@@ -449,7 +448,11 @@ export const ReportTable: React.FC<ReportTableProps> = ({
                               />
                             </div>
                             <div className={`w-full font-bold text-slate-700 bg-slate-50 p-4 rounded-xl text-center border border-slate-100 ${isPrinting ? 'text-lg' : 'text-lg'}`}>
-                                {photo.caption || `${report.entries.find(e => e.photoIds?.includes(photo.id))?.location || 'Location'} -> ${report.entries.find(e => e.photoIds?.includes(photo.id))?.component || 'Component'}`}
+                                {photo.caption || (() => {
+                                    const item = report.entries.find(e => e.photoIds?.includes(photo.id));
+                                    if (!item) return 'Site Activity Photo';
+                                    return `${item.location} > ${item.component || 'Unclassified'}`;
+                                })()}
                             </div>
                         </div>
                     ))}
