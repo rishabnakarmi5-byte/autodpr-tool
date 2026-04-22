@@ -121,7 +121,7 @@ export const ITEM_PATTERNS = [
   { name: "Gabion", pattern: /\b(gabion)\b/i, defaultUnit: 'm3' },
   { name: "Grouting", pattern: /\b(grouting|cement\s+consumption|bags|consolidation|contact)\b/i, defaultUnit: 'nos' },
   { name: "HDPE Pipe", pattern: /\b(hdpe|pipe)\b/i, defaultUnit: 'rm' },
-  { name: "C25 Concrete", pattern: /\b(concrete|concreting|conc\.?|rcc|lining)\b/i, defaultUnit: 'm3' },
+  { name: "Concrete (General)", pattern: /\b(concrete|concreting|conc\.?|rcc|lining)\b/i, defaultUnit: 'm3' },
 ];
 
 export const identifyItemType = (text: string, customItems?: any[]): string => {
