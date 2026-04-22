@@ -24,12 +24,11 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const [instructions, setInstructions] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pendingPhotos, setPendingPhotos] = useState<File[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [aiLocations, setAiLocations] = useState<string[]>([]);
   const [aiComponents, setAiComponents] = useState<string[]>([]);
   const [contextTexts, setContextTexts] = useState<Record<string, string>>({ "General:General": "" });
+  const [contextPhotos, setContextPhotos] = useState<Record<string, File[]>>({});
   const [modalStep, setModalStep] = useState<number>(0);
 
   const activeContexts = useMemo(() => {
@@ -66,36 +65,43 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
     setIsProcessing(true);
     setError(null);
 
-    const aggregatedRaw = entriesToProcess.map(ctx => {
-        const text = contextTexts[`${ctx.loc}:${ctx.comp}`];
-        return `--- CONTEXT: ${ctx.loc} > ${ctx.comp} ---\n${text}`;
-    }).join('\n\n');
-
-    // LOG IMMEDIATELY BEFORE AI CALL
-    let logId: string | undefined = undefined;
     try {
-        logId = await saveRawInput(
-            aggregatedRaw,
-            currentDate,
-            aiLocations.length > 0 ? aiLocations : ["General"],
-            aiComponents,
-            user?.displayName || 'Unknown',
-            'processing'
-        );
-    } catch (logErr) {
-        console.warn("Failed to log raw input pre-processing", logErr);
-    }
+      // 1. Upload photos per context
+      const contextPhotoIdMap: Record<string, string[]> = {};
+      const allBatchPhotoIds: string[] = [];
 
-    try {
-      // Upload and associate photos
-      const photoIds: string[] = [];
-      if (pendingPhotos.length > 0) {
-          for (const file of pendingPhotos) {
-              const photo = await uploadPhoto(file, user.uid, {} as DPRItem);
-              photoIds.push(photo.id);
+      for (const ctx of entriesToProcess) {
+          const key = `${ctx.loc}:${ctx.comp}`;
+          const files = contextPhotos[key] || [];
+          if (files.length > 0) {
+              const ids: string[] = [];
+              for (const file of files) {
+                  const photo = await uploadPhoto(file, user.uid, {} as DPRItem);
+                  ids.push(photo.id);
+                  allBatchPhotoIds.push(photo.id);
+              }
+              contextPhotoIdMap[key] = ids;
           }
-          setPendingPhotos([]);
-          if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+
+      const aggregatedRaw = entriesToProcess.map(ctx => {
+          const text = contextTexts[`${ctx.loc}:${ctx.comp}`];
+          return `--- CONTEXT: ${ctx.loc} > ${ctx.comp} ---\n${text}`;
+      }).join('\n\n');
+
+      // LOG IMMEDIATELY BEFORE AI CALL
+      let logId: string | undefined = undefined;
+      try {
+          logId = await saveRawInput(
+              aggregatedRaw,
+              currentDate,
+              aiLocations.length > 0 ? aiLocations : ["General"],
+              aiComponents,
+              user?.displayName || 'Unknown',
+              'processing'
+          );
+      } catch (logErr) {
+          console.warn("Failed to log raw input pre-processing", logErr);
       }
 
       const { items } = await parseConstructionData(
@@ -107,35 +113,38 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
         customItemTypes
       );
       
-      const stamped = items.map(item => ({ 
-          ...item, 
-          id: crypto.randomUUID(), 
-          createdBy: user?.displayName || user?.email || 'AI',
-          lastModifiedAt: new Date().toISOString(),
-          editHistory: [],
-          creationDetails: {
-              userId: user?.uid || 'Unknown',
-              userName: user?.displayName || 'Unknown',
-              timestamp: new Date().toISOString()
-          },
-          photoIds: photoIds
-      })) as DPRItem[];
+      const stamped = items.map(item => {
+          const key = `${item.location}:${item.component}`;
+          const specificPhotoIds = contextPhotoIdMap[key] || [];
 
-      await onItemsAdded(stamped, aggregatedRaw, photoIds, logId);
+          return { 
+              ...item, 
+              id: crypto.randomUUID(), 
+              createdBy: user?.displayName || user?.email || 'AI',
+              lastModifiedAt: new Date().toISOString(),
+              editHistory: [],
+              creationDetails: {
+                  userId: user?.uid || 'Unknown',
+                  userName: user?.displayName || 'Unknown',
+                  timestamp: new Date().toISOString()
+              },
+              photoIds: specificPhotoIds
+          };
+      }) as DPRItem[];
+
+      await onItemsAdded(stamped, aggregatedRaw, allBatchPhotoIds, logId);
       
       const newTexts = { ...contextTexts };
       entriesToProcess.forEach(ctx => {
         newTexts[`${ctx.loc}:${ctx.comp}`] = "";
       });
       setContextTexts(newTexts);
+      setContextPhotos({});
       
       setModalStep(1);
     } catch (err: any) {
       console.error("AI Error:", err);
       setError(`Parsing failed: ${err.message || "Unknown error"}. Check activity logs.`);
-      if (logId) {
-          await updateRawInputStatus(logId, 'failed', err.message);
-      }
     } finally {
       setIsProcessing(false);
     }
@@ -282,6 +291,48 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                                     placeholder={isGeneral ? "Enter overall site updates..." : `Enter activities for ${ctx.comp}...`}
                                     className="w-full h-32 p-5 bg-transparent focus:bg-white outline-none text-sm font-medium transition-all placeholder:text-slate-300 font-mono"
                                  />
+                                 
+                                 <div className="p-4 border-t border-slate-100 bg-white/50">
+                                    <div className="flex flex-wrap gap-2 mb-3">
+                                      {contextPhotos[key]?.map((file, i) => (
+                                        <div key={i} className="relative group animate-scale-in">
+                                          <div className="w-14 h-14 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden shadow-sm">
+                                            <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" />
+                                          </div>
+                                          <button 
+                                            onClick={() => {
+                                              setContextPhotos(prev => ({
+                                                ...prev,
+                                                [key]: prev[key].filter((_, index) => index !== i)
+                                              }));
+                                            }}
+                                            className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] shadow-lg transform scale-0 group-hover:scale-100 transition-all border-2 border-white"
+                                          >
+                                            <i className="fas fa-times"></i>
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <label className="inline-flex items-center gap-2.5 text-indigo-600 hover:text-indigo-700 cursor-pointer transition-all bg-indigo-50 hover:bg-indigo-100 px-4 py-2 rounded-xl group/btn">
+                                       <i className="fas fa-camera text-sm group-hover/btn:scale-110 transition-transform"></i>
+                                       <span className="text-[10px] font-black uppercase tracking-wider">Add Photos</span>
+                                       <input 
+                                         type="file" 
+                                         multiple 
+                                         accept="image/*" 
+                                         className="hidden" 
+                                         onChange={e => {
+                                           const files = Array.from(e.target.files || []);
+                                           setContextPhotos(prev => ({
+                                             ...prev,
+                                             [key]: [...(prev[key] || []), ...files]
+                                           }));
+                                           // Reset input so same files can be selected if needed
+                                           e.target.value = '';
+                                         }} 
+                                       />
+                                    </label>
+                                 </div>
                                </div>
                              );
                           })}
@@ -294,14 +345,6 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                             {error}
                         </div>
                     )}
-
-                    <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
-                        <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Add Photos (Optional)</label>
-                        <input type="file" multiple accept="image/*" ref={fileInputRef} onChange={e => setPendingPhotos(Array.from(e.target.files || []))} className="hidden" />
-                        <button onClick={() => fileInputRef.current?.click()} className="w-full border-2 border-dashed border-slate-300 rounded-xl py-4 text-slate-500 font-bold text-sm hover:border-indigo-400 hover:text-indigo-600 transition-all">
-                            <i className="fas fa-camera mr-2"></i> {pendingPhotos.length > 0 ? `${pendingPhotos.length} photos selected` : 'Select Photos'}
-                        </button>
-                    </div>
 
                     <button 
                         onClick={handleProcessAndAdd} 
