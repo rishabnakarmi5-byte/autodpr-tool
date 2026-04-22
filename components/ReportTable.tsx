@@ -110,7 +110,7 @@ export const ReportTable: React.FC<ReportTableProps> = ({
       await Promise.all(downloadPromises);
       
       if (!addedAny) {
-          alert("Could not download any photos. This might be due to CORS or network issues.");
+          alert("CRITICAL ERROR: Could not download any photos.\n\nThis is a SECURITY SETTING error. You must authorize your app domain in Firebase Storage CORS settings.\n\nInstructions:\n1. Open Google Cloud Shell (in Firebase/GCP Console)\n2. Copy the bucket name from Storage tab\n3. Run: gsutil cors set cors-json-file gs://your-bucket-name\n\nContact admin for more details.");
           return;
       }
       

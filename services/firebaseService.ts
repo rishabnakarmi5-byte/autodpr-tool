@@ -2,52 +2,43 @@
 import * as _app from "firebase/app";
 import * as _firestore from "firebase/firestore";
 import * as _auth from "firebase/auth";
+import * as _storage from "firebase/storage";
 import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry, ProjectSettings, UserProfile, LiningEntry, SystemCheckpoint, TrainingExample, UserMood } from "../types";
 import { LOCATION_HIERARCHY, identifyItemType, parseQuantityDetails } from "../utils/constants";
+import firebaseConfig from "../firebase-applet-config.json";
 
 // Workaround for potential type definition mismatches
 const { initializeApp } = _app as any;
 const { getFirestore, collection, doc, setDoc, deleteDoc, addDoc, getDoc, getDocs, onSnapshot, query, orderBy, limit, updateDoc, arrayUnion, where, increment, serverTimestamp, writeBatch, initializeFirestore } = _firestore as any;
 const { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } = _auth as any;
-
-// Your web app's Firebase configuration
-const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.FIREBASE_APP_ID,
-  measurementId: process.env.measurementId
-};
-
-export const missingKeys = Object.entries(firebaseConfig)
-  .filter(([key, value]) => !value && key !== 'measurementId') 
-  .map(([key]) => key);
-
-if (missingKeys.length > 0) {
-  console.error(`Firebase Configuration Error: Missing: ${missingKeys.join(', ')}.`);
-}
-
-export const isConfigured = missingKeys.length === 0;
+const { getStorage } = _storage as any;
 
 let app;
 let db: any;
 let auth: any;
+let storage: any;
 
-if (isConfigured) {
-  try {
-    app = initializeApp(firebaseConfig);
-    // Initialize Firestore with settings to ignore undefined properties
-    db = initializeFirestore(app, { ignoreUndefinedProperties: true });
-    auth = getAuth(app);
-    console.log("Firebase initialized.");
-  } catch (error) {
-    console.error("Failed to initialize Firebase:", error);
-  }
+export const missingKeys: string[] = [];
+export const isConfigured = true;
+
+try {
+  app = initializeApp(firebaseConfig);
+  // Initialize Firestore with settings to ignore undefined properties
+  db = initializeFirestore(app, { 
+    ignoreUndefinedProperties: true 
+  }, (firebaseConfig as any).firestoreDatabaseId);
+  auth = getAuth(app);
+  storage = getStorage(app);
+  console.log("Firebase initialized with project configuration.");
+} catch (error) {
+  console.error("Failed to initialize Firebase:", error);
 }
 
-enum OperationType {
+export { db, auth, storage };
+
+// --- Operation Type & Quota Management ---
+
+export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
   DELETE = 'delete',
@@ -55,6 +46,42 @@ enum OperationType {
   GET = 'get',
   WRITE = 'write',
 }
+
+export const LOCAL_PENDING_KEY = 'dpr_pending_sync';
+
+export interface PendingWrite {
+  id: string;
+  type: OperationType;
+  collection: string;
+  docId: string;
+  data: any;
+  timestamp: string;
+  description: string;
+}
+
+let quotaExceededCallback: ((exceeded: boolean) => void) | null = null;
+export const onQuotaStatusChange = (cb: (exceeded: boolean) => void) => {
+  quotaExceededCallback = cb;
+};
+
+// Internal queue management
+const saveToLocalQueue = (write: PendingWrite) => {
+  const existing = JSON.parse(localStorage.getItem(LOCAL_PENDING_KEY) || '[]');
+  // Avoid duplicates for same docId and type
+  const filtered = existing.filter((w: PendingWrite) => !(w.docId === write.docId && w.type === write.type));
+  filtered.push(write);
+  localStorage.setItem(LOCAL_PENDING_KEY, JSON.stringify(filtered));
+  if (quotaExceededCallback) quotaExceededCallback(true);
+};
+
+export const getPendingSyncCount = () => {
+  const items = JSON.parse(localStorage.getItem(LOCAL_PENDING_KEY) || '[]');
+  return items.length;
+};
+
+export const clearLocalQueue = () => {
+  localStorage.removeItem(LOCAL_PENDING_KEY);
+};
 
 interface FirestoreErrorInfo {
   error: string;
@@ -75,9 +102,31 @@ interface FirestoreErrorInfo {
   }
 }
 
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null, data?: any) {
+  const errorMsg = error instanceof Error ? error.message : String(error);
+  const isQuotaError = errorMsg.includes('resource-exhausted') || errorMsg.includes('Quota exceeding') || errorMsg.includes('8 RESOURCE_EXHAUSTED');
+
+  if (isQuotaError && data && path) {
+    console.warn("Quota exceeded. Saving to local storage for future sync.");
+    const collectionName = path.split('/')[0];
+    const docId = path.split('/')[1] || crypto.randomUUID();
+    
+    saveToLocalQueue({
+      id: crypto.randomUUID(),
+      type: operationType,
+      collection: collectionName,
+      docId,
+      data,
+      timestamp: new Date().toISOString(),
+      description: `Pending ${operationType} for ${collectionName}`
+    });
+    
+    if (quotaExceededCallback) quotaExceededCallback(true);
+    return; // Don't throw, let app think it's handled locally
+  }
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errorMsg,
     authInfo: {
       userId: auth?.currentUser?.uid,
       email: auth?.currentUser?.email,
@@ -111,8 +160,48 @@ const LINING_COLLECTION = "lining_data";
 const CHECKPOINT_COLLECTION = "system_checkpoints";
 const TRAINING_COLLECTION = "ai_training_examples";
 const MOOD_COLLECTION = "user_moods";
-const RAW_INPUT_COLLECTION = "raw_inputs"; // New Collection
+const RAW_INPUT_COLLECTION = "raw_inputs"; 
 const SUB_CONTRACTOR_COLLECTION = "sub_contractors";
+
+// --- Sync Tool ---
+export const attemptSyncPendingData = async () => {
+    const pending = JSON.parse(localStorage.getItem(LOCAL_PENDING_KEY) || '[]');
+    if (pending.length === 0) return { success: true, count: 0 };
+
+    console.log(`Attempting to sync ${pending.length} items...`);
+    let failedCount = 0;
+    const remaining: PendingWrite[] = [];
+
+    for (const item of pending) {
+        try {
+            const ref = doc(db, item.collection, item.docId);
+            if (item.type === OperationType.UPDATE) {
+                await updateDoc(ref, item.data);
+            } else {
+                await setDoc(ref, item.data, { merge: true });
+            }
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes('resource-exhausted')) {
+                remaining.push(item);
+                failedCount++;
+            } else {
+                console.error(`Serious failure syncing item ${item.id}:`, err);
+                remaining.push(item);
+                failedCount++;
+            }
+        }
+    }
+
+    if (remaining.length === 0) {
+        localStorage.removeItem(LOCAL_PENDING_KEY);
+        if (failedCount === 0 && quotaExceededCallback) quotaExceededCallback(false);
+        return { success: true, count: pending.length };
+    } else {
+        localStorage.setItem(LOCAL_PENDING_KEY, JSON.stringify(remaining));
+        return { success: false, count: pending.length - failedCount, remaining: failedCount };
+    }
+};
 
 // --- Authentication & Profile ---
 
@@ -124,7 +213,7 @@ export const signInWithGoogle = async () => {
     const userRef = doc(db, USER_COLLECTION, result.user.uid);
     const snap = await getDoc(userRef);
     if (!snap.exists()) {
-      await setDoc(userRef, {
+      const profileData = {
         uid: result.user.uid,
         displayName: result.user.displayName,
         email: result.user.email,
@@ -133,7 +222,12 @@ export const signInWithGoogle = async () => {
         level: 1,
         xp: 0,
         joinedDate: new Date().toISOString()
-      });
+      };
+      try {
+          await setDoc(userRef, profileData);
+      } catch (err) {
+          handleFirestoreError(err, OperationType.CREATE, `${USER_COLLECTION}/${result.user.uid}`, profileData);
+      }
     }
     return result.user;
   } catch (error) {
@@ -166,10 +260,15 @@ export const subscribeToUserProfile = (uid: string, callback: (p: UserProfile | 
 export const incrementUserStats = async (uid: string | undefined, entriesCount: number) => {
     if (!db || !uid) return;
     const userRef = doc(db, USER_COLLECTION, uid);
-    await updateDoc(userRef, {
-        totalEntries: increment(entriesCount),
-        xp: increment(entriesCount * 5)
-    });
+    try {
+        await updateDoc(userRef, {
+            totalEntries: increment(entriesCount),
+            xp: increment(entriesCount * 5)
+        });
+    } catch (err) {
+        // Stats increment is not critical enough for local backup, just log but bypass error
+        console.warn("Stats increment failed (likely quota).");
+    }
 };
 
 // --- User Mood Tracking ---
@@ -185,7 +284,11 @@ export const saveUserMood = async (uid: string, mood: string, note: string) => {
     note,
     timestamp: new Date().toISOString()
   };
-  await setDoc(doc(db, MOOD_COLLECTION, docId), moodData);
+  try {
+      await setDoc(doc(db, MOOD_COLLECTION, docId), moodData);
+  } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `${MOOD_COLLECTION}/${docId}`, moodData);
+  }
 };
 
 export const subscribeToTodayMood = (uid: string, callback: (mood: UserMood | null) => void): any => {
@@ -209,18 +312,30 @@ export const subscribeToReports = (callback: (reports: DailyReport[]) => void): 
   return onSnapshot(q, (snapshot: any) => {
     const reports = snapshot.docs.map((doc: any) => doc.data() as DailyReport);
     callback(reports);
+  }, (err) => {
+      if (err.message.includes('resource-exhausted')) {
+          if (quotaExceededCallback) quotaExceededCallback(true);
+      }
   });
 };
 
 export const saveReportToCloud = async (report: DailyReport) => {
   if (!db) return;
-  const ref = doc(db, REPORT_COLLECTION, report.id);
-  await setDoc(ref, report, { merge: true });
+  try {
+      const ref = doc(db, REPORT_COLLECTION, report.id);
+      await setDoc(ref, report, { merge: true });
+  } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `${REPORT_COLLECTION}/${report.id}`, report);
+  }
 };
 
 export const deleteReportFromCloud = async (reportId: string) => {
     if (!db) return;
-    await deleteDoc(doc(db, REPORT_COLLECTION, reportId));
+    try {
+        await deleteDoc(doc(db, REPORT_COLLECTION, reportId));
+    } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `${REPORT_COLLECTION}/${reportId}`, { id: reportId, deleted: true });
+    }
 };
 
 export const mergeReportsInCloud = async (sourceReportId: string, targetReportId: string) => {
@@ -228,27 +343,32 @@ export const mergeReportsInCloud = async (sourceReportId: string, targetReportId
     const sourceRef = doc(db, REPORT_COLLECTION, sourceReportId);
     const targetRef = doc(db, REPORT_COLLECTION, targetReportId);
     
-    const sourceSnap = await getDoc(sourceRef);
-    const targetSnap = await getDoc(targetRef);
-    
-    if (!sourceSnap.exists() || !targetSnap.exists()) return;
-    
-    const sourceData = sourceSnap.data() as DailyReport;
-    const targetData = targetSnap.data() as DailyReport;
-    
-    const mergedEntries = [...targetData.entries, ...sourceData.entries];
-    
-    await updateDoc(targetRef, {
-        entries: mergedEntries,
-        lastUpdated: new Date().toISOString()
-    });
-    
-    await deleteDoc(sourceRef);
+    try {
+        const sourceSnap = await getDoc(sourceRef);
+        const targetSnap = await getDoc(targetRef);
+        
+        if (!sourceSnap.exists() || !targetSnap.exists()) return;
+        
+        const sourceData = sourceSnap.data() as DailyReport;
+        const targetData = targetSnap.data() as DailyReport;
+        
+        const mergedEntries = [...targetData.entries, ...sourceData.entries];
+        const dataToUpdate = {
+            entries: mergedEntries,
+            lastUpdated: new Date().toISOString()
+        };
+        
+        await updateDoc(targetRef, dataToUpdate);
+        await deleteDoc(sourceRef);
+    } catch (err) {
+        console.error("Merge failed", err);
+        // Not attempting local backup for merge, complex
+    }
 };
 
 export const logMasterRecordChange = async (recordId: string, userId: string, userName: string, field: string, oldValue: string, newValue: string) => {
     if(!db) return;
-    await addDoc(collection(db, MASTER_RECORD_AUDIT_COLLECTION), {
+    const data = {
         recordId,
         userId,
         userName,
@@ -256,7 +376,12 @@ export const logMasterRecordChange = async (recordId: string, userId: string, us
         field,
         oldValue,
         newValue
-    });
+    };
+    try {
+        await addDoc(collection(db, MASTER_RECORD_AUDIT_COLLECTION), data);
+    } catch (err) {
+        // Audit log is secondary, skip backup for now
+    }
 };
 
 // --- Activity Logs & RAW INPUT ---
@@ -272,7 +397,13 @@ export const logActivity = async (user: string, action: string, details: string,
     reportDate
   };
   if(relatedBackupId) entry.relatedBackupId = relatedBackupId;
-  await setDoc(doc(db, LOG_COLLECTION, entry.id), entry);
+  
+  try {
+      await setDoc(doc(db, LOG_COLLECTION, entry.id), entry);
+  } catch (err) {
+      // Local backup for activity logs to ensure history
+      handleFirestoreError(err, OperationType.CREATE, `${LOG_COLLECTION}/${entry.id}`, entry);
+  }
 };
 
 export const subscribeToLogs = (callback: (logs: LogEntry[]) => void): any => {

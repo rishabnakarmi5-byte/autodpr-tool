@@ -48,6 +48,43 @@ const App = () => {
   const [user, setUser] = useState<any | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabView>(() => (localStorage.getItem('activeTab') as TabView) || TabView.INPUT);
+  const [quotaExceeded, setQuotaExceeded] = useState(false);
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
+
+  // Synchronize quota status and local queue
+  useEffect(() => {
+    import('./services/firebaseService').then(({ onQuotaStatusChange, getPendingSyncCount }) => {
+      onQuotaStatusChange((status) => {
+        setQuotaExceeded(status);
+        setPendingSyncCount(getPendingSyncCount());
+      });
+      // Initial check
+      setPendingSyncCount(getPendingSyncCount());
+    });
+
+    // Auto-check for sync every 5 minutes if we have items
+    const interval = setInterval(async () => {
+       const fbService = await import('./services/firebaseService');
+       const count = fbService.getPendingSyncCount();
+       if (count > 0) {
+           await fbService.attemptSyncPendingData();
+           setPendingSyncCount(fbService.getPendingSyncCount());
+       }
+    }, 300000); 
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleManualSync = async () => {
+    const { attemptSyncPendingData, getPendingSyncCount } = await import('./services/firebaseService');
+    const res = await attemptSyncPendingData();
+    setPendingSyncCount(getPendingSyncCount());
+    if (res.success && res.count > 0) {
+       alert(`Successfully synced ${res.count} items!`);
+    } else if (!res.success) {
+       alert(`Database limit is still in effect. Successfully synced ${res.count} items, but ${res.remaining} are still pending.`);
+    }
+  };
   const [reports, setReports] = useState<DailyReport[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
@@ -685,6 +722,9 @@ const App = () => {
         user={user} 
         onLogout={handleLogout}
         onSaveCheckpoint={() => createSystemCheckpoint(user?.displayName || 'User', true)}
+        quotaExceeded={quotaExceeded}
+        pendingSyncCount={pendingSyncCount}
+        onSyncPending={handleManualSync}
     >
         {renderContent()}
         

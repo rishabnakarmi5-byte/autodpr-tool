@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Photo, DailyReport, DPRItem } from '../types';
-import { updatePhotoRotation, updatePhotoCaption, deletePhotoAssociation } from '../services/photoService';
+import { updatePhotoRotation, updatePhotoCaption, deletePhotoAssociation, updatePhotoMetadata } from '../services/photoService';
 
 interface PhotoInspectionModalProps {
   photo: Photo;
@@ -21,6 +21,8 @@ export const PhotoInspectionModal: React.FC<PhotoInspectionModalProps> = ({
   onUpdateReport
 }) => {
   const [localPhoto, setLocalPhoto] = useState<Photo>(photo);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleRotate = async () => {
     const newRotation = ((localPhoto.rotation || 0) + 90) % 360;
@@ -35,27 +37,49 @@ export const PhotoInspectionModal: React.FC<PhotoInspectionModalProps> = ({
   };
 
   const handleDownload = async () => {
-    const response = await fetch(localPhoto.url);
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Photo_${localPhoto.date || 'Site'}_${localPhoto.id.split('-')[0]}.jpg`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(url);
+    try {
+      const response = await fetch(localPhoto.url, { mode: 'cors' });
+      if (!response.ok) throw new Error("CORS or fetch blocked");
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Photo_${localPhoto.date || 'Site'}_${localPhoto.id.substring(0, 8)}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.warn("Direct blob download failed due to CORS. Falling back to simple link.", err);
+      // Fallback: Normal download behavior (open in new tab for the user to save)
+      const link = document.createElement('a');
+      link.href = localPhoto.url;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.download = `Photo_${localPhoto.id.substring(0, 8)}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   };
 
   const handleDeletePhoto = async () => {
     if (!confirm("PERMANENTLY DELETE this photo from the database and storage? This cannot be undone.")) return;
     
-    // Use the photoService to delete it completely
-    const { deletePhotoCompletely } = await import('../services/photoService');
-    await deletePhotoCompletely(photo.id, photo.url);
-    
-    // Update local state by closing the modal
-    onClose();
+    setIsDeleting(true);
+    try {
+      // Use the photoService to delete it completely
+      const { deletePhotoCompletely } = await import('../services/photoService');
+      await deletePhotoCompletely(photo.id, photo.url);
+      
+      // Update local state by closing the modal
+      onClose();
+    } catch (err) {
+      console.error("Critical error during photo deletion:", err);
+      alert("Failed to delete photo. It might already be removed or you may have insufficient permissions.");
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   // Robust association lookup: Search all reports for this photo ID
@@ -89,6 +113,30 @@ export const PhotoInspectionModal: React.FC<PhotoInspectionModalProps> = ({
           }
       }
   });
+
+  const handleSyncWithFirstAssociation = async () => {
+    const firstAssociation = associations[0];
+    if (!firstAssociation) return;
+    
+    setIsSyncing(true);
+    const updates: Partial<Photo> = {
+      caption: firstAssociation.item.activityDescription,
+      location: firstAssociation.item.location,
+      component: firstAssociation.item.component
+    };
+    
+    try {
+      await updatePhotoMetadata(photo.id, updates);
+      const updated = { ...localPhoto, ...updates };
+      setLocalPhoto(updated);
+      if (onUpdatePhoto) onUpdatePhoto(updated);
+    } catch (err) {
+      console.error("Failed to sync metadata:", err);
+      alert("Failed to sync metadata. Please try again.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleRemoveAssociation = async (masterRecordId: string, reportIdContext?: string) => {
     if (!confirm("Remove this photo association? The photo will NOT be deleted from storage.")) return;
@@ -140,18 +188,31 @@ export const PhotoInspectionModal: React.FC<PhotoInspectionModalProps> = ({
                </button>
                <button 
                  onClick={handleDeletePhoto}
-                 className="w-12 h-12 bg-red-500/20 hover:bg-red-500/80 backdrop-blur-md rounded-full flex items-center justify-center text-white transition-all border border-red-500/30 shadow-xl"
+                 disabled={isDeleting}
+                 className={`w-12 h-12 rounded-full flex items-center justify-center text-white transition-all backdrop-blur-md border shadow-xl ${isDeleting ? 'bg-slate-500/50 border-white/10' : 'bg-red-500/20 hover:bg-red-500/80 border-red-500/30'}`}
                  title="Delete Photo Permanently"
                >
-                 <i className="fas fa-trash-alt text-lg"></i>
+                 <i className={`fas ${isDeleting ? 'fa-spinner fa-spin' : 'fa-trash-alt'} text-lg`}></i>
                </button>
              </div>
           </div>
           
           <div className="p-6 bg-white/5 backdrop-blur-xl border-t border-white/10">
-             <div className="flex items-center gap-3 mb-2">
-                <span className="px-2 py-0.5 bg-indigo-500 text-white text-[10px] font-black rounded uppercase">Source</span>
-                <span className="text-white/60 text-xs font-mono">{localPhoto.date || 'Unknown Date'}</span>
+             <div className="flex items-center justify-between gap-3 mb-2">
+                <div className="flex items-center gap-3">
+                  <span className="px-2 py-0.5 bg-indigo-500 text-white text-[10px] font-black rounded uppercase">Source</span>
+                  <span className="text-white/60 text-xs font-mono">{localPhoto.date || 'Unknown Date'}</span>
+                </div>
+                {associations.length > 0 && (
+                  <button 
+                    onClick={handleSyncWithFirstAssociation}
+                    disabled={isSyncing}
+                    className="text-[10px] font-black uppercase text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  >
+                    <i className={`fas ${isSyncing ? 'fa-spinner fa-spin' : 'fa-magic'}`}></i>
+                    {isSyncing ? 'Syncing...' : 'Auto-fill from Master'}
+                  </button>
+                )}
              </div>
              <input 
                 type="text"

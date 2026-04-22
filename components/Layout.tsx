@@ -11,9 +11,22 @@ interface LayoutProps {
   user: any;
   onLogout: () => void;
   onSaveCheckpoint: () => void;
+  quotaExceeded?: boolean;
+  pendingSyncCount?: number;
+  onSyncPending?: () => void;
 }
 
-export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, user, onLogout, onSaveCheckpoint }) => {
+export const Layout: React.FC<LayoutProps> = ({ 
+  children, 
+  activeTab, 
+  onTabChange, 
+  user, 
+  onLogout, 
+  onSaveCheckpoint,
+  quotaExceeded,
+  pendingSyncCount = 0,
+  onSyncPending
+}) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
@@ -32,6 +45,30 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-100 text-slate-800 font-sans relative">
+      {/* EMERGENCY QUOTA BANNER */}
+      {quotaExceeded && (
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-600 text-white px-4 py-2 flex items-center justify-between shadow-lg animate-pulse">
+           <div className="flex items-center gap-2">
+              <i className="fas fa-exclamation-triangle"></i>
+              <span className="text-xs md:text-sm font-semibold uppercase tracking-wider">
+                Daily Write Limit Reached (Emergency Mode)
+              </span>
+           </div>
+           <p className="hidden lg:block text-xs opacity-90 italic">
+              Your site data is safely saved in this browser and will sync automatically once limits reset at midnight.
+           </p>
+           {pendingSyncCount > 0 && (
+             <button 
+               onClick={onSyncPending}
+               className="bg-white text-amber-600 px-3 py-1 rounded-full text-xs font-bold hover:bg-slate-100 transition-colors flex items-center gap-2 shadow-sm"
+             >
+                <i className="fas fa-sync"></i>
+                SYNC PENDING ({pendingSyncCount})
+             </button>
+           )}
+        </div>
+      )}
+
       <div className="md:hidden bg-slate-900 text-white p-4 flex flex-col shadow-md sticky top-0 z-50">
         <div className="flex justify-between items-center mb-4">
           <h1 className="font-bold text-xl flex items-center tracking-widest uppercase">

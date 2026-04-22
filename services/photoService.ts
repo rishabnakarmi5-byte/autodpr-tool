@@ -1,9 +1,8 @@
-import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
-import { getFirestore, collection, doc, setDoc, updateDoc, arrayUnion, getDoc, getDocs, query, where, deleteDoc } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { collection, doc, setDoc, updateDoc, arrayUnion, getDoc, getDocs, query, where, deleteDoc } from "firebase/firestore";
 import { Photo, DPRItem } from "../types";
+import { db, storage } from "./firebaseService";
 
-const storage = getStorage();
-const db = getFirestore();
 const PHOTO_COLLECTION = "photos";
 
 // Simple compression/resize utility (using canvas)
@@ -74,6 +73,11 @@ export const deletePhotoAssociation = async (photoId: string, masterRecordId: st
     } else {
         await updateDoc(photoRef, { associatedMasterRecordIds: newAssociatedIds });
     }
+};
+
+export const updatePhotoMetadata = async (photoId: string, updates: Partial<Photo>) => {
+    const photoRef = doc(db, PHOTO_COLLECTION, photoId);
+    await updateDoc(photoRef, updates);
 };
 
 export const updatePhotoRotation = async (photoId: string, rotation: number) => {

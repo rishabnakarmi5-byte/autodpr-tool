@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, onSnapshot, orderBy } from 'firebase/firestore';
-import { getFirestore } from 'firebase/firestore';
 import { Photo, DailyReport, DPRItem } from '../types';
 import { PhotoInspectionModal } from './PhotoInspectionModal';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-
-const db = getFirestore();
+import { db } from '../services/firebaseService';
 
 interface PhotoGalleryViewProps {
   reports: DailyReport[];
@@ -41,16 +39,60 @@ export const PhotoGalleryView: React.FC<PhotoGalleryViewProps> = ({ reports, onI
     return () => unsubscribe();
   }, []);
 
-  // Extract unique values for filters
-  const locations = Array.from(new Set(photos.map(p => p.location))).filter(Boolean).sort();
-  const components = Array.from(new Set(photos.map(p => p.component))).filter(Boolean).sort();
+  const findMasterRecord = (id: string): DPRItem | undefined => {
+    for (const report of reports) {
+        const item = report.entries.find(e => e.id === id);
+        if (item) return item;
+    }
+    return undefined;
+  };
+
+  const getPhotoProperties = (photo: Photo) => {
+    // Robust association lookup: Search all reports for this photo ID
+    const associations = reports.reduce((acc, report) => {
+      const items = report.entries.filter(e => e.photoIds?.includes(photo.id));
+      items.forEach(item => {
+         if (!acc.find(a => a.id === item.id)) {
+            acc.push({ id: item.id, item, date: report.date });
+         }
+      });
+      return acc;
+    }, [] as {id: string, item: DPRItem, date: string}[]);
+
+    const firstItem = associations[0]?.item;
+    
+    // 1. Check direct photo fields (prefer if they aren't default/placeholder)
+    const isDefaultLocation = !photo.location || photo.location === 'N/A' || photo.location === 'Unknown Location';
+    const isDefaultComponent = !photo.component || photo.component === 'N/A' || photo.component === 'Unclassified';
+    const isDefaultCaption = !photo.caption || photo.caption === 'Untitled Site Photo';
+
+    const location = !isDefaultLocation 
+      ? photo.location 
+      : (photo.metadataSnapshot?.location || firstItem?.location || 'Unknown Location');
+      
+    const component = !isDefaultComponent 
+      ? photo.component 
+      : (photo.metadataSnapshot?.component || firstItem?.component || 'Unclassified');
+      
+    const caption = !isDefaultCaption 
+      ? photo.caption 
+      : (photo.metadataSnapshot?.activityDescription || firstItem?.activityDescription || 'Untitled Site Photo');
+
+    return { location, component, caption, associationsCount: associations.length };
+  };
+
+  // Augment photos with derived properties
+  const photoWithProps = photos.map(p => ({ ...p, ...getPhotoProperties(p) }));
+  
+  // Extract unique values for filters using augmented properties
+  const locations = Array.from(new Set(photoWithProps.map(p => p.location))).filter(Boolean).sort();
+  const components = Array.from(new Set(photoWithProps.map(p => p.component))).filter(Boolean).sort();
   const users = Array.from(new Set(photos.map(p => p.metadataSnapshot?.creationDetails?.userName || p.uploaderId))).filter(Boolean).sort();
   const dates = Array.from(new Set(photos.map(p => p.date))).filter(Boolean).sort((a: any, b: any) => String(b).localeCompare(String(a)));
 
-  const filteredPhotos = photos.filter(p => {
+  const filteredPhotos = photoWithProps.filter(p => {
     const matchesSearch = !searchTerm || 
       (p.caption?.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (p.metadataSnapshot?.activityDescription?.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (p.location?.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (p.component?.toLowerCase().includes(searchTerm.toLowerCase()));
     
@@ -70,18 +112,27 @@ export const PhotoGalleryView: React.FC<PhotoGalleryViewProps> = ({ reports, onI
     const folder = zip.folder(`DPR_Gallery_Export_${new Date().toISOString().split('T')[0]}`);
 
     try {
+      let failCount = 0;
       for (let i = 0; i < filteredPhotos.length; i++) {
         const photo = filteredPhotos[i];
         try {
-          const res = await fetch(photo.url, { mode: 'cors' });
+          // Use cache-buster to potentially bypass some simple CORS/Cache issues
+          const res = await fetch(`${photo.url}${photo.url.includes('?') ? '&' : '?'}t=${Date.now()}`, { mode: 'cors' });
           if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
           const blob = await res.blob();
           folder?.file(`Photo_${photo.location}_${photo.date}_${photo.id.substring(0, 8)}.jpg`, blob);
         } catch (err) {
           console.error(`Failed to download photo ${photo.id}:`, err);
+          failCount++;
         }
         setDownloadProgress(Math.round(((i + 1) / filteredPhotos.length) * 100));
       }
+      
+      if (failCount === filteredPhotos.length) {
+        alert("CRITICAL ERROR: Could not download any photos.\n\nThis is a SECURITY SETTING error. You must authorize your app domain in Firebase Storage CORS settings.\n\nInstructions:\n1. Open Google Cloud Shell (in Firebase/GCP Console)\n2. Run: gsutil cors set cors-json-file gs://your-bucket-name\n\nContact admin for more details.");
+        return;
+      }
+
       const zipContent = await zip.generateAsync({ type: 'blob' });
       saveAs(zipContent, `DPR_Photos_${filteredPhotos.length}_items.zip`);
     } catch (error) {
@@ -92,18 +143,6 @@ export const PhotoGalleryView: React.FC<PhotoGalleryViewProps> = ({ reports, onI
       setDownloadProgress(0);
     }
   };
-
-  const findMasterRecord = (id: string): DPRItem | undefined => {
-    for (const report of reports) {
-        const item = report.entries.find(e => e.id === id);
-        if (item) return item;
-    }
-    return undefined;
-  };
-
-  const associatedItems = selectedPhoto 
-      ? selectedPhoto.associatedMasterRecordIds.map(id => ({ id, item: findMasterRecord(id) }))
-      : [];
 
   if (loading) return <div className="p-8 text-center text-slate-500">Loading gallery...</div>;
 
@@ -147,7 +186,6 @@ export const PhotoGalleryView: React.FC<PhotoGalleryViewProps> = ({ reports, onI
       {showFilters && (
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-              {/* Keywords Search */}
               <div className="lg:col-span-1">
                 <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 tracking-widest leading-none">Keywords</label>
                 <div className="relative">
@@ -162,7 +200,6 @@ export const PhotoGalleryView: React.FC<PhotoGalleryViewProps> = ({ reports, onI
                 </div>
               </div>
 
-              {/* Location Filter */}
               <div>
                 <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 tracking-widest leading-none">Location</label>
                 <select 
@@ -175,7 +212,6 @@ export const PhotoGalleryView: React.FC<PhotoGalleryViewProps> = ({ reports, onI
                 </select>
               </div>
 
-              {/* Component Filter */}
               <div>
                 <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 tracking-widest leading-none">Component</label>
                 <select 
@@ -188,7 +224,6 @@ export const PhotoGalleryView: React.FC<PhotoGalleryViewProps> = ({ reports, onI
                 </select>
               </div>
 
-              {/* User Filter */}
               <div>
                 <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 tracking-widest leading-none">Uploaded By</label>
                 <select 
@@ -201,7 +236,6 @@ export const PhotoGalleryView: React.FC<PhotoGalleryViewProps> = ({ reports, onI
                 </select>
               </div>
 
-              {/* Date Filter */}
               <div>
                 <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 tracking-widest leading-none">Activity Date</label>
                 <select 
@@ -273,7 +307,7 @@ export const PhotoGalleryView: React.FC<PhotoGalleryViewProps> = ({ reports, onI
               </div>
               <div className="px-1">
                 <p className="text-[10px] font-black uppercase text-slate-400 truncate tracking-tight">{photo.component}</p>
-                <p className="text-xs font-bold text-slate-700 truncate leading-tight">{photo.caption || photo.metadataSnapshot?.activityDescription || 'Untitled Site Photo'}</p>
+                <p className="text-xs font-bold text-slate-700 truncate leading-tight">{photo.caption}</p>
               </div>
             </div>
           ))}
