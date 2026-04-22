@@ -193,6 +193,10 @@ export const autofillItemData = async (
     Output ONLY JSON.
   `;
 
+  const contextMatch = description.match(/--- CONTEXT: (.*?) > (.*?) ---/);
+  const contextLoc = contextMatch ? contextMatch[1].trim() : null;
+  const contextComp = contextMatch ? contextMatch[2].trim() : null;
+
   try {
     const response = await generateContentWithRetry({
       contents: prompt,
@@ -218,6 +222,11 @@ export const autofillItemData = async (
 
     if (response.text) {
       const result = JSON.parse(response.text);
+      
+      // Override with context if present
+      const finalLoc = toTitleCase(cleanStr(contextLoc || result.location));
+      const finalComp = toTitleCase(cleanStr(contextComp || result.component));
+      
       let desc = cleanStr(result.activityDescription);
       let qty = Math.abs(result.quantity || 0);
       
@@ -249,11 +258,10 @@ export const autofillItemData = async (
           : identifiedType;
 
       let finalStructuralElement = correctStructuralTypos(toTitleCase(cleanStr(result.structuralElement)));
-      const finalComponent = toTitleCase(cleanStr(result.component));
 
       // REPETITION PREVENTION: If structuralElement is identical to or contained within component, clear it
       const sLower = finalStructuralElement.toLowerCase();
-      const cLower = finalComponent.toLowerCase();
+      const cLower = finalComp.toLowerCase();
       if (sLower === cLower || (sLower.length > 5 && cLower.includes(sLower))) {
           finalStructuralElement = '';
       }
@@ -278,8 +286,8 @@ export const autofillItemData = async (
       }
 
       return {
-        location: toTitleCase(cleanStr(result.location)),
-        component: finalComponent,
+        location: finalLoc,
+        component: finalComp,
         structuralElement: finalStructuralElement,
         chainage: cleanStr(result.chainage),
         quantity: qty,
@@ -307,15 +315,19 @@ export const parseConstructionData = async (
     .map(([loc, comps]) => `- ${loc} > [${comps.join(', ')}]`)
     .join('\n    ');
 
+  // Pre-process context to know what was explicitly selected
+  const forcedLoc = (contextLocations && contextLocations.length === 1 && contextLocations[0] !== 'General') ? contextLocations[0] : null;
+  const forcedComp = (contextComponents && contextComponents.length === 1) ? contextComponents[0] : null;
+
   const prompt = `
     You are a high-precision construction data engine. Convert site notes into structured JSON records.
 
     STRICT ATOMIC RULES:
     0. CONTEXT HEADERS (CRITICAL):
        - Site notes often contain headers like "--- CONTEXT: Location > Component ---".
-       - If a context header is present, the AI is FORBIDDEN from choosing any location or component not explicitly listed in that header.
-       - You MUST map activities strictly to the components defined in the context header, even if the component exists in the general hierarchy and you are tempted to pick a generic one like "Other".
-       - Example: "--- CONTEXT: Powerhouse > River Protection Works ---" means location="Powerhouse" and component="River Protection Works".
+       - If an activity is listed under a context header, you MUST assign it to that EXACT location and component.
+       - You are FORBIDDEN from changing the location or component for items under such a header.
+       - This is a hard constraint. If the header says "Fish Ladder", the component MUST be "Fish Ladder".
 
     0.1. LANGUAGE & SPELLING (CRITICAL):
        - Site notes may be a mix of English and Romanized Nepali (e.g., "vako tiyo", "vayou sir", "hijo rati").
@@ -384,6 +396,7 @@ export const parseConstructionData = async (
        - Example: "Gantry concrete 141m3, next plan gantry alignment" -> One record for Gantry concrete with 'plannedNextActivity' set to "Gantry alignment".
 
     7. DESCRIPTION CLEANUP:
+       - If you see text like "(1 photo attached)", "1 photo attached", or similar, REMOVE IT. It is meta-commentary and not part of the work activity.
        - If you extract a structure (e.g. "Spiral casing unit 1") into 'structuralElement', REMOVE it from 'activityDescription' to avoid duplication, UNLESS it makes the description unclear.
        - If the 'structuralElement' you extract is identical to the 'component' name, leave 'structuralElement' BLANK (empty string) to avoid duplication in the final report.
        - Keep the description focused on the action (e.g., "Rebar works", "Concrete casting").
@@ -401,51 +414,115 @@ export const parseConstructionData = async (
     """
   `;
 
-  try {
+  // NEW LOGIC: SPLIT INTO CHUNKS BY CONTEXT HEADERS FOR ABSOLUTE PRECISION
+  const chunkMatches = Array.from(rawText.matchAll(/--- CONTEXT: (.*?) > (.*?) ---/g));
+  const finalProcessedItems: any[] = [];
+  const allWarnings: string[] = [];
+
+  // If no headers found at all, treat as one chunk
+  if (chunkMatches.length === 0) {
     const response = await generateContentWithRetry({
-      contents: prompt,
+      contents: prompt + `\n\nSITE NOTES:\n${rawText}`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-             items: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    extractedDate: { type: Type.STRING },
-                    location: { type: Type.STRING },
-                    component: { type: Type.STRING },
-                    structuralElement: { type: Type.STRING },
-                    chainage: { type: Type.STRING },
-                    activityDescription: { type: Type.STRING },
-                    plannedNextActivity: { type: Type.STRING },
-                    quantity: { type: Type.NUMBER },
-                    unit: { type: Type.STRING },
-                    itemType: { type: Type.STRING }
-                  },
-                  required: ["location", "component", "activityDescription", "quantity", "unit"],
+            items: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  location: { type: Type.STRING },
+                  component: { type: Type.STRING },
+                  structuralElement: { type: Type.STRING },
+                  chainage: { type: Type.STRING },
+                  quantity: { type: Type.NUMBER },
+                  unit: { type: Type.STRING },
+                  itemType: { type: Type.STRING },
+                  activityDescription: { type: Type.STRING },
+                  plannedNextActivity: { type: Type.STRING }
                 },
-             },
-             warnings: { type: Type.ARRAY, items: { type: Type.STRING } }
+                required: ["quantity", "unit", "itemType", "activityDescription"]
+              }
+            }
           }
-        },
-      },
+        }
+      }
     });
-
+    
     if (response.text) {
       const result = JSON.parse(response.text);
-      const unitMap: Record<string, string> = { 'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'nos': 'nos', 'rm': 'rm', 't': 'Ton', 'kg': 'kg', 'kgs': 'kg' };
+      if (result.items) finalProcessedItems.push(...result.items);
+    }
+  } else {
+    // Process each chunk separately or in a more structured batch
+    // For reliability when user intent is explicitly selected, we process each chunk
+    for (let i = 0; i < chunkMatches.length; i++) {
+        const match = chunkMatches[i];
+        const nextMatch = chunkMatches[i + 1];
+        const locContext = match[1].trim();
+        const compContext = match[2].trim();
+        
+        let chunkText = '';
+        if (nextMatch) {
+            chunkText = rawText.substring(match.index! + match[0].length, nextMatch.index!).trim();
+        } else {
+            chunkText = rawText.substring(match.index! + match[0].length).trim();
+        }
 
-      const processedItems = result.items.map((item: any) => {
+        if (!chunkText) continue;
+
+        const response = await generateContentWithRetry({
+            contents: `${prompt}\n\nFORCE CONTEXT: Location="${locContext}", Component="${compContext}"\n\nSITE NOTES:\n${chunkText}`,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        items: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    structuralElement: { type: Type.STRING },
+                                    chainage: { type: Type.STRING },
+                                    quantity: { type: Type.NUMBER },
+                                    unit: { type: Type.STRING },
+                                    itemType: { type: Type.STRING },
+                                    activityDescription: { type: Type.STRING },
+                                    plannedNextActivity: { type: Type.STRING }
+                                },
+                                required: ["quantity", "unit", "itemType", "activityDescription"]
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        if (response.text) {
+            const result = JSON.parse(response.text);
+            if (result.items) {
+                result.items.forEach((item: any) => {
+                    item.location = locContext;
+                    item.component = compContext;
+                    finalProcessedItems.push(item);
+                });
+            }
+        }
+    }
+  }
+
+  const finalItems = finalProcessedItems.map((item: any) => {
+          let qty = Math.abs(item.quantity || 0);
+          const unitMap: Record<string, string> = { 'sqm': 'm2', 'm2': 'm2', 'cum': 'm3', 'm3': 'm3', 'mt': 'Ton', 'ton': 'Ton', 'nos': 'nos', 'rm': 'rm', 't': 'Ton', 'kg': 'kg', 'kgs': 'kg' };
           let rawUnit = cleanStr(item.unit).toLowerCase();
           let finalUnit = unitMap[rawUnit] || cleanStr(item.unit) || "m3";
-          let qty = Math.abs(item.quantity || 0);
-
+          
           // Rebar kg to Ton conversion
           const isRebar = (item.itemType && cleanStr(item.itemType).toLowerCase().includes('rebar')) || cleanStr(item.activityDescription).toLowerCase().includes('rebar');
-          if (isRebar && (finalUnit === 'kg' || finalUnit === 'kgs')) {
+          if (isRebar && (finalUnit.toLowerCase() === 'kg' || finalUnit.toLowerCase() === 'kgs')) {
               qty = qty / 1000;
               finalUnit = 'Ton';
           }
@@ -453,7 +530,7 @@ export const parseConstructionData = async (
           let rawLoc = cleanStr(item.location);
           let rawComp = cleanStr(item.component);
 
-          // ENHANCED GLOBAL SEARCH MAPPING
+          // USER INTENT PROTECTION: If user explicitly selected ONE location/component in UI, override AI
           let loc = rawLoc;
           let comp = rawComp;
 
@@ -463,30 +540,13 @@ export const parseConstructionData = async (
               rawLoc.toLowerCase().includes(l.toLowerCase())
           );
 
-          // Attempt 2: If no location match, search all components globally
-          if (!foundLocKey) {
-              for (const [lKey, cList] of Object.entries(hierarchyToUse)) {
-                  const hasComp = cList.some(c => {
-                      const cL = c.toLowerCase();
-                      const rCL = rawComp.toLowerCase();
-                      const rLL = rawLoc.toLowerCase();
-                      return cL === rCL || cL === rLL || rCL.includes(cL) || rLL.includes(cL) || cL.includes(rCL) || cL.includes(rLL);
-                  });
-                  if (hasComp) {
-                      foundLocKey = lKey;
-                      break;
-                  }
-              }
-          }
-
           if (foundLocKey) {
               loc = foundLocKey;
               // Narrow down component within matched location
               const foundCompKey = hierarchyToUse[foundLocKey].find(c => {
                   const cLower = c.toLowerCase();
                   const rCLower = rawComp.toLowerCase();
-                  const rLLower = rawLoc.toLowerCase();
-                  return cLower === rCLower || cLower === rLLower || rCLower.includes(cLower) || rLLower.includes(cLower) || cLower.includes(rCLower) || cLower.includes(rLLower);
+                  return cLower === rCLower || rCLower.includes(cLower) || cLower.includes(rCLower);
               });
               if (foundCompKey) comp = foundCompKey;
           }
@@ -504,7 +564,6 @@ export const parseConstructionData = async (
                   desc = `${cleanDesc} ${qtyString}`;
               }
           } else {
-              // Strip out any hallucinated quantities if qty is 0
               desc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit|kg|kgs)[\)]?/gi, '').replace(/\(\s*\)/g, '').replace(/\s*=\s*/g, '').trim();
           }
 
@@ -634,7 +693,7 @@ export const parseConstructionData = async (
 
       // Post-processing: Merge "next plan" items into preceding related items to avoid duplicate records
       const mergedItems: any[] = [];
-      for (const item of processedItems) {
+      for (const item of finalItems) {
           const descLower = item.activityDescription.toLowerCase();
           const isNextPlanOnly = (item.quantity === 0 && (descLower.includes('next plan') || descLower.includes('planned work')));
           
@@ -665,11 +724,5 @@ export const parseConstructionData = async (
           mergedItems.push(item);
       }
 
-      return { items: mergedItems, warnings: result.warnings || [] };
-    }
-    return { items: [], warnings: [] };
-  } catch (error) {
-    console.error("AI Parsing Error:", error);
-    throw error;
-  }
+  return { items: mergedItems, warnings: allWarnings };
 };
