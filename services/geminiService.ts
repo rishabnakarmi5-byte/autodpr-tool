@@ -507,6 +507,7 @@ export const parseConstructionData = async (
                 result.items.forEach((item: any) => {
                     item.location = locContext;
                     item.component = compContext;
+                    item.isForcedContext = true; // Mark as explicitly forced context
                     finalProcessedItems.push(item);
                 });
             }
@@ -530,28 +531,52 @@ export const parseConstructionData = async (
           let rawLoc = cleanStr(item.location);
           let rawComp = cleanStr(item.component);
 
-          // USER INTENT PROTECTION: If user explicitly selected ONE location/component in UI, override AI
+          // STRICT OVERRIDE PROTECTION:
+          // If the location and component already exactly match a valid combination in the hierarchy,
+          // DO NOT fuzzy match. This protects chunk-forced context.
           let loc = rawLoc;
           let comp = rawComp;
 
-          // Attempt 1: Direct/Fuzzy Match on Location Key
-          let foundLocKey = Object.keys(hierarchyToUse).find(l => 
-              l.toLowerCase() === rawLoc.toLowerCase() || 
-              rawLoc.toLowerCase().includes(l.toLowerCase())
-          );
+          let exactMatchFound = false;
+          // Look for case-insensitive exact matches to preserve hierarchy casing
+          // OR if it's explicitly forced context, trust it
+          if (item.isForcedContext) {
+              exactMatchFound = true;
+          } else {
+              const matchingLocKey = Object.keys(hierarchyToUse).find(l => l.toLowerCase() === rawLoc.toLowerCase());
+              if (matchingLocKey) {
+                  const matchingCompKey = hierarchyToUse[matchingLocKey].find(c => c.toLowerCase() === rawComp.toLowerCase());
+                  if (matchingCompKey) {
+                      loc = matchingLocKey;
+                      comp = matchingCompKey;
+                      exactMatchFound = true;
+                  }
+              }
+          }
 
-          if (foundLocKey) {
-              loc = foundLocKey;
-              // Narrow down component within matched location
-              const foundCompKey = hierarchyToUse[foundLocKey].find(c => {
-                  const cLower = c.toLowerCase();
-                  const rCLower = rawComp.toLowerCase();
-                  return cLower === rCLower || rCLower.includes(cLower) || cLower.includes(rCLower);
-              });
-              if (foundCompKey) comp = foundCompKey;
+          if (!exactMatchFound) {
+              // Attempt 1: Direct/Fuzzy Match on Location Key
+              let foundLocKey = Object.keys(hierarchyToUse).find(l => 
+                  l.toLowerCase() === rawLoc.toLowerCase() || 
+                  rawLoc.toLowerCase().includes(l.toLowerCase())
+              );
+
+              if (foundLocKey) {
+                  loc = foundLocKey;
+                  // Narrow down component within matched location
+                  const foundCompKey = hierarchyToUse[foundLocKey].find(c => {
+                      const cLower = c.toLowerCase();
+                      const rCLower = rawComp.toLowerCase();
+                      // Protect against empty strings or tiny strings matching everything
+                      if (cLower.length < 3) return cLower === rCLower;
+                      return cLower === rCLower || rCLower.includes(cLower) || cLower.includes(rCLower);
+                  });
+                  if (foundCompKey) comp = foundCompKey;
+              }
           }
 
           let structuralElement = correctStructuralTypos(toTitleCase(cleanStr(item.structuralElement)));
+
           let chainage = cleanStr(item.chainage);
 
           // Force activityDescription format: "Action (Quantity Unit)"
