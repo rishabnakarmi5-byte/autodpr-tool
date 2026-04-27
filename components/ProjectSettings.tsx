@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { ProjectSettings, DailyReport, QuantityEntry, ItemTypeDefinition, SystemCheckpoint, TrainingExample, SubContractor } from '../types';
 import { LOCATION_HIERARCHY, ITEM_PATTERNS } from '../utils/constants';
-import { createSystemCheckpoint, getCheckpoints, restoreSystemCheckpoint, saveTrainingExample, deleteTrainingExample, subscribeToTrainingExamples, exportAllData, subscribeToSubContractors, saveSubContractor, deleteSubContractor, repairHistoricalDates } from '../services/firebaseService';
+import { createSystemCheckpoint, getCheckpoints, restoreSystemCheckpoint, saveTrainingExample, deleteTrainingExample, subscribeToTrainingExamples, exportAllData, importAllData, subscribeToSubContractors, saveSubContractor, deleteSubContractor, repairHistoricalDates } from '../services/firebaseService';
 
 interface ProjectSettingsProps {
   currentSettings: ProjectSettings | null;
@@ -29,6 +29,7 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   const [snapshots, setSnapshots] = useState<SystemCheckpoint[]>([]);
   const [loadingSnapshots, setLoadingSnapshots] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [isRepairing, setIsRepairing] = useState(false);
 
   // Training State
@@ -208,6 +209,41 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
     } finally {
         setIsExporting(false);
     }
+  };
+
+  const handleImportDatabase = async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      if (!window.confirm(`Are you sure you want to import data from ${file.name}? This will overwrite existing records with the same IDs.`)) {
+          event.target.value = ''; // Reset
+          return;
+      }
+
+      setIsImporting(true);
+      try {
+          const reader = new FileReader();
+          reader.onload = async (e) => {
+              try {
+                  const content = e.target?.result as string;
+                  const jsonData = JSON.parse(content);
+                  await importAllData(jsonData);
+                  alert("Data imported successfully. Please refresh the page to see the latest data.");
+              } catch (parseError: any) {
+                  console.error(parseError);
+                  alert("Import failed during parsing: " + parseError.message);
+              } finally {
+                  setIsImporting(false);
+              }
+          };
+          reader.readAsText(file);
+      } catch (err: any) {
+          console.error(err);
+          alert("Import failed: " + err.message);
+          setIsImporting(false);
+      }
+      
+      event.target.value = ''; // Reset input
   };
 
   const handleRepairDates = async () => {
@@ -665,6 +701,20 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
                             {isExporting ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-download"></i>}
                             Export Data
                         </button>
+                    </div>
+                </div>
+
+                <div className="border-t border-slate-100 mt-8 pt-6">
+                    <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100 flex justify-between items-center">
+                        <div>
+                             <h3 className="text-lg font-bold text-emerald-900">Full Database Import</h3>
+                             <p className="text-sm text-emerald-700 mt-1">Restore a complete JSON dump to Firebase collections. Automatically skips unchanged IDs.</p>
+                        </div>
+                        <label className={`cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all ${isImporting ? 'opacity-50 pointer-events-none' : ''}`}>
+                            {isImporting ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-upload"></i>}
+                            <span>Import Data</span>
+                            <input type="file" accept=".json" className="hidden" onChange={handleImportDatabase} disabled={isImporting} />
+                        </label>
                     </div>
                 </div>
 

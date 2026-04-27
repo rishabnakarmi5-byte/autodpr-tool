@@ -906,3 +906,45 @@ export const exportAllData = async () => {
 
     return exportObject;
 };
+
+export const importAllData = async (jsonData: any) => {
+    if (!db) throw new Error("Database not connected");
+    if (!jsonData || !jsonData.data) throw new Error("Invalid import format. 'data' field is missing.");
+    
+    // We import directly into each collection key provided in the JSON
+    // e.g., 'daily_reports', 'logs', etc.
+    const collectionsData = jsonData.data;
+    
+    for (const [colName, docs] of Object.entries(collectionsData)) {
+        if (!Array.isArray(docs)) continue;
+        
+        // Use batching since there might be many documents
+        const { writeBatch, doc } = _firestore as any;
+        let batch = writeBatch(db);
+        let count = 0;
+        
+        for (const record of docs) {
+            // Find an appropriate Document ID
+            const docId = record._id || record.id || crypto.randomUUID();
+            
+            // Clean up _id from data if it exists so we don't save duplicates
+            const dataToSave = { ...record };
+            if (dataToSave._id) delete dataToSave._id;
+            
+            const docRef = doc(db, colName, docId);
+            batch.set(docRef, dataToSave, { merge: true });
+            count++;
+            
+            // Firestore batches support up to 500 writes
+            if (count % 400 === 0) {
+                await batch.commit();
+                batch = writeBatch(db);
+            }
+        }
+        
+        // Commit any remaining writes in the batch
+        if (count % 400 !== 0) {
+            await batch.commit();
+        }
+    }
+};
