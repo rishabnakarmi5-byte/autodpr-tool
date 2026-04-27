@@ -6,24 +6,28 @@ import * as _storage from "firebase/storage";
 import { DailyReport, LogEntry, DPRItem, TrashItem, BackupEntry, QuantityEntry, ProjectSettings, UserProfile, LiningEntry, SystemCheckpoint, TrainingExample, UserMood } from "../types";
 import { LOCATION_HIERARCHY, identifyItemType, parseQuantityDetails } from "../utils/constants";
 
-// Configuration Loader: Now relies solely on Environment Variables to protect keys from GitHub
+// Configuration Loader: Read from Environment Variables and trim to prevent hidden spaces
+const getEnvVar = (val: any) => typeof val === 'string' ? val.trim().replace(/^https?:\/\//, '').replace(/\/$/, '') : val;
+
+// Override to strictly use the "autodpr" web app config the user provided
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID
+  apiKey: "AIzaSyAdC43GuYzwPVHdwHwC-WRv0gNz6IoXAb4",
+  authDomain: "autodpr-469e1.firebaseapp.com",
+  projectId: "autodpr-469e1",
+  storageBucket: "autodpr-469e1.firebasestorage.app",
+  messagingSenderId: "674910651452",
+  appId: "1:674910651452:web:c02290cb6a4a336d12af39",
+  measurementId: "G-7M0MVBDRY6",
+  firestoreDatabaseId: "(default)"
 };
 
 // Diagnostic Logging (Safe)
 console.log("Firebase Initialization Diagnostic:", {
-    hasApiKey: !!firebaseConfig.apiKey,
-    keyStart: firebaseConfig.apiKey ? firebaseConfig.apiKey.substring(0, 8) + "..." : "MISSING",
-    projectId: firebaseConfig.projectId || "MISSING",
-    authDomain: firebaseConfig.authDomain || "MISSING",
-    hasDatabaseId: !!firebaseConfig.firestoreDatabaseId
+    apiKeyLength: firebaseConfig.apiKey?.length,
+    projectId: firebaseConfig.projectId,
+    authDomain: firebaseConfig.authDomain,
+    appId: firebaseConfig.appId,
+    timestamp: new Date().toISOString()
 });
 
 export const isConfigured = !!firebaseConfig.apiKey;
