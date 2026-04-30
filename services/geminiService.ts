@@ -356,6 +356,9 @@ export const parseConstructionData = async (
 
     4. DESCRIPTION FORMAT:
        - 'activityDescription' MUST be: "Action (Quantity Unit)".
+       - If the user provides extra details, notes, quantities breakdown, or calculations (e.g., "[2*1*1=1num=2m3]", or details in brackets/parentheses), YOU MUST INCLUDE THEM EXACTLY AS WRITTEN in the 'activityDescription' text before the final "(Quantity Unit)" part.
+         Example input: "gabion wall [2*1*1=1num=2m3] [ 1.5*1*1=2=3m3]"
+         Example activityDescription output: "Gabion wall [2*1*1=1num=2m3] [ 1.5*1*1=2=3m3] (5 m3)"
        - Include grades (C50, C45, C40, C35, C30, C25, C20, C15, C10) in the description. If NO grade is mentioned for concrete, use "C25 Concrete" as the action (e.g., "C25 Concrete works").
        - If NO quantity is specified, DO NOT include "(0 unit)" or any arbitrary quantity in the description. Just write the Action.
        - For items like HDPE pipes, ensure the full detail (e.g., "HDPE pipe 14 nos x 2.5m") is included in the 'activityDescription' even if the total quantity is calculated.
@@ -407,11 +410,6 @@ export const parseConstructionData = async (
 
     HIERARCHY REFERENCE:
     ${hierarchyString}
-
-    RAW INPUT:
-    """
-    ${rawText}
-    """
   `;
 
   // NEW LOGIC: SPLIT INTO CHUNKS BY CONTEXT HEADERS FOR ABSOLUTE PRECISION
@@ -585,11 +583,14 @@ export const parseConstructionData = async (
               const qtyString = `(${qty} ${finalUnit})`;
               
               if (!desc.includes(qtyString)) {
-                  const cleanDesc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit|kg|kgs)[\)]?/gi, '').replace(/\s*=\s*/g, '').trim();
+                  // Clean trailing quantity strings only, avoid destroying internal math strings
+                  const trailingRegex = new RegExp(`[\\(]?\\d+(\\.\\d+)?\\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit|kg|kgs)[\\)]?$`, 'i');
+                  const cleanDesc = desc.replace(trailingRegex, '').trim();
                   desc = `${cleanDesc} ${qtyString}`;
               }
           } else {
-              desc = desc.replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit|kg|kgs)[\)]?/gi, '').replace(/\(\s*\)/g, '').replace(/\s*=\s*/g, '').trim();
+              const trailingRegex = new RegExp(`[\\(]?\\d+(\\.\\d+)?\\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit|kg|kgs)[\\)]?$`, 'i');
+              desc = desc.replace(trailingRegex, '').trim();
           }
 
           let type = identifyItemType(desc, customItemTypes);
