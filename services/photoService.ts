@@ -142,11 +142,11 @@ export const uploadPhoto = async (file: File, uploaderId: string, masterRecord: 
         thumbnailUrl: url,
         uploadedAt: new Date().toISOString(),
         uploaderId,
-        associatedMasterRecordIds: [masterRecord.id],
+        associatedMasterRecordIds: [masterRecord.id].filter(Boolean) as string[],
         date: masterRecord.date || new Date().toISOString().split('T')[0],
         location: masterRecord.location,
         component: masterRecord.component || 'N/A',
-        caption: `${masterRecord.location} > ${masterRecord.component || 'Unclassified'}`,
+        caption: `${masterRecord.location || 'Unknown Location'} > ${masterRecord.component || 'Unclassified'}`,
         metadataSnapshot: masterRecord
     };
     

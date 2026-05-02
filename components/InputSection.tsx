@@ -54,11 +54,12 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
   const handleProcessAndAdd = async () => {
     const entriesToProcess = activeContexts.filter(ctx => {
       const val = contextTexts[`${ctx.loc}:${ctx.comp}`];
-      return val && val.trim().length > 0;
+      const photos = contextPhotos[`${ctx.loc}:${ctx.comp}`] || [];
+      return (val && val.trim().length > 0) || photos.length > 0;
     });
 
     if (entriesToProcess.length === 0) {
-        setError("Please enter activities in at least one box.");
+        setError("Please enter activities or add photos in at least one box.");
         return;
     }
     
@@ -76,7 +77,12 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
           if (files.length > 0) {
               const ids: string[] = [];
               for (const file of files) {
-                  const photo = await uploadPhoto(file, user.uid, {} as DPRItem);
+                  const pseudoItem: Partial<DPRItem> = {
+                      location: ctx.loc,
+                      component: ctx.comp,
+                      date: currentDate
+                  };
+                  const photo = await uploadPhoto(file, user.uid, pseudoItem as DPRItem);
                   ids.push(photo.id);
                   allBatchPhotoIds.push(photo.id);
               }
