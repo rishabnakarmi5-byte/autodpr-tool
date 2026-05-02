@@ -172,8 +172,8 @@ export const autofillItemData = async (
        - Example: "Rebar = 2000kg" -> quantity: 2, unit: "Ton".
        - Ignore negative signs if they are just separators (e.g., "Quantity -41m3" means 41).
        - For plum concrete: if the text mentions "batching only" or "batching quantity", multiply the given quantity by 1.6 to get the total plum concrete quantity (e.g., 8 * 1.6 = 12.8).
-    4. chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "EL. 100", "Elevation 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
-       - CRITICAL: If the text says "EL. 1241", you MUST include the "EL." prefix in the chainage field.
+    4. chainage: Extract any chainage, elevation, or level values EXACTLY as written. (e.g., "CH 0+100", "EL 100", "EL. 1241", "1243.5 to 1245 Ms level", "Elevation 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
+       - CRITICAL: If the text says "EL. 1241" or "1243.5 to 1245 Ms level", you MUST include the FULL text in the chainage field.
     5. itemType: Classify the item type (e.g., "Formwork", "Rebar", "C25 Concrete", "Excavation"). 
        - IMPORTANT: ALWAYS follow the exact concrete grade specified in the text (e.g., C10, C15, C20, C25, C30, C35, C40, C45, C50). 
        - If the text says "M" grade (e.g., M15, M25, M50), convert it to "C" grade (e.g., C15 Concrete, C25 Concrete, C50 Concrete).
@@ -389,14 +389,16 @@ export const parseConstructionData = async (
          - If you see "Inverter" or "Tunnel Inverter", convert it to "Invert".
          - If you see "Gantry" or "Gantry concreting", ensure "Gantry" is ALWAYS set as the 'structuralElement'.
          - If you see "Panel" (e.g., "Panel 3", "Panel 5&6"), ensure it is ALWAYS set as the 'structuralElement'.
-       - chainage: Extract any chainage or elevation values (e.g., "CH 0+100", "EL 100", "EL. 100", "Elevation 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
-         - CRITICAL: If the text says "EL. 1241", you MUST include the "EL." prefix in the chainage field.
+       - chainage: Extract any chainage, elevation, or level values EXACTLY as written. (e.g., "CH 0+100", "EL 100", "EL. 1241", "1243.5 to 1245 Ms level", "Elevation 100", "506.25 to 427.25", "Ch-506.5 to 502.0").
+         - CRITICAL: If the text says "EL. 1241" or "1243.5 to 1245 Ms level", you MUST include the FULL text in the chainage field.
        - plannedNextActivity: Extract any "next plan" or "planned work" information.
 
     6. NEXT PLAN HANDLING (CRITICAL):
-       - If the text contains "next plan", "planned work", or "plan for tomorrow", extract that information into the 'plannedNextActivity' field of the RELEVANT PRECEDING activity.
-       - DO NOT create a new, separate record for planned work. 
+       - If the text contains "next plan", "planned work", or "plan for tomorrow", extract that information into the 'plannedNextActivity' field.
+       - You MUST explicitly search for phrases like "next plan [some activity]" (e.g. "next plan rebar works") and put "[some activity]" into the 'plannedNextActivity' field. NEVER drop or omit this information.
+       - DO NOT create a new, separate record for planned work unless it has its own distinct quantity. 
        - Example: "Gantry concrete 141m3, next plan gantry alignment" -> One record for Gantry concrete with 'plannedNextActivity' set to "Gantry alignment".
+       - Example: "1243.5 to 1245 Ms level concerte 210m^3 next plan rebar works" -> One record with 'chainage' set to "1243.5 to 1245 Ms level", and 'plannedNextActivity' set to "Rebar works".
 
     7. DESCRIPTION CLEANUP:
        - If you see text like "(1 photo attached)", "1 photo attached", or similar, REMOVE IT. It is meta-commentary and not part of the work activity.
@@ -717,13 +719,10 @@ export const parseConstructionData = async (
           };
       });
 
-      // Post-processing: Merge "next plan" items into preceding related items to avoid duplicate records
+      // Post-processing: Merge 0-quantity items into preceding related items to avoid duplicate records
       const mergedItems: any[] = [];
       for (const item of finalItems) {
-          const descLower = item.activityDescription.toLowerCase();
-          const isNextPlanOnly = (item.quantity === 0 && (descLower.includes('next plan') || descLower.includes('planned work')));
-          
-          if (isNextPlanOnly && mergedItems.length > 0) {
+          if (item.quantity === 0 && mergedItems.length > 0) {
               // Try to find a matching preceding item (same location and component)
               // We search backwards to find the most recent related activity
               let targetIdx = -1;
@@ -736,13 +735,33 @@ export const parseConstructionData = async (
               
               if (targetIdx !== -1) {
                   const existingPlan = mergedItems[targetIdx].plannedNextActivity;
-                  const newPlan = item.activityDescription.replace(/next plan/gi, '').replace(/planned work/gi, '').trim();
-                  const fullPlan = `${item.chainage} ${item.structuralElement} ${newPlan}`.trim();
                   
-                  if (existingPlan === "Continue works" || !existingPlan) {
-                      mergedItems[targetIdx].plannedNextActivity = fullPlan || "Continue works";
-                  } else {
-                      mergedItems[targetIdx].plannedNextActivity = `${existingPlan}; ${fullPlan}`;
+                  // Clean up the description of the 0 quantity item
+                  const cleanDesc = item.activityDescription
+                      .replace(/next plan/gi, '')
+                      .replace(/planned work/gi, '')
+                      .replace(/[\(]?\d+(\.\d+)?\s*(ton|mt|t|m3|m2|cum|sqm|nos|rm|unit|kg|kgs)[\)]?/gi, '')
+                      .replace(/\s*=\s*/g, '')
+                      .replace(/\(\s*\)/g, '')
+                      .trim();
+                  
+                  const extractedPlan = cleanStr(item.plannedNextActivity).replace(/Continue works/gi, '').trim();
+
+                  let newPlanFragments = [];
+                  if (cleanDesc) newPlanFragments.push(cleanDesc);
+                  if (extractedPlan) newPlanFragments.push(extractedPlan);
+                  
+                  const newPlan = newPlanFragments.join(' - ');
+                  
+                  if (newPlan) {
+                      const prefixParts = [item.chainage, item.structuralElement].filter(Boolean).join(' ');
+                      const fullPlan = prefixParts ? `${prefixParts} ${newPlan}` : newPlan;
+                      
+                      if (existingPlan === "Continue works" || !existingPlan) {
+                          mergedItems[targetIdx].plannedNextActivity = fullPlan;
+                      } else if (!existingPlan.includes(fullPlan)) {
+                          mergedItems[targetIdx].plannedNextActivity = `${existingPlan}; ${fullPlan}`;
+                      }
                   }
                   continue; // Skip adding this item as a separate record
               }
