@@ -134,7 +134,8 @@ export const InputSection: React.FC<InputSectionProps> = ({ currentDate, onDateC
                   userName: user?.displayName || 'Unknown',
                   timestamp: new Date().toISOString()
               },
-              photoIds: specificPhotoIds
+              photoIds: specificPhotoIds,
+              sourceBackupId: logId
           };
       }) as DPRItem[];
 
