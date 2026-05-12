@@ -565,6 +565,61 @@ export const restoreTrashItem = async (item: TrashItem) => {
     await deleteDoc(doc(db, TRASH_COLLECTION, item.trashId));
 };
 
+export const renameComponentGlobally = async (location: string, oldComponent: string, newComponent: string, user: string) => {
+    if (!db) return;
+
+    // 1. Update Reports
+    const reportsSnap = await getDocs(collection(db, REPORT_COLLECTION));
+    for (const reportDoc of reportsSnap.docs) {
+        const report = reportDoc.data() as DailyReport;
+        let modified = false;
+        const newEntries = report.entries.map(e => {
+            if (e.location === location && e.component === oldComponent) {
+                modified = true;
+                return { ...e, component: newComponent };
+            }
+            return e;
+        });
+        if (modified) {
+            await updateDoc(reportDoc.ref, { entries: newEntries });
+        }
+    }
+
+    // 2. Update Quantities
+    const quantitiesQ = query(collection(db, QUANTITY_COLLECTION), where("location", "==", location), where("structure", "==", oldComponent));
+    const quantitiesSnap = await getDocs(quantitiesQ);
+    for (const qtyDoc of quantitiesSnap.docs) {
+        await updateDoc(qtyDoc.ref, { structure: newComponent });
+    }
+
+    // 3. Update Photos
+    const photosQ = query(collection(db, "photos"), where("location", "==", location), where("component", "==", oldComponent));
+    const photosSnap = await getDocs(photosQ);
+    for (const photoDoc of photosSnap.docs) {
+        const photo = photoDoc.data();
+        let newCaption = photo.caption;
+        if (newCaption === `${location} > ${oldComponent}`) {
+            newCaption = `${location} > ${newComponent}`;
+        }
+        await updateDoc(photoDoc.ref, { component: newComponent, caption: newCaption });
+    }
+
+    // 4. Update SubContractors
+    const scSnap = await getDocs(collection(db, SUB_CONTRACTOR_COLLECTION));
+    const oldAssignedName = `${location} - ${oldComponent}`;
+    const newAssignedName = `${location} - ${newComponent}`;
+    for (const scDoc of scSnap.docs) {
+        const sc = scDoc.data() as SubContractor;
+        if (sc.assignedComponents && sc.assignedComponents.includes(oldAssignedName)) {
+            const newAssigned = sc.assignedComponents.map(c => c === oldAssignedName ? newAssignedName : c);
+            await updateDoc(scDoc.ref, { assignedComponents: newAssigned });
+        }
+    }
+    
+    // Log the action
+    await logAction(user, `Renamed component "${oldComponent}" to "${newComponent}" in "${location}"`, new Date().toISOString().split('T')[0]);
+};
+
 // --- Permanent Backups ---
 
 export const savePermanentBackup = async (date: string, rawText: string, parsedItems: DPRItem[], user: string, reportIdContext: string, manualId?: string) => {

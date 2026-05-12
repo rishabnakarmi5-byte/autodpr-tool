@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { ProjectSettings, DailyReport, QuantityEntry, ItemTypeDefinition, SystemCheckpoint, TrainingExample, SubContractor } from '../types';
 import { LOCATION_HIERARCHY, ITEM_PATTERNS } from '../utils/constants';
-import { createSystemCheckpoint, getCheckpoints, restoreSystemCheckpoint, saveTrainingExample, deleteTrainingExample, subscribeToTrainingExamples, exportAllData, importAllData, subscribeToSubContractors, saveSubContractor, deleteSubContractor, repairHistoricalDates } from '../services/firebaseService';
+import { createSystemCheckpoint, getCheckpoints, restoreSystemCheckpoint, saveTrainingExample, deleteTrainingExample, subscribeToTrainingExamples, exportAllData, importAllData, subscribeToSubContractors, saveSubContractor, deleteSubContractor, repairHistoricalDates, renameComponentGlobally } from '../services/firebaseService';
 
 interface ProjectSettingsProps {
   currentSettings: ProjectSettings | null;
@@ -31,8 +31,9 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isRepairing, setIsRepairing] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
 
-  // Training State
+  // --- Training State ---
   const [trainingExamples, setTrainingExamples] = useState<TrainingExample[]>([]);
   const [newExRaw, setNewExRaw] = useState('');
   const [newExExpected, setNewExExpected] = useState('');
@@ -99,6 +100,50 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
               ...prev,
               [loc]: prev[loc].filter(c => c !== comp)
           }));
+      }
+  };
+
+  const renameComponentPrompt = async (loc: string, oldComp: string) => {
+      const newComp = window.prompt(`Rename "${oldComp}" to:`, oldComp);
+      if (!newComp || newComp.trim() === '' || newComp === oldComp) return;
+      
+      if (hierarchy[loc].includes(newComp)) {
+          alert('A component with this name already exists in this location.');
+          return;
+      }
+
+      if (!window.confirm(`Are you sure you want to rename "${oldComp}" to "${newComp}"? This will update ALL existing master records, photos, and quantities associated with this component. This action cannot be undone.`)) {
+          return;
+      }
+
+      setIsRenaming(true);
+      try {
+          // Update hierarchy locally
+          const updatedHierarchy = {
+              ...hierarchy,
+              [loc]: hierarchy[loc].map(c => c === oldComp ? newComp : c)
+          };
+          setHierarchy(updatedHierarchy);
+
+          // Trigger the global update in Firebase
+          await renameComponentGlobally(loc, oldComp, newComp, user?.displayName || 'Admin');
+          
+          alert(`Successfully renamed ${oldComp} to ${newComp}.`);
+          
+          // Trigger a parent save for the settings
+          onSave({
+             projectName: projName,
+             companyName: compName,
+             projectDescription: 'Construction Management',
+             locationHierarchy: updatedHierarchy,
+             itemTypes: itemTypes
+          });
+
+      } catch (err) {
+          console.error('Rename failed', err);
+          alert('Failed to rename component. Check console for details.');
+      } finally {
+          setIsRenaming(false);
       }
   };
 
@@ -337,7 +382,10 @@ export const ProjectSettingsView: React.FC<ProjectSettingsProps> = ({ currentSet
                                         ) : hierarchy[newCompLoc].map(comp => (
                                             <div key={comp} className="p-2.5 bg-white border border-slate-100 rounded-lg flex justify-between items-center group">
                                                 <span className="text-sm font-medium text-slate-700">{comp}</span>
-                                                <button onClick={() => deleteComponent(newCompLoc, comp)} className="text-slate-300 hover:text-red-500 transition-colors"><i className="fas fa-trash-alt text-xs"></i></button>
+                                                <div className="flex items-center gap-2">
+                                                    <button onClick={() => renameComponentPrompt(newCompLoc, comp)} disabled={isRenaming} className="text-slate-300 hover:text-indigo-500 transition-colors disabled:opacity-50"><i className="fas fa-edit text-xs"></i></button>
+                                                    <button onClick={() => deleteComponent(newCompLoc, comp)} disabled={isRenaming} className="text-slate-300 hover:text-red-500 transition-colors disabled:opacity-50"><i className="fas fa-trash-alt text-xs"></i></button>
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
